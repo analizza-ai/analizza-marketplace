@@ -1,0 +1,85 @@
+## Arquitetura
+
+Monorepo de quatro módulos. Esta seção descreve **como implementar**; o scaffold
+inicial não contém código de domínio algum.
+
+### Módulos
+
+| Módulo | Papel |
+|---|---|
+| `{project-name}-api` | Spring Boot. Controllers, adapters, configuração, ponto de entrada |
+| `{project-name}-core` | Java puro. Domínio e casos de uso. Sem Spring |
+| `{project-name}-web` | Next.js |
+| `{project-name}-mobile` | Expo / React Native |
+
+**A seta é sempre `api → core`.** O `-core` não conhece o `-api`, não depende de
+Spring e não importa nada de framework web ou de persistência. Isso é o que
+permite testar regra de negócio sem subir contexto.
+
+### O que mora onde, dentro do `-core`
+
+Pacote base: `{package}.core`.
+
+```
+domain/
+  model/          entidades e agregados. Estado e invariante, nada de anotação
+  valueobject/    tipos sem identidade, imutáveis
+  rule/           regras de negócio que não pertencem a uma entidade só
+  repository/     interfaces de persistência. Portas, não implementações
+application/
+  command/        escrita: Command + Handler + Result
+  query/          leitura: Query + Handler + Result
+  port/           interfaces para o mundo externo além do banco
+  service/        orquestração que não cabe em um handler só
+```
+
+`domain/repository` guarda **interfaces**. A implementação é adapter e mora no
+`-api`, porque é ela que conhece JPA.
+
+### A fatia vertical
+
+Um caso de uso atravessa assim:
+
+1. **Route** no `-api`: `@RestController` recebe o request, valida formato, monta
+   o Command ou a Query. Não tem regra de negócio.
+2. **Command / Query** no `-core`: objeto de entrada do caso de uso.
+3. **Handler** no `-core`: orquestra. Carrega pela porta de repositório, chama a
+   regra de domínio, persiste pela porta, devolve o Result.
+4. **Domain** no `-core`: onde a decisão de negócio acontece de fato.
+5. **Adapter** no `-api`: implementa a porta usando JPA e traduz entre entidade
+   de domínio e entidade JPA.
+
+CQRS aqui significa **separar escrita de leitura**, não event sourcing e não dois
+bancos. Uma Query pode ler por um caminho mais direto que o de escrita quando
+isso simplificar; o que não pode é uma Query mudar estado.
+
+### Migrations
+
+`{project-name}-core/src/main/resources/db/migration/`, no formato do Flyway
+(`V1__descricao.sql`). Ficam no core porque o schema pertence ao domínio, não ao
+transporte HTTP. Chegam ao classpath do `-api` pela dependência de projeto.
+
+O `spring.jpa.hibernate.ddl-auto` fica em `none`. Quem cria e altera tabela é a
+migration, sempre.
+
+### Testes
+
+- Regra de domínio e handler: teste unitário no `-core`, sem Spring
+- Controller e adapter: teste de integração no `-api`
+- Todo entrypoint deve ter pelo menos um teste de integração
+
+### Não está decidido
+
+O scaffold deliberadamente não escolheu, e a primeira implementação que precisar
+deve decidir e registrar aqui:
+
+- autenticação e autorização
+- formato do corpo de erro e mapeamento para status HTTP
+- paginação e ordenação nas listagens
+- CORS e como o `-web` e o `-mobile` alcançam o `-api`
+- upload e armazenamento de arquivos
+- versionamento da API
+- observabilidade além do Actuator
+
+Não improvise nenhum desses no meio de uma fatia: decida, escreva aqui, depois
+implemente.

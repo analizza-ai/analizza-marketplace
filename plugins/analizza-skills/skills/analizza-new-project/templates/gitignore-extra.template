@@ -1,0 +1,16 @@
+
+# --- Frontends ---
+node_modules/
+.next/
+out/
+.expo/
+dist/
+*.tsbuildinfo
+
+# --- Ambiente ---
+.env
+.env.local
+.env.*.local
+
+# --- macOS ---
+.DS_Store
