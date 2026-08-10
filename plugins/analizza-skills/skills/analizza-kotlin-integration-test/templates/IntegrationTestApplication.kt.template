@@ -1,0 +1,19 @@
+package {base.package}
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+
+/**
+ * Application unica para os testes de integracao.
+ *
+ * Mescla o component scan dos @SpringBootApplication dos demais modulos.
+ * Ajuste `scanBasePackages` para cobrir os pacotes de todos os modulos incluidos.
+ */
+@SpringBootApplication(
+    scanBasePackages = ["{base.package}"],
+)
+class IntegrationTestApplication
+
+fun main(args: Array<String>) {
+    runApplication<IntegrationTestApplication>(*args)
+}

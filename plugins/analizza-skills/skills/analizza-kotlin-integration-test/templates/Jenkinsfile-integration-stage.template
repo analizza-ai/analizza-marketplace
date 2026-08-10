@@ -1,0 +1,54 @@
+// ============================================================================
+// Jenkinsfile - stage de testes de integracao.
+// Se ja existir `"test": { bindings -> junit(bindings) }`, incluir o stage
+// "Integration Test" no metodo junit. Caso contrario, criar conforme abaixo.
+// ============================================================================
+
+startPipeline(this, [
+    "Build"           : { bindings -> /* ...build existente... */ },
+    "test"            : { bindings -> junit(bindings) }
+])
+
+def junit(bindings) {
+    stage(name: "Integration Test") {
+        def workflowName = bindings.workflow?.toUpperCase()
+        def isMainBranch = workflowName in ["MAIN"]
+        def isPrBuilder = workflowName?.contains("PR BUILDER")
+        def skipIntegration = false
+
+        echo "workflowName = ${workflowName}"
+
+        if (isMainBranch) {
+            echo "Branch main detectada: executando os testes de integracao sem opcao de skip."
+        } else if (isPrBuilder) {
+            echo "PR Builder detectado: pulando testes de integracao."
+            skipIntegration = true
+        } else {
+            try {
+                timeout(time: 1, unit: "MINUTES") {
+                    input(
+                        message: "Pular os testes de integracao? (Abort/Timeout para executar)",
+                        ok: "Pular integracao"
+                    )
+                }
+                skipIntegration = true
+            } catch (ignored) {
+                skipIntegration = false
+                echo "Sem confirmacao de skip (timeout/abort): executando os testes de integracao."
+            }
+        }
+
+        if (skipIntegration) {
+            echo "Testes de integracao pulados."
+            return
+        }
+
+        sh "./gradlew integrationTest --no-daemon"
+    }
+
+    stage(name: "Code Coverage") {
+        sh "./gradlew --no-daemon testCodeCoverageReport jacocoAggregatedCoverageVerification -x test"
+    }
+
+    step([$class: "JUnitResultArchiver", allowEmptyResults: true, testResults: "**/build/test-results/test/TEST-*.xml"])
+}

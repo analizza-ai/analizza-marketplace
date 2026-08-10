@@ -1,0 +1,74 @@
+// ============================================================================
+// Trechos para o build.gradle.kts UNICO do projeto (single-module).
+// Sem jacoco-report-aggregation e sem jacocoAggregation(...) entre projetos,
+// pois ha apenas um modulo. Adaptar a estrutura existente do projeto.
+// ============================================================================
+
+plugins {
+    jacoco
+}
+
+// `test` roda apenas os testes unitarios (sem a tag `integration`) -> rapido, sem Testcontainers.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+// `integrationTest` roda apenas os testes marcados com @Tag("integration") -> sobe Testcontainers.
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Runs integration tests tagged with 'integration'."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    // Nao falhar caso ainda nao existam testes de integracao.
+    filter {
+        isFailOnNoMatchingTests = false
+    }
+    shouldRunAfter(tasks.named("test"))
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    mustRunAfter(tasks.named("test"), integrationTest)
+    // Agrega a cobertura de `test` (unit) e `integrationTest` quando ambos executam.
+    executionData(
+        fileTree(layout.buildDirectory).include("jacoco/test.exec", "jacoco/integrationTest.exec")
+    )
+    reports {
+        xml.required.set(true)
+        csv.required.set(false)
+        html.required.set(true)
+    }
+    classDirectories.setFrom(
+        sourceSets.main.get().output.asFileTree.matching {
+            exclude(excludeFromCoverageJacoco)
+        }
+    )
+}
+
+tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.jacocoTestReport)
+    executionData.setFrom(tasks.jacocoTestReport.get().executionData)
+    sourceDirectories.setFrom(tasks.jacocoTestReport.get().sourceDirectories)
+    classDirectories.setFrom(tasks.jacocoTestReport.get().classDirectories)
+
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                minimum = BigDecimal("0.80")
+            }
+        }
+        rule {
+            limit {
+                counter = "BRANCH"
+                minimum = BigDecimal("0.80")
+            }
+        }
+    }
+}

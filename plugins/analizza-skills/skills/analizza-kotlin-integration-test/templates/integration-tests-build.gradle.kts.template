@@ -1,0 +1,56 @@
+import org.gradle.kotlin.dsl.getByName
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+
+plugins {
+    application
+}
+
+dependencies {
+    // Gerar um testImplementation(project(":<modulo>")) para CADA modulo listado em
+    // settings.gradle.kts (exceto o proprio {base}-integration-tests). Exemplo:
+    // testImplementation(project(":{base}-core"))
+    // testImplementation(project(":{base}-api"))
+    // testImplementation(project(":{base}-async"))
+{project-dependencies}
+
+    // Test slices
+    testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jdbc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-opentelemetry-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-restclient-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.springframework.boot:spring-boot-starter-flyway")
+
+    // Kotlin/JUnit
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Mocking
+    testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("com.ninja-squad:springmockk:5.0.1")
+
+    // Testcontainers
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+
+    // WireMock / Awaitility
+    testImplementation("org.wiremock:wiremock-standalone:3.9.1")
+    testImplementation("org.awaitility:awaitility:4.3.0")
+
+    // ArchUnit
+    testImplementation("com.tngtech.archunit:archunit-junit5:1.4.1")
+}
+
+tasks.getByName<Jar>("jar") {
+    enabled = false
+}
+
+tasks.getByName<BootJar>("bootJar") {
+    enabled = false
+}
+
+tasks.withType<Test> {
+    maxHeapSize = "2g"
+    workingDir = projectDir
+}

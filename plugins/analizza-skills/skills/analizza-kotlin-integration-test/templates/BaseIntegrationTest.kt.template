@@ -1,0 +1,60 @@
+package {base.package}
+
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
+import org.springframework.test.web.server.RestTestClient
+import org.testcontainers.images.builder.ImageFromDockerfile
+import org.testcontainers.oracle.OracleContainer
+import org.testcontainers.utility.DockerImageName
+import java.time.Duration
+
+@Tag("integration")
+@SpringBootTest(
+    classes = [IntegrationTestApplication::class],
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["spring.config.name=core-application,application"],
+)
+abstract class BaseIntegrationTest {
+
+    protected lateinit var restTestClient: RestTestClient
+
+    @LocalServerPort
+    private var port: Int = 0
+
+    @BeforeEach
+    fun configureRestTestClient() {
+        restTestClient = RestTestClient.bindToServer()
+            .baseUrl("http://localhost:$port")
+            .build()
+    }
+
+    companion object {
+
+        // Assets do container ficam no PROPRIO modulo (src/test/resources/oracle/)
+        // e sao carregados via classpath -> limpo e explicito, sem caminho relativo `..`
+        // nem dependencia do workingDir do Gradle.
+        private val oracleImage: String =
+            ImageFromDockerfile()
+                .withFileFromClasspath("Dockerfile", "oracle/Dockerfile")
+                .withFileFromClasspath("init.sql", "oracle/init.sql")
+                .get()
+
+        @JvmStatic
+        val oracleContainer: OracleContainer =
+            OracleContainer(
+                DockerImageName.parse(oracleImage).asCompatibleSubstituteFor("gvenzl/oracle-free"),
+            )
+                .withStartupTimeout(Duration.ofMinutes(6))
+                .also { it.start() }
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun overrideProperties(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url") { "${oracleContainer.jdbcUrl}?oracle.net.disableOob=true" }
+        }
+    }
+}
