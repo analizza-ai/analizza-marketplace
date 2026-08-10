@@ -23,9 +23,8 @@ quebra para quem consome aquele repositório hoje.
 (`references/`, `templates/`). Verificado: a Kotlin no marketplace é byte-a-byte idêntica à do
 `ai-showcase-skills`, provando que nenhuma adaptação ao contexto de plugin é necessária.
 
-**Versão minor.** `plugins/analizza-skills/.claude-plugin/plugin.json` sobe de `0.1.0` para `0.2.0`
-— skill nova, nada removido nem alterado nas existentes. A tag de release (`make tag`) não faz parte
-desta mudança; é ação do mantenedor.
+**Versão.** `plugins/analizza-skills/.claude-plugin/plugin.json` sobe de `0.1.0` para `0.1.1`. A tag
+de release (`make tag`) não faz parte desta mudança; é ação do mantenedor.
 
 ## Mudanças
 
