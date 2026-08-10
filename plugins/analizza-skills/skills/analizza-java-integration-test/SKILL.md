@@ -1,6 +1,6 @@
 ---
 name: analizza-java-integration-test
-description: 'Configura testes de integracao em projetos Java + Spring Boot com Gradle Groovy DSL, adaptando-se automaticamente a estrutura do projeto: cria um modulo dedicado (`{base}-integration-tests`) em projetos multi-modulo, ou configura tudo dentro de `src/test/` quando o projeto for single-module (sem submodulos). Move os testes de integracao, centraliza o BaseIntegrationTest, isola libs pesadas de teste, configura jacoco, tasks Gradle test/integrationTest, stage no Jenkinsfile e regra ArchUnit de cobertura de entrypoints. Use quando o usuario pedir "criar modulo de testes de integracao java", "integration-tests module java", "separar testes de integracao", "reduzir tempo de testcontainers", "setup integration test module" ou "analizza java integration test".'
+description: 'Configura testes de integracao em projetos Java + Spring Boot com Gradle Groovy DSL, adaptando-se automaticamente a estrutura do projeto: cria um modulo dedicado (`{base}-integration-tests`) em projetos multi-modulo, ou configura tudo dentro de `src/test/` quando o projeto for single-module (sem submodulos). Move os testes de integracao, centraliza o BaseIntegrationTest, isola libs pesadas de teste, configura jacoco, tasks Gradle test/integrationTest e regra ArchUnit de cobertura de entrypoints. Use quando o usuario pedir "criar modulo de testes de integracao java", "integration-tests module java", "separar testes de integracao", "reduzir tempo de testcontainers", "setup integration test module" ou "analizza java integration test".'
 argument-hint: 'Opcional: nome base do projeto (ex: pp) e lista de modulos. Se omitido, a skill descobre a partir de settings.gradle.'
 user-invocable: true
 ---
@@ -58,7 +58,6 @@ build.gradle (raiz)                                        <- plugin jacoco-repo
 {base}-integration-tests/src/test/java/**                  <- ITs movidos + BaseIntegrationTest + IntegrationTestApplication
 {base}-integration-tests/src/test/resources/**             <- application.yml mesclado + archunit.properties + assets de container (oracle/Dockerfile, oracle/init.sql)
 {outros modulos}/build.gradle                              <- remover libs pesadas de teste de integracao
-Jenkinsfile                                                <- stage "Integration Test"
 ```
 
 > Substitua `{base}` pelo prefixo do projeto (ex.: `pp` para `pp-requests-core`).
@@ -70,7 +69,6 @@ Jenkinsfile                                                <- stage "Integration
 build.gradle (unico)                                       <- libs de teste + tasks test/integrationTest (sem aggregation)
 src/test/java/**                                           <- ITs organizados + BaseIntegrationTest (usa a Application existente)
 src/test/resources/**                                      <- archunit.properties + assets de container (oracle/Dockerfile, oracle/init.sql)
-Jenkinsfile                                                <- stage "Integration Test"
 ```
 
 > Nao ha modulo novo, nem `settings.gradle`, nem merge de `Application`/`application.yml`
@@ -298,22 +296,7 @@ estrutura de outros modulos.
 
 ---
 
-## Passo 6 - Jenkinsfile
-
-Garantir um stage de testes de integracao no `Jenkinsfile` usando
-[Jenkinsfile-integration-stage.template](./templates/Jenkinsfile-integration-stage.template).
-Este passo e igual nos dois caminhos (multi-modulo e single-module) — nao depende de estrutura de
-modulos:
-
-- Se ja existir `"test": { bindings -> junit(bindings) }`, incluir o stage "Integration Test" no
-  binding.
-- Se nao existir, criar o binding conforme o template.
-- Comportamento: `main` sempre executa; `PR Builder` pula; demais pedem input com timeout.
-- Executa `./gradlew integrationTest --no-daemon` e arquiva os resultados JUnit.
-
----
-
-## Passo 7 - Regra ArchUnit (entrypoints exigem IT)
+## Passo 6 - Regra ArchUnit (entrypoints exigem IT)
 
 No modulo que concentra os testes de integracao (`{base}-integration-tests` em multi-modulo, ou o
 proprio modulo unico em single-module):
@@ -329,7 +312,7 @@ A regra garante que todo entrypoint (`@RestController`, `@KafkaListener`, `@Sche
 
 ---
 
-## Passo 8 - Ajustar skills e instructions do projeto
+## Passo 7 - Ajustar skills e instructions do projeto
 
 Procurar por instructions de teste existentes no projeto (ex.: `.github/instructions/*test*.instructions.md`,
 `.github/copilot-instructions.md`, `AGENTS.md`):
@@ -359,7 +342,7 @@ Alem disso, documentar a organizacao adotada:
 
 ---
 
-## Passo 9 - Integracoes opcionais (perguntar ao usuario)
+## Passo 8 - Integracoes opcionais (perguntar ao usuario)
 
 Ao final, perguntar se deseja configurar via outras skills (validas nos dois caminhos):
 
@@ -384,7 +367,6 @@ aplicar o bloco de [references/wiremock.md](./references/wiremock.md) quando sol
       `BaseIntegrationTest` referencia a Application existente, sem merge.
 - [ ] `BaseIntegrationTest` centralizado; ITs organizados/movidos e com `@Tag("integration")`.
 - [ ] Assets de container (Dockerfile/init.sql) em `src/test/resources/<engine>/` (nunca em `main/`).
-- [ ] Stage "Integration Test" no Jenkinsfile.
 - [ ] `archunit.properties` + `EntrypointHasIntegrationTestRuleIT` criados.
 - [ ] Skills/instructions do projeto atualizadas (ou criada instruction de testes, se confirmado).
 - [ ] Organizacao adotada documentada nas instructions e no `README.md` do projeto.

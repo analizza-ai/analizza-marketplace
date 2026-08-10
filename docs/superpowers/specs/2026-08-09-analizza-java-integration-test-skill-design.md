@@ -45,6 +45,19 @@ desta mudança; é ação do mantenedor.
 
 Fundir as duas skills, mexer no `ai-showcase-skills`, criar tag ou release.
 
+## Adendo (2026-08-10) — remoção do CI
+
+O passo de CI saiu das duas skills (Java e Kotlin): o template
+`Jenkinsfile-integration-stage.template` foi deletado, o "Passo 6 - Jenkinsfile" removido e os
+passos seguintes renumerados (7→6, 8→7, 9→8). As skills passam a cuidar apenas da infraestrutura de
+teste — módulo, `BaseIntegrationTest`, jacoco, tasks Gradle, ArchUnit — e deixam o pipeline para o
+projeto que as consome. Motivo: o template era acoplado a um Jenkins corporativo específico
+(shared library `startPipeline`, `bindings.workflow`, `input()` interativo), sem valor fora daquele
+contexto.
+
+Com isso a cópia deixa de ser byte-a-byte idêntica à do `ai-showcase-skills`, que segue com a versão
+antiga com Jenkins nas duas skills.
+
 ## Risco assumido
 
 Java e Kotlin passam a existir em dois repositórios cada uma e vão divergir com o tempo — a Java já
