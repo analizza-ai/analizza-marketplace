@@ -1,0 +1,110 @@
+// ============================================================================
+// Trechos para o build.gradle da RAIZ (Groovy DSL).
+// Adaptar a estrutura existente do projeto (mesclar em subprojects, etc.).
+// Gerar uma linha jacocoAggregation por modulo listado em settings.gradle,
+// INCLUINDO o novo {base}-integration-tests.
+// ============================================================================
+
+plugins {
+    id 'jacoco-report-aggregation'
+}
+
+dependencies {
+    // Um jacocoAggregation project(':<modulo>') por modulo de settings.gradle. Exemplo:
+    // jacocoAggregation project(':{base}-core')
+    // jacocoAggregation project(':{base}-api')
+    // jacocoAggregation project(':{base}-async')
+{jacoco-aggregation}
+    jacocoAggregation project(':{base}-integration-tests')
+}
+
+subprojects {
+
+    // ...outras configuracoes existentes...
+
+    // `test` roda apenas os testes unitarios (sem a tag `integration`) -> rapido, sem Testcontainers.
+    tasks.named('test', Test) {
+        useJUnitPlatform {
+            excludeTags 'integration'
+        }
+        finalizedBy tasks.named('jacocoTestReport')
+    }
+
+    // `integrationTest` roda apenas os testes marcados com @Tag("integration") -> sobe Testcontainers.
+    def integrationTest = tasks.register('integrationTest', Test) {
+        description = "Runs integration tests tagged with 'integration'."
+        group = 'verification'
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform {
+            includeTags 'integration'
+        }
+        // Modulos sem testes de integracao nao devem falhar.
+        filter {
+            failOnNoMatchingTests = false
+        }
+        shouldRunAfter tasks.named('test')
+    }
+
+    tasks.withType(JacocoReport).configureEach {
+        mustRunAfter(tasks.named('test'), integrationTest)
+        // Agrega a cobertura de `test` (unit) e `integrationTest` quando ambos executam.
+        executionData fileTree(layout.buildDirectory).include('jacoco/test.exec', 'jacoco/integrationTest.exec')
+        reports {
+            xml.required = true
+            xml.outputLocation = file("../build/reports/jacoco/${project.name}.xml")
+            csv.required = false
+            html.required = true
+        }
+        classDirectories.setFrom(
+                sourceSets.main.output.asFileTree.matching {
+                    exclude excludeFromCoverageJacoco
+                }
+        )
+    }
+}
+
+tasks.named('testCodeCoverageReport', JacocoReport) {
+    executionData.from(
+            subprojects.collect { sub ->
+                sub.fileTree(sub.layout.buildDirectory).include('jacoco/integrationTest.exec')
+            }
+    )
+
+    reports {
+        xml.required = true
+        xml.outputLocation = file('build/reports/jacoco/jacoco-aggregated.xml')
+        csv.required = false
+        html.required = true
+    }
+
+    def rawClassDirectories = files(classDirectories.files)
+    classDirectories.setFrom(
+            rawClassDirectories.asFileTree.matching {
+                exclude excludeFromCoverageJacoco
+            }
+    )
+}
+
+tasks.register('jacocoAggregatedCoverageVerification', JacocoCoverageVerification) {
+    dependsOn 'testCodeCoverageReport'
+    def aggregatedReport = tasks.named('testCodeCoverageReport', JacocoReport)
+    executionData.setFrom(aggregatedReport.map { it.executionData })
+    sourceDirectories.setFrom(aggregatedReport.map { it.sourceDirectories })
+    classDirectories.setFrom(aggregatedReport.map { it.classDirectories })
+
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                minimum = 0.80
+            }
+        }
+        rule {
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.80
+            }
+        }
+    }
+}

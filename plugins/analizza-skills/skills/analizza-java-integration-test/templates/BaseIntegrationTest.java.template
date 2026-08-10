@@ -1,0 +1,68 @@
+package {base.package};
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.client.RestTestClient;
+import org.testcontainers.images.builder.ImageFromDockerfile;
+import org.testcontainers.oracle.OracleContainer;
+import org.testcontainers.utility.DockerImageName;
+
+import java.time.Duration;
+
+@Tag("integration")
+@SpringBootTest(
+        classes = IntegrationTestApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.config.name=core-application,application"
+)
+public abstract class BaseIntegrationTest {
+
+    protected static final OracleContainer ORACLE_CONTAINER = startOracleContainer();
+
+    protected RestTestClient restTestClient;
+
+    @LocalServerPort
+    private int port;
+
+    @BeforeEach
+    void configureRestTestClient() {
+        restTestClient = RestTestClient.bindToServer()
+                .baseUrl("http://localhost:" + port)
+                .build();
+    }
+
+    @DynamicPropertySource
+    static void overrideProperties(DynamicPropertyRegistry registry) {
+        registry.add(
+                "spring.datasource.url",
+                () -> ORACLE_CONTAINER.getJdbcUrl() + "?oracle.net.disableOob=true"
+        );
+    }
+
+    // Assets do container ficam no PROPRIO modulo (src/test/resources/oracle/)
+    // e sao carregados via classpath -> limpo e explicito, sem caminho relativo `..`
+    // nem dependencia do workingDir do Gradle.
+    private static OracleContainer startOracleContainer() {
+        try {
+            String oracleImage = new ImageFromDockerfile()
+                    .withFileFromClasspath("Dockerfile", "oracle/Dockerfile")
+                    .withFileFromClasspath("init.sql", "oracle/init.sql")
+                    .get();
+
+            OracleContainer container = new OracleContainer(
+                    DockerImageName.parse(oracleImage).asCompatibleSubstituteFor("gvenzl/oracle-free")
+            ).withStartupTimeout(Duration.ofMinutes(6));
+
+            container.start();
+            return container;
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Falha ao construir/iniciar o container Oracle dos testes de integracao", e
+            );
+        }
+    }
+}
