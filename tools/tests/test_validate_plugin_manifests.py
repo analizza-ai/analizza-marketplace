@@ -111,3 +111,12 @@ def test_manifestos_reais_respeitam_o_contrato():
     assert skills_dir.is_dir()
     assert not skills_dir.is_symlink()
     assert len(list(plugin_dir.rglob("SKILL.md"))) == 3
+
+
+def test_readme_documenta_claude_e_codex_sem_comando_inventado():
+    raiz = Path(__file__).resolve().parents[2]
+    readme = (raiz / "README.md").read_text(encoding="utf-8")
+    assert "### Claude Code" in readme
+    assert "### Codex" in readme
+    assert "Plugins" in readme
+    assert "codex plugin install" not in readme

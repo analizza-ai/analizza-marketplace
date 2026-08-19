@@ -6,7 +6,9 @@ Marketplace de plugins do Claude Code da Analizza.
 | --- | --- |
 | `analizza-skills` | Skills para scaffolding e qualidade de projetos |
 
-## Instalação
+## Instalação por harness
+
+### Claude Code
 
 ```bash
 make marketplace-add   # claude plugin marketplace add analizza-ai/analizza-marketplace
@@ -19,6 +21,12 @@ Para atualizar depois:
 make update
 ```
 
+### Codex
+
+O Codex não tem um comando de instalação de plugin via CLI. Abra o app Codex, vá em **Plugins**, localize **Analizza Skills** depois que o marketplace Codex publicar o plugin e siga o fluxo da interface para instalar.
+
+Para desenvolvimento local, o plugin mantém o manifesto `plugins/analizza-skills/.codex-plugin/plugin.json` na mesma pasta do plugin; use o fluxo de instalação local que o app Codex suporta para plugins nesse formato.
+
 ## Skills do plugin `analizza-skills`
 
 | Skill | O que faz |
@@ -29,10 +37,11 @@ make update
 
 ## Publicando uma versão
 
-Suba a `version` em `plugins/analizza-skills/.claude-plugin/plugin.json`, valide e crie a tag:
+Suba a mesma `version` em `plugins/analizza-skills/.claude-plugin/plugin.json` e em `plugins/analizza-skills/.codex-plugin/plugin.json`, valide e crie a tag:
 
 ```bash
 make validate
+make check
 make tag        # cria a tag analizza-skills--v{version}
 ```
 
@@ -41,7 +50,10 @@ make tag        # cria a tag analizza-skills--v{version}
 ```
 .claude-plugin/marketplace.json     # manifesto do marketplace
 plugins/analizza-skills/
-├── .claude-plugin/plugin.json      # manifesto do plugin
-└── skills/                         # uma pasta por skill
+├── .claude-plugin/plugin.json      # manifesto do plugin (Claude Code)
+├── .codex-plugin/plugin.json       # manifesto do plugin (Codex)
+└── skills/                         # uma pasta por skill, fonte única para os dois harnesses
+tools/                              # validador dos manifestos multi-harness
 docs/superpowers/specs/             # decisões de design
+docs/superpowers/plans/             # planos de implementação
 ```
