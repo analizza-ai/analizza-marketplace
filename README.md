@@ -11,14 +11,15 @@ Marketplace de plugins do Claude Code da Analizza.
 ### Claude Code
 
 ```bash
-make marketplace-add   # claude plugin marketplace add analizza-ai/analizza-marketplace
-make install           # claude plugin install analizza-skills@analizza-marketplace
+claude plugin marketplace add analizza-ai/analizza-marketplace
+claude plugin install analizza-skills@analizza-marketplace
 ```
 
 Para atualizar depois:
 
 ```bash
-make update
+claude plugin marketplace update analizza-marketplace
+claude plugin update analizza-skills
 ```
 
 ### Codex
@@ -32,13 +33,13 @@ Como não existe CLI, atualizar segue o mesmo caminho da instalação: volte à 
 ### Antigravity
 
 ```bash
-make agy-install   # agy plugin install https://github.com/analizza-ai/analizza-marketplace
+agy plugin install https://github.com/analizza-ai/analizza-marketplace
 ```
 
 O `agy` reconhece direto a pasta `plugins/` deste repositório (mesmo formato usado pelo Claude Code), sem precisar de um passo separado de "adicionar marketplace". Para atualizar, rode o mesmo comando de novo:
 
 ```bash
-make agy-update
+agy plugin install https://github.com/analizza-ai/analizza-marketplace
 ```
 
 ## Skills do plugin `analizza-skills`
