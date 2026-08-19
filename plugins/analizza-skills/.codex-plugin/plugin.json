@@ -15,6 +15,9 @@
     "developerName": "Diego Lirio",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],
-    "defaultPrompt": ["Crie um novo projeto Kotlin com Spring Boot."]
+    "defaultPrompt": ["Crie um novo projeto Kotlin com Spring Boot."],
+    "brandColor": "#4A1FB8",
+    "logo": "./assets/icon.png",
+    "composerIcon": "./assets/icon.png"
   }
 }
