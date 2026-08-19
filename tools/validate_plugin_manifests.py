@@ -52,13 +52,17 @@ def validar_manifestos(claude: dict, codex: dict, plugin_dir: Path) -> list[str]
 
 def carregar_manifesto(caminho: Path) -> Optional[dict]:
     try:
-        return json.loads(caminho.read_text(encoding="utf-8"))
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         print(f"JSON inválido: {caminho}")
         return None
     except OSError:
         print(f"manifesto ausente ou inválido: {caminho}")
         return None
+    if not isinstance(dados, dict):
+        print(f"JSON inválido: {caminho}")
+        return None
+    return dados
 
 
 def main() -> int:

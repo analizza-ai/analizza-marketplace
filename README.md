@@ -27,6 +27,8 @@ O Codex não tem um comando de instalação de plugin via CLI. Abra o app Codex,
 
 Para desenvolvimento local, o plugin mantém o manifesto `plugins/analizza-skills/.codex-plugin/plugin.json` na mesma pasta do plugin; use o fluxo de instalação local que o app Codex suporta para plugins nesse formato.
 
+Como não existe CLI, atualizar segue o mesmo caminho da instalação: volte à tela **Plugins** do app Codex e reinstale (ou deixe o app re-checar) **Analizza Skills** depois que uma nova versão for publicada no marketplace Codex.
+
 ## Skills do plugin `analizza-skills`
 
 | Skill | O que faz |
@@ -38,6 +40,8 @@ Para desenvolvimento local, o plugin mantém o manifesto `plugins/analizza-skill
 ## Publicando uma versão
 
 Suba a mesma `version` em `plugins/analizza-skills/.claude-plugin/plugin.json` e em `plugins/analizza-skills/.codex-plugin/plugin.json`, valide e crie a tag:
+
+Pré-requisito de `make check`: `pip install -r requirements-dev.txt`.
 
 ```bash
 make validate
@@ -54,6 +58,7 @@ plugins/analizza-skills/
 ├── .codex-plugin/plugin.json       # manifesto do plugin (Codex)
 └── skills/                         # uma pasta por skill, fonte única para os dois harnesses
 tools/                              # validador dos manifestos multi-harness
+requirements-dev.txt                # dependência de teste (pytest)
 docs/superpowers/specs/             # decisões de design
 docs/superpowers/plans/             # planos de implementação
 ```
