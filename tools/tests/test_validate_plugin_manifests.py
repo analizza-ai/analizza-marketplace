@@ -98,3 +98,16 @@ def test_manifesto_ausente_e_reportado(tmp_path: Path, capsys):
     resultado = carregar_manifesto(caminho)
     assert resultado is None
     assert f"manifesto ausente ou inválido: {caminho}" in capsys.readouterr().out
+
+
+def test_manifestos_reais_respeitam_o_contrato():
+    raiz = Path(__file__).resolve().parents[2]
+    plugin_dir = raiz / "plugins/analizza-skills"
+    claude = json.loads((plugin_dir / ".claude-plugin/plugin.json").read_text())
+    codex = json.loads((plugin_dir / ".codex-plugin/plugin.json").read_text())
+    assert validar_manifestos(claude, codex, plugin_dir) == []
+
+    skills_dir = plugin_dir / "skills"
+    assert skills_dir.is_dir()
+    assert not skills_dir.is_symlink()
+    assert len(list(plugin_dir.rglob("SKILL.md"))) == 3
