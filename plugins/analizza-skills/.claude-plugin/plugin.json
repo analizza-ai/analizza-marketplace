@@ -1,7 +1,7 @@
 {
   "name": "analizza-skills",
-  "description": "Skills da Analizza para scaffolding, qualidade de projetos e fluxo de desenvolvimento assistido por IA (brainstorming, TDD, debugging sistemático, planejamento e revisão de código)",
-  "version": "0.3.0",
+  "description": "Skills da Analizza para scaffolding e qualidade de projetos",
+  "version": "0.2.1",
   "author": {
     "name": "Diego Lirio",
     "email": "diegolirio.dl@gmail.com"
