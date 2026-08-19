@@ -37,6 +37,27 @@ Como não existe CLI, atualizar segue o mesmo caminho da instalação: volte à 
 | `analizza-java-integration-test` | Mesma infraestrutura da skill acima, para projetos Java + Spring Boot com Gradle Groovy DSL (`settings.gradle`, templates `.java`). Detecta o layout multi-módulo ou single-module da mesma forma. |
 | `analizza-new-project` | Cria do zero um monorepo de quatro módulos: backend Java Spring Boot separado em `{project}-api` (controllers) e `{project}-core` (Clean Architecture + CQRS), mais `{project}-web` em Next.js e `{project}-mobile` em Expo. O backend vem da API do Spring Initializr e é refatorado para multi-módulo Gradle, com Postgres em docker-compose e migrations Flyway no core. |
 
+### Fluxo de desenvolvimento assistido por IA
+
+Adaptadas de [obra/superpowers](https://github.com/obra/superpowers) (MIT, Jesse Vincent) — só as skills, sem hooks nem agents do projeto original. As referências cruzadas entre elas usam o prefixo `analizza-skills:`.
+
+| Skill | O que faz |
+| --- | --- |
+| `brainstorming` | Ajuda a transformar ideias em designs e specs através de diálogo colaborativo, antes de qualquer implementação. |
+| `dispatching-parallel-agents` | Use quando houver 2+ tarefas independentes que podem ser trabalhadas sem estado compartilhado ou dependências sequenciais. |
+| `executing-plans` | Use quando houver um plano de implementação escrito para executar em uma sessão separada, com checkpoints de revisão. |
+| `finishing-a-development-branch` | Use quando a implementação estiver completa, todos os testes passarem, e for preciso decidir como integrar o trabalho. |
+| `receiving-code-review` | Use ao receber feedback de code review, antes de implementar sugestões — exige rigor técnico e verificação, não concordância performática. |
+| `requesting-code-review` | Use ao completar tarefas, implementar features importantes, ou antes de fazer merge, para verificar se o trabalho atende aos requisitos. |
+| `subagent-driven-development` | Use ao executar planos de implementação com tarefas independentes na sessão atual. |
+| `systematic-debugging` | Use ao encontrar qualquer bug, falha de teste ou comportamento inesperado, antes de propor correções. |
+| `test-driven-development` | Use ao implementar qualquer feature ou correção de bug, antes de escrever o código de implementação. |
+| `using-git-worktrees` | Use ao iniciar trabalho em uma feature que precisa de isolamento do workspace atual. |
+| `using-superpowers` | Skill de entrada: como encontrar e usar as demais skills antes de qualquer resposta ou ação. |
+| `verification-before-completion` | Use antes de declarar um trabalho completo, corrigido ou passando, antes de commitar ou criar PRs. |
+| `writing-plans` | Use quando houver uma spec ou requisitos para uma tarefa de múltiplas etapas, antes de tocar em código. |
+| `writing-skills` | Use ao criar novas skills, editar skills existentes, ou verificar skills antes do deploy. |
+
 ## Publicando uma versão
 
 Suba a mesma `version` em `plugins/analizza-skills/.claude-plugin/plugin.json` e em `plugins/analizza-skills/.codex-plugin/plugin.json`, valide e crie a tag:

@@ -122,7 +122,7 @@ def test_manifestos_reais_respeitam_o_contrato():
     skills_dir = plugin_dir / "skills"
     assert skills_dir.is_dir()
     assert not skills_dir.is_symlink()
-    assert len(list(plugin_dir.rglob("SKILL.md"))) == 3
+    assert len(list(plugin_dir.rglob("SKILL.md"))) == 17
 
 
 def test_readme_documenta_claude_e_codex_sem_comando_inventado():
