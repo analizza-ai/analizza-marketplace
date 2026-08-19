@@ -25,11 +25,19 @@ marketplace-add: ## Registra este repositório como marketplace
 install: ## Instala o plugin a partir do marketplace
 	claude plugin install $(PLUGIN)@$(MARKETPLACE)
 
+.PHONY: agy-install
+agy-install: ## Instala o plugin no Antigravity (agy)
+	agy plugin install https://github.com/$(REPO)
+
 ##@ Atualização
 
 .PHONY: update
 update: ## Atualiza o marketplace e depois o plugin
 	claude plugin marketplace update $(MARKETPLACE) && claude plugin update $(PLUGIN)
+
+.PHONY: agy-update
+agy-update: ## Atualiza o plugin no Antigravity (agy) reinstalando
+	agy plugin install https://github.com/$(REPO)
 
 ##@ Release
 

@@ -29,6 +29,18 @@ Para desenvolvimento local, o plugin mantém o manifesto `plugins/analizza-skill
 
 Como não existe CLI, atualizar segue o mesmo caminho da instalação: volte à tela **Plugins** do app Codex e reinstale (ou deixe o app re-checar) **Analizza Skills** depois que uma nova versão for publicada no marketplace Codex.
 
+### Antigravity
+
+```bash
+make agy-install   # agy plugin install https://github.com/analizza-ai/analizza-marketplace
+```
+
+O `agy` reconhece direto a pasta `plugins/` deste repositório (mesmo formato usado pelo Claude Code), sem precisar de um passo separado de "adicionar marketplace". Para atualizar, rode o mesmo comando de novo:
+
+```bash
+make agy-update
+```
+
 ## Skills do plugin `analizza-skills`
 
 | Skill | O que faz |
