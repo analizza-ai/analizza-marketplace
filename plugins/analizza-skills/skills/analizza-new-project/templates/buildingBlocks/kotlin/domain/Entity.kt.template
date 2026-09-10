@@ -1,0 +1,12 @@
+package {package}.domain
+
+abstract class Entity {
+    companion object {
+        private val ruleChecker: RuleChecker = RuleChecker()
+
+        @JvmStatic
+        protected fun checkAllRules(vararg rules: BusinessRule) {
+            ruleChecker.checkAllRules(*rules)
+        }
+    }
+}

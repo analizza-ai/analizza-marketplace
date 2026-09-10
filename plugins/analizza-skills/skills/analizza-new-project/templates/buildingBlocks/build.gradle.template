@@ -1,0 +1,68 @@
+<!-- se kotlin -->
+plugins {
+    id 'java-library'
+    id 'org.jetbrains.kotlin.jvm'
+}
+
+group = '{group}'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Sem kotlin-reflect: nenhum dos dez contratos usa reflexao, e sem BOM
+    // nem dependency-management neste modulo uma dependencia sem versao nao
+    // resolveria. O kotlin-test-junit5 sem versao funciona porque o Kotlin
+    // Gradle Plugin versiona kotlin-test sozinho.
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll '-Xjsr305=strict'
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+<!-- fim se kotlin -->
+
+<!-- se java -->
+plugins {
+    id 'java-library'
+}
+
+group = '{group}'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+<!-- fim se java -->

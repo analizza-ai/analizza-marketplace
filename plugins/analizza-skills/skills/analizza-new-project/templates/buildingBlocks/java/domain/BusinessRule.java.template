@@ -1,0 +1,21 @@
+package {package}.domain;
+
+public abstract class BusinessRule {
+    private final String message;
+    private final String id;
+
+    protected BusinessRule(String message, String id) {
+        this.message = message;
+        this.id = id;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public abstract boolean isBroken();
+}

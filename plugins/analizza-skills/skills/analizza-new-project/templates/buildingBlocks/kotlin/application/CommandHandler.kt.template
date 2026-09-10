@@ -1,0 +1,5 @@
+package {package}.application
+
+interface CommandHandler<in TCommand> where TCommand : Command {
+    fun handle(command: TCommand)
+}

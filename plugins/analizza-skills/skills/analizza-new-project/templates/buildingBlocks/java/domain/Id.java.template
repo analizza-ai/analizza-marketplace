@@ -1,0 +1,30 @@
+package {package}.domain;
+
+public abstract class Id {
+    private final long value;
+
+    protected Id() {
+        this(0L);
+    }
+
+    protected Id(long id) {
+        this.value = id;
+    }
+
+    public long getValue() {
+        return value;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!(other instanceof Id)) {
+            return false;
+        }
+        return this.value == ((Id) other).value;
+    }
+
+    @Override
+    public int hashCode() {
+        return Long.hashCode(value);
+    }
+}
