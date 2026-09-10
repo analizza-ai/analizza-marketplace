@@ -1,0 +1,14 @@
+package {package}.domain
+
+abstract class Id protected constructor(
+    id: Long = 0,
+) {
+    val value: Long = id
+
+    override fun equals(other: Any?): Boolean {
+        if (other !is Id) return false
+        return this.value == other.value
+    }
+
+    override fun hashCode(): Int = value.hashCode()
+}

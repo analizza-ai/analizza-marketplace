@@ -1,0 +1,26 @@
+<!-- se kotlin -->
+// Versoes dos plugins declaradas uma vez so, na raiz.
+// Os subprojetos (buildingBlocks, {project-name}-core, {project-name}-api)
+// aplicam sem versao -- o Kotlin Gradle Plugin nao suporta ser carregado com
+// versao explicita em mais de um subprojeto, e um subprojeto so pode aplicar
+// um plugin sem versao se ele ja estiver no classpath do buildscript herdado
+// da raiz.
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '{kotlin-version}' apply false
+    id 'org.jetbrains.kotlin.plugin.spring' version '{kotlin-version}' apply false
+    id 'org.jetbrains.kotlin.plugin.jpa' version '{kotlin-version}' apply false
+    id 'org.springframework.boot' version '{boot-version}' apply false
+    id 'io.spring.dependency-management' version '{dependency-management-version}' apply false
+}
+<!-- fim se kotlin -->
+
+<!-- se java -->
+// Versoes dos plugins declaradas uma vez so, na raiz -- os subprojetos
+// ({project-name}-core, {project-name}-api) aplicam sem versao. Um
+// subprojeto so pode aplicar um plugin sem versao se ele ja estiver no
+// classpath do buildscript herdado da raiz.
+plugins {
+    id 'org.springframework.boot' version '{boot-version}' apply false
+    id 'io.spring.dependency-management' version '{dependency-management-version}' apply false
+}
+<!-- fim se java -->

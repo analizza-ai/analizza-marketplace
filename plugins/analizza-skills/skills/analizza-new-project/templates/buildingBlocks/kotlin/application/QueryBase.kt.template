@@ -1,0 +1,12 @@
+package {package}.application
+
+import java.util.UUID
+
+abstract class QueryBase<TResult> : Query<TResult> {
+    final override var id: UUID
+        private set
+
+    init {
+        id = UUID.randomUUID()
+    }
+}
