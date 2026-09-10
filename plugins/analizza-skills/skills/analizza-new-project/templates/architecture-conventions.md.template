@@ -94,16 +94,15 @@ O `-core` aplica `org.jetbrains.kotlin.plugin.spring` e `plugin.jpa` (para
 que classe Kotlin `final` por padrão funcione com proxy do Spring e da JPA
 sem precisar declarar `open` manualmente) e depende de
 `spring-boot-starter-data-jpa` e das demais dependências de saída que o caso
-de uso exigir — veja
-[core-build.gradle.template](../templates/core-build.gradle.template).
+de uso exigir — veja o `build.gradle` do `{project-name}-core`.
 `@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
 `@Configuration` para os beans de saída — tudo isso é normal aqui.
 <!-- fim se kotlin -->
 
 <!-- se java -->
 O `-core` depende de `spring-boot-starter-data-jpa` e das demais dependências
-de saída que o caso de uso exigir — veja
-[core-build.gradle.template](../templates/core-build.gradle.template).
+de saída que o caso de uso exigir — veja o `build.gradle` do
+`{project-name}-core`.
 `@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
 `@Configuration` para os beans de saída — tudo isso é normal aqui.
 <!-- fim se java -->
@@ -143,10 +142,22 @@ quando isso simplificar; o que não pode é uma Query mudar estado.
 
 ### Os contratos do `buildingBlocks`
 
+<!-- se kotlin -->
 Quinze arquivos, um contrato por arquivo (com uma exceção: `ErrorMessage` e
-`ListErrorMessage` dividem arquivo), distribuídos em três pacotes:
-`{package}.application` e `{package}.domain` (`{language}` puro, sem Spring)
-e `{package}.presenter.exception`. Quando usar cada um:
+`ListErrorMessage` dividem arquivo, porque juntos cabem sem esforço num único
+arquivo Kotlin — não há a regra de um tipo público por arquivo que o Java
+impõe), distribuídos em três pacotes: `{package}.application` e
+`{package}.domain` (`{language}` puro, sem Spring) e
+`{package}.presenter.exception`. Quando usar cada um:
+<!-- fim se kotlin -->
+
+<!-- se java -->
+Dezesseis arquivos, um contrato por arquivo — inclusive `ErrorMessage` e
+`ListErrorMessage`, cada um no seu próprio arquivo: a regra de um tipo
+público por arquivo do Java não permite os dois num só — distribuídos em três
+pacotes: `{package}.application` e `{package}.domain` (`{language}` puro, sem
+Spring) e `{package}.presenter.exception`. Quando usar cada um:
+<!-- fim se java -->
 
 - **`CommandHandler<TCommand>`** — escrita sem retorno.
 - **`CommandBase` / `QueryBase`** — implementações prontas de `Command` e
@@ -188,7 +199,7 @@ escolher esse caminho, substitua esta decisão e registre a troca aqui.)
 **Padrão: exceção.** Uma regra de domínio quebrada estoura
 `BusinessRulesBrokenException` (do `buildingBlocks`), e um
 `GlobalExceptionHandler`, em
-`{project-name}-api/.../presenter/configuration/exception/`, a converte em
+`{project-name}-api/.../presenter/configuration/`, a converte em
 422, com um `errors` no corpo listando o `code` e a `message` de cada
 `BusinessRule` que quebrou. Fatia nova que precisa de um novo tipo de erro
 acrescenta um `@ExceptionHandler` ali, não inventa formato próprio.
@@ -277,23 +288,44 @@ a migration, sempre.
 
 ### Testes
 
+**Nada disto existe no scaffold ainda — é a convenção a construir, não um
+fato já montado**, no mesmo espírito da árvore de pastas vazia descrita no
+topo deste documento. O `SKILL.md` desta skill deixa "teste de arquitetura
+executável" explicitamente fora de escopo, e o
+`{project-name}-api/build.gradle` que sai do Initializr não ganha dependência
+de ArchUnit nem de Testcontainers, nem a task `integrationTest`. Num projeto
+recém-gerado, `./gradlew integrationTest` responde "Task not found" — não é
+defeito, é o esperado até a primeira fatia vertical acrescentar o que falta.
+
+A convenção a seguir quando essa infraestrutura for construída:
+
 - Regra de domínio e handler: teste unitário no `-core`, sem Spring.
 - Route e infraestrutura: teste de integração no `-api`, classe terminada em
-  `IT`, estendendo `BaseIntegrationTest`, sobre um único Postgres em
+  `IT`, estendendo um `BaseIntegrationTest` (a criar em
+  `{project-name}-api/src/test/.../support/`), sobre um único Postgres em
   Testcontainers.
-- **O `-api` é o único módulo com Testcontainers.** O `-core` não tem
-  dependência de teste de container nenhuma; é o `-api`, pela dependência de
-  projeto sobre o `-core`, quem sobe o Postgres e testa a infraestrutura do
-  `-core` (repositório JPA, migrations) de ponta a ponta através de
-  `BaseIntegrationTest`.
-- ArchUnit (`EntrypointHasIntegrationTestIT`, em
-  `{project-name}-api/src/test/.../architecture/`) tem **um único
+- **O `-api` deve ser o único módulo com Testcontainers.** O `-core` não deve
+  ganhar dependência de teste de container nenhuma; é o `-api`, pela
+  dependência de projeto sobre o `-core`, quem sobe o Postgres e testa a
+  infraestrutura do `-core` (repositório JPA, migrations) de ponta a ponta
+  através do `BaseIntegrationTest`.
+- Uma regra ArchUnit (por exemplo `EntrypointHasIntegrationTestIT`, em
+  `{project-name}-api/src/test/.../architecture/`) com **um único
   trabalho**: todo `@RestController` precisa ter uma classe `<Nome>IT` que
-  estenda `BaseIntegrationTest`. Não há regra de pureza de pacote (nada
-  impede hoje, por exemplo, um import de `infrastructure/` dentro de
+  estenda `BaseIntegrationTest`. Não precisa de regra de pureza de pacote
+  (nada impede hoje, por exemplo, um import de `infrastructure/` dentro de
   `domain/` — veja "`-core` pode usar Spring" acima).
-- `./gradlew test` roda só o que não precisa de banco; `./gradlew integrationTest`
-  sobe o container.
+- `./gradlew test` deve continuar rodando só o que não precisa de banco;
+  `./gradlew integrationTest` é uma task nova, a acrescentar ao
+  `{project-name}-api/build.gradle` junto com o resto.
+
+Para sair do papel, a primeira fatia vertical que precisar de teste de
+integração acrescenta ao `{project-name}-api/build.gradle`: a dependência do
+ArchUnit (`com.tngtech.archunit:archunit-junit5`), as de Testcontainers
+(`org.testcontainers:junit-jupiter`, `org.testcontainers:postgresql`,
+`org.springframework.boot:spring-boot-testcontainers`) e a task
+`integrationTest` propriamente dita (um `sourceSet` separado de `test`, ou um
+filtro por tag do JUnit — a escolha é de quem implementar).
 
 ### Não está decidido
 

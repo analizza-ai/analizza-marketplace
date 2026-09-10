@@ -214,12 +214,18 @@ uma corrida que falha de forma intermitente — o pior tipo de falha.
 
 ### A única versão de dependência Java pinada da skill
 
-O `core-build.gradle.template` pina o `junit-bom`, porque o core não tem o BOM
-do Spring Boot para gerenciar versões. É o único número congelado entre as
-dependências Java da skill (o `docker-compose.template` também pina o
-`postgres:17-alpine`, mas isso é a imagem do banco, não uma dependência Java).
-BOM desatualizado não quebra build; ao notar que envelheceu, bump direto no
-template.
+O `core-build.gradle.template` pina o `junit-bom`. O core importa, sim, o BOM
+do Spring Boot (`dependencyManagement { imports { mavenBom
+"org.springframework.boot:spring-boot-dependencies:{boot-version}" } }`), mas
+esse BOM gerencia versão de dependência de produção; quem traria a versão do
+JUnit gerenciada é o `spring-boot-starter-test`, que o core não aplica (não é
+starter de teste, é o próprio core que depende de teste leve). Sem esse
+starter, os artefatos de teste (`kotlin-test-junit5`, `junit-jupiter`,
+`junit-platform-launcher`) ficam sem versão gerenciada — daí o `junit-bom`
+pinado à mão. É o único número congelado entre as dependências Java da skill
+(o `docker-compose.template` também pina o `postgres:17-alpine`, mas isso é a
+imagem do banco, não uma dependência Java). BOM desatualizado não quebra
+build; ao notar que envelheceu, bump direto no template.
 
 O `-api` não tem esse problema: as versões dele vêm do Initializr.
 

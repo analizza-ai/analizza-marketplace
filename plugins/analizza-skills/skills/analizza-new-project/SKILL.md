@@ -107,17 +107,42 @@ valor pedido for menor que `16`, não gere com ele — use o default e avise.
 
 ### Passo 4 — Gerar e reorganizar o backend
 
-Baixe o `starter.zip` com `artifactId={project-name}-api`, `type=gradle-project-kotlin`
-quando `language=kotlin` ou `type=gradle-project` quando `language=java` (ver
-tabela de `type` na [referência do Initializr](./references/initializr-api.md)),
-e `language={language}` no parâmetro da API — os dois valores substituem os
-literais `type=gradle-project` e `language=java` do exemplo de curl daquela
-referência. **Inspecione antes de extrair**, e siga
+Baixe o `starter.zip` com `artifactId={project-name}-api`, `type=gradle-project`
+— sempre, mesmo quando `language=kotlin` (ver nota abaixo) — e `language={language}`
+no parâmetro da API — o segundo valor substitui o literal `language=java` do
+exemplo de curl da [referência do Initializr](./references/initializr-api.md).
+**Inspecione antes de extrair**, e siga
 [gradle-multi-module.md](./references/gradle-multi-module.md) para promover o
-wrapper à raiz, empurrar o resto para `{project-name}-api/`, escrever o
-`settings.gradle`, criar o `{project-name}-core` a partir de
+wrapper à raiz, empurrar o resto para `{project-name}-api/` e escrever o
+`settings.gradle`.
+
+> **Por que `type` não muda com `language`:** na API do Initializr, `type`
+> escolhe o **DSL** do `build.gradle` (`gradle-project` = Groovy,
+> `gradle-project-kotlin` = Kotlin DSL, `.kts`) — um eixo independente de
+> `language`, que escolhe a linguagem do **código-fonte** (Java ou Kotlin).
+> Os dois nunca andam juntos por padrão. Todo template desta skill
+> (`core-build.gradle.template`, `buildingBlocks/build.gradle.template`, o
+> `root-build.gradle.template` do próximo bloco) é Groovy, então `type` fica
+> sempre `gradle-project` — inclusive com `language=kotlin`, que já produz
+> código-fonte em Kotlin com `build.gradle` em Groovy. Ver tabela completa de
+> `type` na [referência do Initializr](./references/initializr-api.md).
+
+Em seguida, escreva o `build.gradle` da **raiz** — sem ele, os subprojetos
+(`buildingBlocks`, `{project-name}-core`) não têm de onde herdar a versão dos
+plugins que aplicam sem versão, e o build inteiro morre com "plugin
+dependency must include a version number". Siga a seção "build.gradle da
+raiz" de [gradle-multi-module.md](./references/gradle-multi-module.md): leia
+as versões que o Initializr já resolveu no `plugins {}` de
+`{project-name}-api/build.gradle`, grave-as em
+[root-build.gradle.template](./templates/root-build.gradle.template) — só o
+bloco condicional da `language` escolhida — como `build.gradle` da raiz, e só
+depois remova essas mesmas versões do `plugins {}` de
+`{project-name}-api/build.gradle` (os plugins continuam aplicados ali, só sem
+o número da versão, que agora vem da raiz).
+
+Crie o `{project-name}-core` a partir de
 [core-build.gradle.template](./templates/core-build.gradle.template) — que
-agora aplica `io.spring.dependency-management` com o BOM do Boot, as
+aplica `io.spring.dependency-management` com o BOM do Boot, as
 dependências de saída (`data-jpa`, `flyway`, `mail`, driver do Postgres) e
 `api project(':buildingBlocks')` — e acrescentar a dependência de projeto no
 api. Grave só o bloco condicional da `language` escolhida.

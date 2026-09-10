@@ -53,8 +53,19 @@ Use `-G` com `--data-urlencode` em vez de montar a query à mão: o `groupId` e 
 | Valor | Corresponde a |
 |---|---|
 | `gradle-project` | Gradle - Groovy |
-| `gradle-project-kotlin` | Gradle - Kotlin |
+| `gradle-project-kotlin` | Gradle - Kotlin (DSL do `build.gradle.kts`) |
 | `maven-project` | Maven |
+
+`type` escolhe o DSL do build script, não a linguagem do código-fonte — quem
+decide Java vs. Kotlin é `language`. Os dois são eixos independentes: dá para
+pedir `language=kotlin` com `type=gradle-project` (código Kotlin, build
+script Groovy) do mesmo jeito que dá para pedir `language=java` com
+`type=gradle-project-kotlin` (código Java, build script Kotlin DSL). Esta
+skill usa sempre `type=gradle-project`, mesmo com `language=kotlin`: todo
+template Gradle que ela grava (`core-build.gradle.template`,
+`buildingBlocks/build.gradle.template`, `root-build.gradle.template`) é
+Groovy, e misturar DSL entre módulos do mesmo build não traz nenhum
+benefício aqui.
 
 ### IDs de dependência usados por padrão
 
