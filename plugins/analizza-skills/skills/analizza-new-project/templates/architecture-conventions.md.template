@@ -21,10 +21,52 @@ primeira fatia vertical.
 contrário. O `-core` **pode** depender de Spring (veja a seção seguinte); o
 que ele não faz é depender do módulo de entrada.
 
-### O que mora onde, dentro do `-core`
+### O que mora onde
 
 Pacote base: `{package}`, o mesmo nos três módulos `{language}` — não há
-sufixo por módulo.
+sufixo por módulo. A camada é o primeiro segmento depois da raiz, e é ela,
+não o módulo, que dá o nome ao pacote. Por isso `buildingBlocks` e o `-core`
+compartilham `{package}.application` e `{package}.domain`: são o mesmo
+pacote em módulos diferentes (split package), de propósito.
+
+#### `buildingBlocks` — os contratos
+
+```
+application/   Command, CommandBase, CommandHandler
+               Query, QueryBase, QueryHandler
+               ResultCommand, ResultCommandHandler
+domain/        Entity, Id, Event
+               BusinessRule, RuleChecker, BusinessRulesBrokenException
+presenter/
+  exception/   ErrorMessage, ListErrorMessage
+```
+
+Sem Spring. Nenhum destes tem lógica de negócio — são a forma que as outras
+camadas preenchem. Quando usar cada um está na seção *Os contratos do
+`buildingBlocks`*. É o único código que o scaffold entrega pronto,
+justamente porque é forma e não domínio.
+
+#### `{project-name}-api` — só a entrada
+
+```
+Application                        ponto de entrada; a raiz do component scan
+presenter/
+  routes/<agregado>/<casoDeUso>/   uma Route por caso de uso, com o Request
+                                   co-locado no mesmo arquivo
+  configuration/
+    security/                      cadeia de filtros, validação de token
+    exception/                     o handler global e as exceções de transporte
+```
+
+Não há mais nada neste módulo — nem `infrastructure/`, nem entidade de
+persistência, nem adapter. Se você está prestes a criar uma pasta aqui que
+não seja `presenter/`, provavelmente o código pertence ao `-core`.
+
+A classe de aplicação mora na raiz do pacote de propósito: é ela que define
+onde o component scan começa, e é por isso que os componentes do `-core`
+são encontrados sem varredura explícita.
+
+#### `{project-name}-core` — domínio, casos de uso e saída
 
 ```
 domain/
