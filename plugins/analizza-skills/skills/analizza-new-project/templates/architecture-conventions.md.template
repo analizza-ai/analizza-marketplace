@@ -1,85 +1,309 @@
 ## Arquitetura
 
-Monorepo de quatro módulos. Esta seção descreve **como implementar**; o scaffold
-inicial não contém código de domínio algum.
+Monorepo de cinco módulos. Esta seção descreve **como implementar**. O
+scaffold cria a árvore de diretórios das camadas abaixo, vazia (`.gitkeep`),
+mas não escreve código de domínio — isso é trabalho de quem for construir a
+primeira fatia vertical.
 
 ### Módulos
 
 | Módulo | Papel |
 |---|---|
-| `{project-name}-api` | Spring Boot. Controllers, adapters, configuração, ponto de entrada |
-| `{project-name}-core` | Java puro. Domínio e casos de uso. Sem Spring |
+| `buildingBlocks` | `{language}` puro. Contratos base de Command, Query e domínio. Sem Spring |
+| `{project-name}-api` | Spring Boot. `presenter/`: rotas e configuração de entrada |
+| `{project-name}-core` | `application/`, `domain/` e `infrastructure/`. **Pode usar Spring** |
 | `{project-name}-web` | Next.js |
 | `{project-name}-mobile` | Expo / React Native |
 
-**A seta é sempre `api → core`.** O `-core` não conhece o `-api`, não depende de
-Spring e não importa nada de framework web ou de persistência. Isso é o que
-permite testar regra de negócio sem subir contexto.
+**A seta é sempre `-api → -core → buildingBlocks`.** O `-core` não conhece o
+`-api`: nenhuma classe do `-core` importa nada de `{package}.presenter`, e o
+`build.gradle` do `-core` não declara o `-api` como dependência — só o
+contrário. O `-core` **pode** depender de Spring (veja a seção seguinte); o
+que ele não faz é depender do módulo de entrada.
 
 ### O que mora onde, dentro do `-core`
 
-Pacote base: `{package}.core`.
+Pacote base: `{package}`, o mesmo nos três módulos `{language}` — não há
+sufixo por módulo.
 
 ```
 domain/
-  model/          entidades e agregados. Estado e invariante, nada de anotação
-  valueobject/    tipos sem identidade, imutáveis
-  rule/           regras de negócio que não pertencem a uma entidade só
-  repository/     interfaces de persistência. Portas, não implementações
+  <Agregado>   entidades e value objects, soltos na raiz
+  rules/       regras que não pertencem a uma entidade só
+  repositories/ interfaces de persistência. Portas, não implementações
+  services/    orquestração de domínio que não cabe numa entidade
 application/
-  command/        escrita: Command + Handler + Result
-  query/          leitura: Query + Handler + Result
-  port/           interfaces para o mundo externo além do banco
-  service/        orquestração que não cabe em um handler só
+  <agregado>/<casoDeUso>/   Command + Handler + Result
+infrastructure/
+  repositories/                        Entity JPA, RepositoryImpl, interface do Spring Data
+  data/anticorruptionLayer/<vendor>/   integração externa: interface + impl/
+  security/                            emissão de credencial de saída: interface + impl/
+  utils/                               utilidades de saída
+  configuration/                       @Configuration do que é saída
 ```
 
-`domain/repository` guarda **interfaces**. A implementação é adapter e mora no
-`-api`, porque é ela que conhece JPA.
+<!-- se kotlin -->
+Um agregado é uma `class` que estende `Entity()` (do `buildingBlocks`) e
+valida sua invariante ao nascer, chamando `checkAllRules(...)` no `init`. Um
+value object sem identidade é um `data class` comum, ou um
+`@JvmInline value class` quando envolve um único valor primitivo e o custo
+zero em runtime compensa.
+<!-- fim se kotlin -->
+
+<!-- se java -->
+Um agregado é uma `class` que estende `Entity` (do `buildingBlocks`) e valida
+sua invariante ao nascer, chamando `checkAllRules(...)` no construtor. Um
+value object sem identidade é um `record`, com a validação no construtor
+compacto (`public MeuValueObject { /* regras aqui */ }`) — Java não tem
+equivalente a `@JvmInline value class`.
+<!-- fim se java -->
+
+Enquanto houver poucos agregados, `domain/` fica com os arquivos soltos na
+raiz e `rules/`/`services/` vazios (`.gitkeep`). Quando eles ganharem
+conteúdo real, o padrão é o mesmo: um arquivo por regra ou serviço, sem
+sub-pastas por agregado — isso só se justifica se o número de agregados
+crescer a ponto de a raiz de `domain/` ficar difícil de navegar.
+
+**Não existe uma pasta `port/` dentro de `application/`.** A interface do serviço externo mora no
+próprio `infrastructure/`, ao lado do `impl/` que a implementa — por exemplo
+`infrastructure/data/anticorruptionLayer/<vendor>/<Servico>` (interface) e
+`infrastructure/data/anticorruptionLayer/<vendor>/impl/<ServicoImpl>`
+(implementação).
+
+`domain/repositories` guarda **interfaces**; a implementação (`RepositoryImpl`,
+a `@Entity` JPA e a interface do Spring Data) mora em
+`infrastructure/repositories/`, no mesmo módulo. Não há adapter "no outro
+módulo": o `-core` implementa suas próprias portas.
+
+**Critério para decidir o que é `infrastructure/`:** é infraestrutura tudo
+que é **saída** — qualquer coisa que fale com algo fora do processo (banco,
+SMTP, um serviço externo, emissão de credencial). O caso que mais confunde é
+uma credencial que o próprio `-core` emite: **emitir** é saída
+(`infrastructure/security/`, porque é o `-core` produzindo um artefato para
+outra parte consumir) — mas **validar** uma credencial de uma requisição que
+chega é guarda de entrada, e por isso mora no `-api`, em
+`presenter/configuration/`, não no `-core`. A pergunta a fazer diante de um
+caso novo é: isso está produzindo algo para o mundo de fora, ou decidindo se
+algo que chegou pode entrar? A primeira resposta é `infrastructure/`; a
+segunda é `presenter/`.
+
+### `-core` pode usar Spring
+
+<!-- se kotlin -->
+O `-core` aplica `org.jetbrains.kotlin.plugin.spring` e `plugin.jpa` (para
+que classe Kotlin `final` por padrão funcione com proxy do Spring e da JPA
+sem precisar declarar `open` manualmente) e depende de
+`spring-boot-starter-data-jpa` e das demais dependências de saída que o caso
+de uso exigir — veja
+[core-build.gradle.template](../templates/core-build.gradle.template).
+`@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
+`@Configuration` para os beans de saída — tudo isso é normal aqui.
+<!-- fim se kotlin -->
+
+<!-- se java -->
+O `-core` depende de `spring-boot-starter-data-jpa` e das demais dependências
+de saída que o caso de uso exigir — veja
+[core-build.gradle.template](../templates/core-build.gradle.template).
+`@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
+`@Configuration` para os beans de saída — tudo isso é normal aqui.
+<!-- fim se java -->
+
+**Consequência que precisa ficar clara: não há regra de build impedindo uma
+`@Entity` dentro de `domain/`.** O Gradle não separa `domain/` de
+`infrastructure/` em módulos ou source sets diferentes — são pastas do mesmo
+módulo, compiladas juntas, com o mesmo acesso a qualquer dependência do
+classpath do `-core`. Nada no CI barra alguém de anotar uma classe de
+`domain/` com `@Entity` ou de fazer um `Handler` de `application/` chamar
+`JpaRepository` direto, pulando a porta de `domain/repositories`. A separação
+é convenção de pacote, e quem a garante é revisão de código — não o
+`./gradlew build`.
 
 ### A fatia vertical
 
 Um caso de uso atravessa assim:
 
-1. **Route** no `-api`: `@RestController` recebe o request, valida formato, monta
-   o Command ou a Query. Não tem regra de negócio.
-2. **Command / Query** no `-core`: objeto de entrada do caso de uso.
-3. **Handler** no `-core`: orquestra. Carrega pela porta de repositório, chama a
-   regra de domínio, persiste pela porta, devolve o Result.
-4. **Domain** no `-core`: onde a decisão de negócio acontece de fato.
-5. **Adapter** no `-api`: implementa a porta usando JPA e traduz entre entidade
-   de domínio e entidade JPA.
+1. **Route** no `-api`, em `presenter/routes/<agregado>/<casoDeUso>/`, com o
+   Request co-locado no mesmo pacote. Recebe o request, monta o Command ou a
+   Query, traduz o resultado em resposta HTTP. Não tem regra de negócio.
+2. **Command / Query** no `-core`, em `application/<agregado>/<casoDeUso>/`:
+   objeto de entrada do caso de uso.
+3. **Handler** no `-core`, no mesmo pacote, anotado `@Component`,
+   implementando o contrato do `buildingBlocks` (`CommandHandler`,
+   `ResultCommandHandler` ou `QueryHandler`). Orquestra: carrega pelo
+   repositório, chama a regra de domínio, persiste, devolve o Result.
+4. **Domain** no `-core`, em `domain/`: onde a decisão de negócio acontece de
+   fato.
+5. **Adapter** no `-core`, em `infrastructure/repositories/`: implementa a
+   porta de `domain/repositories` usando JPA e traduz entre entidade de
+   domínio e entidade JPA.
 
-CQRS aqui significa **separar escrita de leitura**, não event sourcing e não dois
-bancos. Uma Query pode ler por um caminho mais direto que o de escrita quando
-isso simplificar; o que não pode é uma Query mudar estado.
+CQRS aqui significa **separar escrita de leitura**, não event sourcing e não
+dois bancos. Uma Query pode ler por um caminho mais direto que o de escrita
+quando isso simplificar; o que não pode é uma Query mudar estado.
+
+### Os contratos do `buildingBlocks`
+
+Quinze arquivos, um contrato por arquivo (com uma exceção: `ErrorMessage` e
+`ListErrorMessage` dividem arquivo), distribuídos em três pacotes:
+`{package}.application` e `{package}.domain` (`{language}` puro, sem Spring)
+e `{package}.presenter.exception`. Quando usar cada um:
+
+- **`CommandHandler<TCommand>`** — escrita sem retorno.
+- **`CommandBase` / `QueryBase`** — implementações prontas de `Command` e
+  `Query` que geram o `id` via UUID aleatório. Estenda-as em vez de
+  implementar a interface do zero quando não precisar de um id customizado.
+- **`ResultCommandHandler<TCommand, TResult>`** — escrita com retorno. É o
+  caso mais comum: a maioria dos casos de uso de escrita confirma algo ao
+  chamador (id gerado, estado resultante). Repare que **`ResultCommand` não
+  estende `Command`**: um `ResultCommand` não tem `id`. Se o caso de uso
+  precisar de um identificador de correlação, declare o campo você mesmo — o
+  contrato não empresta um.
+- **`QueryHandler<TQuery, TResult>`** — leitura.
+- **`Entity`** — base para agregado que valida sua própria invariante ao
+  nascer, via `checkAllRules(...)`.
+- **`Id`** — base para agregado cujo identificador é numérico sequencial
+  (`Long`). Um agregado com `UUID` ou outro tipo de identificador
+  simplesmente não o estende.
+- **`BusinessRule` + `RuleChecker`** — regra que estoura
+  `BusinessRulesBrokenException` quando quebrada. `Entity.checkAllRules` usa
+  um `RuleChecker` internamente.
+- **`Event`** — para um caso de uso que precise publicar algo que aconteceu;
+  consumidor e mecanismo de publicação são decisão de quem implementar.
+- **`ErrorMessage` / `ListErrorMessage`** — formato de corpo de erro
+  alternativo a `ProblemDetail` (veja a seção seguinte). Use um ou outro, não
+  os dois: escolha o formato de erro do projeto e registre a decisão aqui.
+
+Sem essa lista, `buildingBlocks` vira gaveta: quinze arquivos e nenhuma pista
+de quando usar cada um.
+
+### Falha e corpo de erro
+
+Decidido: o corpo de erro do projeto inteiro é `ProblemDetail` (RFC 9457), o
+tipo nativo do Spring — habilite com
+`spring.mvc.problemdetails.enabled=true`, para que até os 400/404 levantados
+pelo próprio framework saiam no mesmo formato. (Alternativa registrada no
+`buildingBlocks`: `ErrorMessage`/`ListErrorMessage` como formato próprio — se
+escolher esse caminho, substitua esta decisão e registre a troca aqui.)
+
+**Padrão: exceção.** Uma regra de domínio quebrada estoura
+`BusinessRulesBrokenException` (do `buildingBlocks`), e um
+`GlobalExceptionHandler`, em
+`{project-name}-api/.../presenter/configuration/exception/`, a converte em
+422, com um `errors` no corpo listando o `code` e a `message` de cada
+`BusinessRule` que quebrou. Fatia nova que precisa de um novo tipo de erro
+acrescenta um `@ExceptionHandler` ali, não inventa formato próprio.
+
+**A exceção nomeada.** Nem toda falha pode passar pelo caminho padrão. O 422
+do `GlobalExceptionHandler` embute no corpo da resposta o `id` e a `message`
+de cada `BusinessRule` quebrada — informação útil na maioria dos casos, mas
+às vezes é exatamente o que a resposta não pode revelar. Quando causas
+distintas de falha de um mesmo caso de uso precisarem ficar indistinguíveis
+para quem chama — por exemplo, um endpoint que não pode deixar quem chama
+descobrir se um registro existe testando qual mensagem de erro volta — usar
+uma `BusinessRule` por causa, cada uma com sua mensagem, já é o vazamento: o
+422 resultante conta qual das causas é verdadeira.
+
+Nesse caso o Handler devolve um tipo de resultado fechado em vez de estourar
+exceção, e é a `Route` — não o `GlobalExceptionHandler` — quem traduz esse
+valor em status HTTP, sempre com o mesmo status e a mesma mensagem para todas
+as causas que precisam ficar opacas. Uma falha de infraestrutura de fato (o
+serviço externo do qual o caso de uso depende está fora do ar) não precisa
+dessa opacidade e pode virar uma resposta diferente — porque isso não é
+informação sobre o pedido, é sobre o próprio serviço estar no ar.
+
+Use esse padrão só quando houver esse risco de vazamento. Uma regra que não
+tem esse risco usa o caminho padrão (`BusinessRule` + exceção + 422).
+
+<!-- se kotlin -->
+O tipo de retorno fechado é um `sealed interface`, com um `data class` ou
+`object` por causa.
+<!-- fim se kotlin -->
+
+<!-- se java -->
+O tipo de retorno fechado é um `sealed interface` (Java 17+, com `permits`),
+com um `record` por causa.
+<!-- fim se java -->
+
+### Autenticação e autorização
+
+Decidido na forma, não no mecanismo: o `-api` é um resource server stateless
+— recebe uma credencial em cada requisição autenticada e a valida antes de
+deixar a requisição entrar. **Emitir** a credencial é saída
+(`infrastructure/security/` no `-core`, com o par interface + `impl/`
+descrito acima); **validar** a credencial de uma requisição que chega é
+guarda de entrada (`presenter/configuration/` no `-api`) — mesmo critério de
+"o que é `infrastructure/`" aplicado à autenticação.
+
+Qual credencial o usuário apresenta (senha, código, OAuth, certificado), o
+formato da credencial emitida e sua validade são decisão de produto —
+implemente e registre aqui quando a primeira fatia de autenticação for
+escrita. Falha de autenticação que precisar ser opaca por segurança (não
+revelar, por exemplo, se um identificador de login existe) segue o padrão da
+seção anterior.
+
+### CORS e como `-web` e `-mobile` alcançam o `-api`
+
+Decidido: o `-web` não fala com o `-api` direto do browser. Route Handlers do
+Next chamam o `-api` de servidor para servidor e guardam do lado do servidor
+qualquer credencial de sessão (por exemplo, um cookie `httpOnly`) — o browser
+só fala com o próprio Next. Como resultado, **não há CORS a configurar no
+`-api`** para o `-web`.
+
+O `-mobile` não tem essa camada intermediária: fala direto com o `-api`.
+Cliente nativo não está sujeito a CORS (é regra de browser), mas se o
+`-mobile` rodar contra um `-api` em outro host durante o desenvolvimento,
+confirme que a configuração de rede do app aponta para o host certo — não é
+problema de CORS, é de endereço.
+
+Isso deixa em aberto, para quando a primeira fatia de autenticação for
+escrita: como o `-mobile` guarda a credencial recebida. Sem cookie de browser
+disponível, a opção comum é um armazenamento seguro do próprio aparelho
+(keychain/keystore), mas a escolha é de quem implementar.
 
 ### Migrations
 
 `{project-name}-core/src/main/resources/db/migration/`, no formato do Flyway
-(`V1__descricao.sql`). Ficam no core porque o schema pertence ao domínio, não ao
-transporte HTTP. Chegam ao classpath do `-api` pela dependência de projeto.
+(`V1__descricao.sql`). Ficam no `-core` porque o schema pertence ao domínio,
+não ao transporte HTTP. Chegam ao classpath do `-api` pela dependência de
+projeto.
 
-O `spring.jpa.hibernate.ddl-auto` fica em `none`. Quem cria e altera tabela é a
-migration, sempre.
+Migration aplicada é imutável: um ambiente que já a rodou tem o checksum do
+arquivo original gravado em `flyway_schema_history`, e reescrever uma
+migration já aplicada quebra a validação de checksum no próximo boot.
+Correção vira sempre uma `V` nova.
+
+O `spring.jpa.hibernate.ddl-auto` fica em `none`. Quem cria e altera tabela é
+a migration, sempre.
 
 ### Testes
 
-- Regra de domínio e handler: teste unitário no `-core`, sem Spring
-- Controller e adapter: teste de integração no `-api`
-- Todo entrypoint deve ter pelo menos um teste de integração
+- Regra de domínio e handler: teste unitário no `-core`, sem Spring.
+- Route e infraestrutura: teste de integração no `-api`, classe terminada em
+  `IT`, estendendo `BaseIntegrationTest`, sobre um único Postgres em
+  Testcontainers.
+- **O `-api` é o único módulo com Testcontainers.** O `-core` não tem
+  dependência de teste de container nenhuma; é o `-api`, pela dependência de
+  projeto sobre o `-core`, quem sobe o Postgres e testa a infraestrutura do
+  `-core` (repositório JPA, migrations) de ponta a ponta através de
+  `BaseIntegrationTest`.
+- ArchUnit (`EntrypointHasIntegrationTestIT`, em
+  `{project-name}-api/src/test/.../architecture/`) tem **um único
+  trabalho**: todo `@RestController` precisa ter uma classe `<Nome>IT` que
+  estenda `BaseIntegrationTest`. Não há regra de pureza de pacote (nada
+  impede hoje, por exemplo, um import de `infrastructure/` dentro de
+  `domain/` — veja "`-core` pode usar Spring" acima).
+- `./gradlew test` roda só o que não precisa de banco; `./gradlew integrationTest`
+  sobe o container.
 
 ### Não está decidido
 
-O scaffold deliberadamente não escolheu, e a primeira implementação que precisar
-deve decidir e registrar aqui:
+O scaffold deliberadamente não escolheu, e a primeira implementação que
+precisar deve decidir e registrar aqui:
 
-- autenticação e autorização
-- formato do corpo de erro e mapeamento para status HTTP
 - paginação e ordenação nas listagens
-- CORS e como o `-web` e o `-mobile` alcançam o `-api`
 - upload e armazenamento de arquivos
 - versionamento da API
 - observabilidade além do Actuator
 
-Não improvise nenhum desses no meio de uma fatia: decida, escreva aqui, depois
-implemente.
+Não improvise nenhum desses no meio de uma fatia: decida, escreva aqui,
+depois implemente.
