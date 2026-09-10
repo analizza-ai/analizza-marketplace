@@ -54,9 +54,11 @@ O arquivo padrão traz o `context:` comentado. Descomente e preencha:
 
 ```yaml
 context: |
-  Monorepo de quatro módulos: {project-name}-api (controllers Spring Boot),
-  {project-name}-core (Clean Architecture + CQRS), {project-name}-web (Next.js)
-  e {project-name}-mobile (Expo). Convenções completas em openspec/PROJECT.md.
+  Monorepo de cinco módulos: buildingBlocks (contratos base, sem Spring),
+  {project-name}-api (Spring Boot, presenter/), {project-name}-core
+  (application/domain/infrastructure, pode usar Spring), {project-name}-web
+  (Next.js) e {project-name}-mobile (Expo). Convenções completas em
+  openspec/PROJECT.md.
 ```
 
 Preserve o resto do arquivo, incluindo os comentários de exemplo do bloco

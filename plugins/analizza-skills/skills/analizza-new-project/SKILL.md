@@ -126,10 +126,26 @@ Confirme com `./gradlew projects` que os dois subprojetos aparecem.
 
 ### Passo 5 — Gerar o `buildingBlocks`
 
-Copie `templates/buildingBlocks/{language}/` para `buildingBlocks/`, mantendo
-a árvore de pacotes do template (`application/`, `domain/`,
-`presenter/exception/`) e substituindo `{package}` e `{group}` em cada
-arquivo copiado. Copie também
+Copie `templates/buildingBlocks/{language}/` para
+`buildingBlocks/src/main/{src-dir}/{package-path}/`, onde `{src-dir}` é
+`kotlin` quando `language=kotlin` ou `java` quando `language=java` — o
+diretório-fonte que os plugins `java-library`/`org.jetbrains.kotlin.jvm`
+compilam por padrão — e `{package-path}` é `{package}` com os pontos
+trocados por `/` (mesmo vocabulário do Passo 8). Mantenha a árvore de
+pacotes do template (`application/`, `domain/`, `presenter/exception/`)
+abaixo desse caminho, e substitua `{package}` e `{group}` em cada arquivo
+copiado.
+
+Por exemplo, para `{package}=br.com.exemplo.projeto`: em Kotlin,
+`application/Command.kt.template` vai para
+`buildingBlocks/src/main/kotlin/br/com/exemplo/projeto/application/Command.kt`;
+em Java, para
+`buildingBlocks/src/main/java/br/com/exemplo/projeto/application/Command.java`.
+**Não copie para `buildingBlocks/application/...`** (fora de `src/main/...`)
+— o `build.gradle.template` deste módulo não declara `sourceSets`, então
+valem os diretórios-padrão dos plugins, e nada fora deles é compilado.
+
+Copie também
 [templates/buildingBlocks/build.gradle.template](./templates/buildingBlocks/build.gradle.template)
 para `buildingBlocks/build.gradle`, gravando só o bloco `<!-- se {language} -->`
 correspondente.
@@ -144,12 +160,19 @@ include ':buildingBlocks'
 Verificação — obrigatória antes de seguir para o Passo 6:
 
 ```bash
-./gradlew :buildingBlocks:test
+./gradlew :buildingBlocks:test --console=plain | tee /tmp/buildingblocks-test.log
+grep -qE ':buildingBlocks:(compileJava|compileKotlin|test) NO-SOURCE' /tmp/buildingblocks-test.log \
+  && echo "FALHOU: NO-SOURCE — as fontes ficaram fora de src/main, nada foi compilado" \
+  || echo "OK: compilou codigo de verdade"
+find buildingBlocks/build/classes -name '*.class' 2>/dev/null | wc -l   # espera um numero > 0
 ```
 
-Precisa passar. É o primeiro módulo Gradle do monorepo que compila código de
+Precisa passar **e** ter compilado código de verdade. `NO-SOURCE` sai com
+`exit 0` mesmo sem nenhuma classe — se os arquivos foram copiados para fora
+de `src/main/{src-dir}/`, o `./gradlew :buildingBlocks:test` "passa" sem
+testar nada. É o primeiro módulo Gradle do monorepo que compila código de
 verdade — se ele falhar (por exemplo, pela armadilha do piso de Java do Passo
-2), nada depois dele vale a pena tentar.
+2) ou sair `NO-SOURCE`, nada depois dele vale a pena tentar.
 
 ### Passo 6 — Gerar web e mobile
 
