@@ -18,7 +18,7 @@ pode ter mais de um sinal, e o primeiro da lista é o mais específico.
 | diretório `openspec/` | `openspec/PROJECT.md` + resumo na chave `context:` do `openspec/config.yaml` |
 | diretório `specs/` ou `.specify/` | `specs/CONSTITUTION.md` |
 | diretório `docs/superpowers/` | `docs/superpowers/INSTRUCTIONS.md` |
-| nenhum | pergunte ao usuário qual usar; se ele não quiser nenhum, `docs/ARCHITECTURE.md` |
+| nenhum | pergunte ao usuário qual usar; se ele não quiser nenhum, `docs/INSTRUCTIONS.md` |
 
 ```bash
 if   [ -d openspec ];        then echo openspec
@@ -81,5 +81,11 @@ permanente e vale para o projeto inteiro.
 ## Nenhum framework
 
 Pergunte. Se o usuário escolher um, crie a estrutura mínima dele e siga a regra
-correspondente. Se recusar, grave em `docs/ARCHITECTURE.md` e diga no relatório
+correspondente. Se recusar, grave em `docs/INSTRUCTIONS.md` e diga no relatório
 final onde ficou — senão a convenção some.
+
+O nome é `INSTRUCTIONS`, e não `ARCHITECTURE`, pelo mesmo motivo em todos os
+destinos desta tabela: o arquivo não fica só com arquitetura. Ele acumula
+formato de erro, migrations, estratégia de teste, o que ainda não foi decidido
+e os débitos conhecidos. Nome que promete menos do que o conteúdo entrega faz
+alguém não abrir o arquivo por achar que não é sobre o que precisa.
