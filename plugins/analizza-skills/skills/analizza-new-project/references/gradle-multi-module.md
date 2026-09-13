@@ -22,8 +22,9 @@ espalharia `src/` no lugar errado e seria trabalhoso desfazer.
 tmp=$(mktemp -d)
 unzip -q starter.zip -d "$tmp"
 mkdir -p {project-name}-api
-mv "$tmp"/gradlew "$tmp"/gradlew.bat "$tmp"/gradle "$tmp"/settings.gradle{dsl-ext} "$tmp"/.gitignore "$tmp"/.gitattributes .
-mv "$tmp"/* "$tmp"/.[!.]* {project-name}-api/ 2>/dev/null
+mv "$tmp"/gradlew "$tmp"/gradlew.bat "$tmp"/gradle "$tmp"/settings.gradle{dsl-ext} .
+for f in .gitignore .gitattributes; do if [ -e "$tmp/$f" ]; then mv "$tmp/$f" .; fi; done
+find "$tmp" -mindepth 1 -maxdepth 1 -exec mv {} {project-name}-api/ \;
 rmdir "$tmp"
 chmod +x gradlew
 ```
@@ -31,6 +32,15 @@ chmod +x gradlew
 O `chmod +x` é necessário: o bit de execução não sobrevive ao zip do Initializr
 em toda combinação de ferramenta e sistema, e sem ele o `make build` morre com
 "permission denied" antes de qualquer coisa útil acontecer.
+
+O restante é movido com `find … -exec mv` em vez de um glob (`"$tmp"/* "$tmp"/.[!.]*`)
+de propósito: depois que `.gitignore` e `.gitattributes` saem para a raiz não
+sobra nenhum ponto-arquivo em `$tmp`, e em zsh um glob que não casa nada aborta
+o comando inteiro com "no matches found" — `{project-name}-api/` ficaria vazio
+sem nenhum erro visível. O `.gitattributes` também pode não vir no zip do
+Initializr, dependendo dos parâmetros pedidos; por isso ele e o `.gitignore`
+são movidos um a um, só se existirem, em vez de num `mv` só que falharia com o
+primeiro ausente.
 
 ## `settings.gradle{dsl-ext}`
 

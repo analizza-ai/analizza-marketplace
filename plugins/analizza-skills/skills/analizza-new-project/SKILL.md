@@ -198,19 +198,30 @@ include(":buildingBlocks")       // kotlin (settings.gradle.kts)
 Verificação — obrigatória antes de seguir para o Passo 6:
 
 ```bash
-./gradlew :buildingBlocks:test --console=plain | tee /tmp/buildingblocks-test.log
-grep -qE ':buildingBlocks:(compileJava|compileKotlin|test) NO-SOURCE' /tmp/buildingblocks-test.log \
-  && echo "FALHOU: NO-SOURCE — as fontes ficaram fora de src/main, nada foi compilado" \
-  || echo "OK: compilou codigo de verdade"
-find buildingBlocks/build/classes -name '*.class' 2>/dev/null | wc -l   # espera um numero > 0
+./gradlew :buildingBlocks:test --console=plain > /tmp/buildingblocks-test.log 2>&1; echo "EXIT=$?"
+compile=$([ "{language}" = kotlin ] && echo compileKotlin || echo compileJava)
+classes=$(find buildingBlocks/build/classes -name '*.class' 2>/dev/null | wc -l)
+if grep -q ":buildingBlocks:$compile NO-SOURCE" /tmp/buildingblocks-test.log || [ "$classes" -eq 0 ]; then
+  echo "FALHOU: $compile sem fonte — as fontes ficaram fora de src/main, nada foi compilado"
+else
+  echo "OK: $classes classes compiladas"
+fi
 ```
 
-Precisa passar **e** ter compilado código de verdade. `NO-SOURCE` sai com
-`exit 0` mesmo sem nenhuma classe — se os arquivos foram copiados para fora
-de `src/main/{src-dir}/`, o `./gradlew :buildingBlocks:test` "passa" sem
-testar nada. É o primeiro módulo Gradle do monorepo que compila código de
-verdade — se ele falhar (por exemplo, pela armadilha do piso de Java do Passo
-2) ou sair `NO-SOURCE`, nada depois dele vale a pena tentar.
+(O `| tee` vira redirect + `echo "EXIT=$?"` porque num pipe o `$?` é do `tee`,
+não do Gradle — a mesma regra da seção "Verificação" de
+[pitfalls.md](./references/pitfalls.md).)
+
+Precisam sair `EXIT=0` **e** `OK`. `:buildingBlocks:test NO-SOURCE` é
+esperado — o módulo só entrega contratos, sem nenhum teste — e por si só não
+indica problema. O sinal real de falha é a tarefa de compilação da linguagem
+escolhida (`compileKotlin` ou `compileJava`) saindo `NO-SOURCE`, o que também
+sai com `exit 0`, ou a contagem de classes chegando a zero: se os arquivos
+foram copiados para fora de `src/main/{src-dir}/`, o
+`./gradlew :buildingBlocks:test` "passa" sem compilar nem testar nada. É o
+primeiro módulo Gradle do monorepo que compila código de verdade — se ele
+falhar (por exemplo, pela armadilha do piso de Java do Passo 2) ou a
+compilação sair `NO-SOURCE`, nada depois dele vale a pena tentar.
 
 ### Passo 6 — Gerar web e mobile
 
