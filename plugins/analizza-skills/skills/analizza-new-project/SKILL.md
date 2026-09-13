@@ -296,7 +296,9 @@ mkdir -p "$src/application" \
          "$src/infrastructure/configuration"
 
 api={project-name}-api/src/main/{src-dir}/{package-path}
-mkdir -p "$api/presenter/routes" "$api/presenter/configuration"
+mkdir -p "$api/presenter/routes" "$api/presenter/jobs" \
+         "$api/presenter/configuration/security" \
+         "$api/presenter/configuration/exception"
 
 find {project-name}-core {project-name}-api -type d -empty -exec touch {}/.gitkeep \;
 ```

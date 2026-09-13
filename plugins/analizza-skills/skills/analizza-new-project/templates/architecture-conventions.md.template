@@ -53,8 +53,9 @@ Application                        ponto de entrada; a raiz do component scan
 presenter/
   routes/<agregado>/<casoDeUso>/   uma Route por caso de uso, com o Request
                                    co-locado no mesmo arquivo
+  jobs/                            jobs agendados: o agendamento e sua habilitação
   configuration/
-    security/                      cadeia de filtros, validação de token
+    security/                      cadeia de filtros, validação de credencial
     exception/                     o handler global e as exceções de transporte
 ```
 
@@ -65,6 +66,12 @@ não seja `presenter/`, provavelmente o código pertence ao `-core`.
 A classe de aplicação mora na raiz do pacote de propósito: é ela que define
 onde o component scan começa, e é por isso que os componentes do `-core`
 são encontrados sem varredura explícita.
+
+Um job agendado mora em `presenter/jobs/` pelo mesmo critério que uma Route
+mora em `presenter/routes/`: ele é **entrada** — recebe um gatilho, monta o
+Command, chama o handler e traduz o resultado em log. O gatilho é o
+relógio em vez de HTTP, e só isso muda. Um job não tem regra de negócio,
+pelo mesmo motivo que uma Route não tem.
 
 #### `{project-name}-core` — domínio, casos de uso e saída
 
@@ -124,10 +131,10 @@ uma credencial que o próprio `-core` emite: **emitir** é saída
 (`infrastructure/security/`, porque é o `-core` produzindo um artefato para
 outra parte consumir) — mas **validar** uma credencial de uma requisição que
 chega é guarda de entrada, e por isso mora no `-api`, em
-`presenter/configuration/`, não no `-core`. A pergunta a fazer diante de um
-caso novo é: isso está produzindo algo para o mundo de fora, ou decidindo se
-algo que chegou pode entrar? A primeira resposta é `infrastructure/`; a
-segunda é `presenter/`.
+`presenter/configuration/security/`, não no `-core`. A pergunta a fazer
+diante de um caso novo é: isso está produzindo algo para o mundo de fora, ou
+decidindo se algo que chegou pode entrar? A primeira resposta é
+`infrastructure/`; a segunda é `presenter/`.
 
 ### `-core` pode usar Spring
 
@@ -241,7 +248,7 @@ escolher esse caminho, substitua esta decisão e registre a troca aqui.)
 **Padrão: exceção.** Uma regra de domínio quebrada estoura
 `BusinessRulesBrokenException` (do `buildingBlocks`), e um
 `GlobalExceptionHandler`, em
-`{project-name}-api/.../presenter/configuration/`, a converte em
+`{project-name}-api/.../presenter/configuration/exception/`, a converte em
 422, com um `errors` no corpo listando o `code` e a `message` de cada
 `BusinessRule` que quebrou. Fatia nova que precisa de um novo tipo de erro
 acrescenta um `@ExceptionHandler` ali, não inventa formato próprio.
@@ -284,8 +291,8 @@ Decidido na forma, não no mecanismo: o `-api` é um resource server stateless
 deixar a requisição entrar. **Emitir** a credencial é saída
 (`infrastructure/security/` no `-core`, com o par interface + `impl/`
 descrito acima); **validar** a credencial de uma requisição que chega é
-guarda de entrada (`presenter/configuration/` no `-api`) — mesmo critério de
-"o que é `infrastructure/`" aplicado à autenticação.
+guarda de entrada (`presenter/configuration/security/` no `-api`) — mesmo
+critério de "o que é `infrastructure/`" aplicado à autenticação.
 
 Qual credencial o usuário apresenta (senha, código, OAuth, certificado), o
 formato da credencial emitida e sua validade são decisão de produto —
@@ -351,12 +358,22 @@ A convenção a seguir quando essa infraestrutura for construída:
   dependência de projeto sobre o `-core`, quem sobe o Postgres e testa a
   infraestrutura do `-core` (repositório JPA, migrations) de ponta a ponta
   através do `BaseIntegrationTest`.
+- Nenhuma mensagem nem chamada sai da suíte. Um `TestConfig` em
+  `{project-name}-api/src/test/.../support/` registra, com `@Primary`, um
+  dublê para cada serviço de saída que não tem container (e-mail, gateway de
+  terceiro): o dublê guarda o que recebeu em memória para o teste afirmar
+  sobre isso. O banco e o que tem container de verdade não ganham dublê — o
+  teste de integração existe para exercitá-los.
 - Uma regra ArchUnit (por exemplo `EntrypointHasIntegrationTestIT`, em
   `{project-name}-api/src/test/.../architecture/`) com **um único
-  trabalho**: todo `@RestController` precisa ter uma classe `<Nome>IT` que
-  estenda `BaseIntegrationTest`. Não precisa de regra de pureza de pacote
-  (nada impede hoje, por exemplo, um import de `infrastructure/` dentro de
-  `domain/` — veja "`-core` pode usar Spring" acima).
+  trabalho**: todo entrypoint — `@RestController` ou classe com um método
+  `@Scheduled` — precisa ter uma classe `<Nome>IT` que estenda
+  `BaseIntegrationTest`. Um job entra na regra pelo mesmo motivo que um
+  controller, e com mais razão: ninguém recebe um 500 quando um agendamento
+  para de rodar, então o risco de ele quebrar em silêncio é maior, não menor.
+  Não precisa de regra de pureza de pacote (nada impede hoje, por exemplo, um
+  import de `infrastructure/` dentro de `domain/` — veja "`-core` pode usar
+  Spring" acima).
 - `./gradlew test` deve continuar rodando só o que não precisa de banco;
   `./gradlew integrationTest` é uma task nova, a acrescentar ao
   `{project-name}-api/build.gradle` junto com o resto.
