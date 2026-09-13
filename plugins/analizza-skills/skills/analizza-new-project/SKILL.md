@@ -55,8 +55,16 @@ argument-hint: "Sem argumentos — o nome vem da pasta raiz; linguagem, group, p
 | `dependencies` | Perguntar | `web,actuator,postgresql,data-jpa,flyway` |
 | `boot-version` | Do metadata do Initializr | `default` do metadata |
 | `db-name` | Derivado | `{project-name}` com `-` trocado por `_` |
+| `initializr-type` | Derivado de `language` | `gradle-project-kotlin` se `kotlin`, `gradle-project` se `java` |
+| `dsl-ext` | Derivado de `language` | `.kts` se `kotlin`, vazio se `java` |
 
 Não invente a `boot-version`: leia do metadata (passo 3).
+
+A DSL do Gradle segue a linguagem: Kotlin gera `build.gradle.kts` e
+`settings.gradle.kts`; Java gera `build.gradle` e `settings.gradle`. Todo
+template Gradle desta skill existe nas duas formas — `<nome>.gradle.template`
+(Groovy, só Java) e `<nome>.gradle.kts.template` (Kotlin DSL, só Kotlin) — e
+só o da linguagem escolhida entra no projeto. Nunca misture DSL no mesmo build.
 
 Se `language` for `java`, `java-version` tem um piso: **16**. Os templates do
 `buildingBlocks` usam `record` (`ErrorMessage`) e `Stream.toList()`
@@ -87,12 +95,14 @@ Pergunte **primeiro `language`** (`java` ou `kotlin`), depois `group`,
 `package`, `java-version` e `dependencies`, com os defaults da tabela. O
 `project-name` vem da pasta; o `db-name` é derivado.
 
-A `language` escolhida decide qual bloco condicional de cada template entra
-no projeto gerado. Os templates desta skill marcam trechos que divergem entre
-as duas linguagens com `<!-- se kotlin -->` / `<!-- fim se kotlin -->` e
+A `language` escolhida decide qual bloco condicional do template de
+convenções entra no projeto gerado e qual arquivo de cada template Gradle é
+usado. O `architecture-conventions.md.template` marca trechos que divergem
+entre as duas linguagens com `<!-- se kotlin -->` / `<!-- fim se kotlin -->` e
 `<!-- se java -->` / `<!-- fim se java -->`: grave sempre **só um dos dois**
 blocos e remova os marcadores e o bloco do idioma não escolhido — nunca os
-dois juntos, nunca os marcadores sobrando no arquivo final.
+dois juntos, nunca os marcadores sobrando no arquivo final. Os templates
+Gradle não usam marcador: a escolha é pelo arquivo (`{dsl-ext}`).
 
 ### Passo 3 — Validar o metadata
 
@@ -107,45 +117,46 @@ valor pedido for menor que `16`, não gere com ele — use o default e avise.
 
 ### Passo 4 — Gerar e reorganizar o backend
 
-Baixe o `starter.zip` com `artifactId={project-name}-api`, `type=gradle-project`
-— sempre, mesmo quando `language=kotlin` (ver nota abaixo) — e `language={language}`
-no parâmetro da API — o segundo valor substitui o literal `language=java` do
-exemplo de curl da [referência do Initializr](./references/initializr-api.md).
+Baixe o `starter.zip` com `artifactId={project-name}-api`,
+`type={initializr-type}` e `language={language}` — os dois substituem os
+literais `type=gradle-project` e `language=java` do exemplo de curl da
+[referência do Initializr](./references/initializr-api.md).
 **Inspecione antes de extrair**, e siga
 [gradle-multi-module.md](./references/gradle-multi-module.md) para promover o
 wrapper à raiz, empurrar o resto para `{project-name}-api/` e escrever o
-`settings.gradle`.
+`settings.gradle{dsl-ext}`.
 
-> **Por que `type` não muda com `language`:** na API do Initializr, `type`
-> escolhe o **DSL** do `build.gradle` (`gradle-project` = Groovy,
-> `gradle-project-kotlin` = Kotlin DSL, `.kts`) — um eixo independente de
-> `language`, que escolhe a linguagem do **código-fonte** (Java ou Kotlin).
-> Os dois nunca andam juntos por padrão. Todo template desta skill
-> (`core-build.gradle.template`, `buildingBlocks/build.gradle.template`, o
-> `root-build.gradle.template` do próximo bloco) é Groovy, então `type` fica
-> sempre `gradle-project` — inclusive com `language=kotlin`, que já produz
-> código-fonte em Kotlin com `build.gradle` em Groovy. Ver tabela completa de
-> `type` na [referência do Initializr](./references/initializr-api.md).
+> **Por que `type` muda com `language`:** na API do Initializr, `type` escolhe
+> a **DSL** do build (`gradle-project` = Groovy, `gradle-project-kotlin` =
+> Kotlin DSL) e `language` escolhe a linguagem do **código-fonte**. São eixos
+> independentes na API, mas esta skill os amarra: o `build.gradle{dsl-ext}`
+> que o Initializr gera para o `-api` precisa estar na mesma DSL dos templates
+> que a skill grava para a raiz, o `-core` e o `buildingBlocks`, senão o build
+> sai com DSL misturada. Ver tabela de `type` na
+> [referência do Initializr](./references/initializr-api.md).
 
-Em seguida, escreva o `build.gradle` da **raiz** — sem ele, os subprojetos
-(`buildingBlocks`, `{project-name}-core`) não têm de onde herdar a versão dos
-plugins que aplicam sem versão, e o build inteiro morre com "plugin
-dependency must include a version number". Siga a seção "build.gradle da
-raiz" de [gradle-multi-module.md](./references/gradle-multi-module.md): leia
+Em seguida, escreva o `build.gradle{dsl-ext}` da **raiz** — sem ele, os
+subprojetos (`buildingBlocks`, `{project-name}-core`) não têm de onde herdar a
+versão dos plugins que aplicam sem versão, e o build inteiro morre com "plugin
+dependency must include a version number". Siga a seção "build.gradle{dsl-ext}
+da raiz" de [gradle-multi-module.md](./references/gradle-multi-module.md): leia
 as versões que o Initializr já resolveu no `plugins {}` de
-`{project-name}-api/build.gradle`, grave-as em
-[root-build.gradle.template](./templates/root-build.gradle.template) — só o
-bloco condicional da `language` escolhida — como `build.gradle` da raiz, e só
-depois remova essas mesmas versões do `plugins {}` de
-`{project-name}-api/build.gradle` (os plugins continuam aplicados ali, só sem
-o número da versão, que agora vem da raiz).
+`{project-name}-api/build.gradle{dsl-ext}`, grave-as em
+[root-build.gradle.template](./templates/root-build.gradle.template) (java) ou
+[root-build.gradle.kts.template](./templates/root-build.gradle.kts.template)
+(kotlin) como `build.gradle{dsl-ext}` da raiz, e só depois remova essas mesmas
+versões do `plugins {}` de `{project-name}-api/build.gradle{dsl-ext}` (os
+plugins continuam aplicados ali, só sem o número da versão, que agora vem da
+raiz).
 
 Crie o `{project-name}-core` a partir de
-[core-build.gradle.template](./templates/core-build.gradle.template) — que
+[core-build.gradle.template](./templates/core-build.gradle.template) (java) ou
+[core-build.gradle.kts.template](./templates/core-build.gradle.kts.template)
+(kotlin), gravado como `{project-name}-core/build.gradle{dsl-ext}` — que
 aplica `io.spring.dependency-management` com o BOM do Boot, as
 dependências de saída (`data-jpa`, `flyway`, `mail`, driver do Postgres) e
 `api project(':buildingBlocks')` — e acrescentar a dependência de projeto no
-api. Grave só o bloco condicional da `language` escolhida.
+api.
 
 Confirme com `./gradlew projects` que os dois subprojetos aparecem.
 
@@ -167,19 +178,21 @@ Por exemplo, para `{package}=br.com.exemplo.projeto`: em Kotlin,
 em Java, para
 `buildingBlocks/src/main/java/br/com/exemplo/projeto/application/Command.java`.
 **Não copie para `buildingBlocks/application/...`** (fora de `src/main/...`)
-— o `build.gradle.template` deste módulo não declara `sourceSets`, então
-valem os diretórios-padrão dos plugins, e nada fora deles é compilado.
+— o build deste módulo não declara `sourceSets`, então valem os
+diretórios-padrão dos plugins, e nada fora deles é compilado.
 
 Copie também
 [templates/buildingBlocks/build.gradle.template](./templates/buildingBlocks/build.gradle.template)
-para `buildingBlocks/build.gradle`, gravando só o bloco `<!-- se {language} -->`
-correspondente.
+(java) ou
+[templates/buildingBlocks/build.gradle.kts.template](./templates/buildingBlocks/build.gradle.kts.template)
+(kotlin) para `buildingBlocks/build.gradle{dsl-ext}`.
 
-Acrescente ao `settings.gradle`, junto dos dois `include` já escritos no
-Passo 4:
+Acrescente ao `settings.gradle{dsl-ext}`, junto dos dois `include` já escritos
+no Passo 4:
 
 ```gradle
-include ':buildingBlocks'
+include ':buildingBlocks'        // java   (settings.gradle)
+include(":buildingBlocks")       // kotlin (settings.gradle.kts)
 ```
 
 Verificação — obrigatória antes de seguir para o Passo 6:
