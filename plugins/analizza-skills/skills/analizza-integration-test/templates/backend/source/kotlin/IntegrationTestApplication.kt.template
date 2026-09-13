@@ -1,0 +1,29 @@
+package {base-package}
+
+import org.springframework.boot.SpringBootConfiguration
+import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.context.TypeExcludeFilter
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.annotation.FilterType
+
+/**
+ * So existe quando o build tem mais de uma @SpringBootApplication: junta o
+ * component scan de todas num contexto so para os testes de integracao.
+ *
+ * Nao e @SpringBootApplication de proposito: o scan dela nao aceita filtro de
+ * exclusao, e as aplicacoes originais precisam ficar fora dele para nao
+ * aplicarem a autoconfiguracao uma segunda vez.
+ */
+@SpringBootConfiguration
+@EnableAutoConfiguration
+@ComponentScan(
+    basePackages = ["{base-package}"],
+    excludeFilters = [
+        ComponentScan.Filter(type = FilterType.CUSTOM, classes = [TypeExcludeFilter::class]),
+        ComponentScan.Filter(type = FilterType.CUSTOM, classes = [AutoConfigurationExcludeFilter::class]),
+        ComponentScan.Filter(type = FilterType.ANNOTATION, classes = [SpringBootApplication::class]),
+    ],
+)
+class IntegrationTestApplication

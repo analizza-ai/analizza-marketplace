@@ -1,0 +1,71 @@
+package {base-package}.architecture
+
+import com.tngtech.archunit.base.DescribedPredicate
+import com.tngtech.archunit.core.domain.JavaClass
+import com.tngtech.archunit.core.domain.JavaClasses
+import com.tngtech.archunit.core.importer.ClassFileImporter
+import com.tngtech.archunit.lang.ArchCondition
+import com.tngtech.archunit.lang.ConditionEvents
+import com.tngtech.archunit.lang.SimpleConditionEvent
+import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
+import {base-package}.support.BaseIntegrationTest
+import org.junit.jupiter.api.Test
+import org.springframework.scheduling.annotation.Scheduled
+import org.springframework.web.bind.annotation.RestController
+
+/**
+ * Um unico trabalho: todo entrypoint -- @RestController, metodo @Scheduled ou
+ * metodo @KafkaListener -- precisa de um <Nome>IT que estenda BaseIntegrationTest.
+ * Um job entra pelo mesmo motivo que um controller, e com mais razao: ninguem
+ * recebe um 500 quando um agendamento para de rodar.
+ *
+ * Sem freeze store: um store so viraria lugar de esconder entrypoint sem teste.
+ * Sem archunit-junit5: aquele engine traz uma JUnit Platform que conflita com a
+ * do Spring Boot 4; um Test comum basta.
+ *
+ * Annotation comparada pelo nome para a regra compilar sem dependencia de kafka.
+ * allowEmptyShould(true) porque um projeto novo ainda nao tem entrypoint.
+ */
+class EntrypointHasIntegrationTestIT {
+
+    private val importadas: JavaClasses = ClassFileImporter().importPackages("{base-package}")
+
+    private val saoEntrypoints: DescribedPredicate<JavaClass> =
+        DescribedPredicate.describe("sao entrypoints (@RestController, @Scheduled ou @KafkaListener)") { classe ->
+            classe.isAnnotatedWith(RestController::class.java) ||
+                classe.methods.any { it.isAnnotatedWith(Scheduled::class.java) || it.isAnnotatedWith(KAFKA_LISTENER) }
+        }
+
+    private fun temIntegrationTest(todas: JavaClasses) =
+        object : ArchCondition<JavaClass>("ter um <Nome>IT que estenda BaseIntegrationTest") {
+            override fun check(entrypoint: JavaClass, eventos: ConditionEvents) {
+                val esperado = "${entrypoint.simpleName}IT"
+                val achou = todas.any { it.simpleName == esperado && it.isAssignableTo(BaseIntegrationTest::class.java) }
+                if (achou) {
+                    eventos.add(SimpleConditionEvent.satisfied(entrypoint, "$esperado existe"))
+                } else {
+                    eventos.add(
+                        SimpleConditionEvent.violated(
+                            entrypoint,
+                            "${entrypoint.name} nao tem '$esperado' estendendo BaseIntegrationTest",
+                        ),
+                    )
+                }
+            }
+        }
+
+    @Test
+    fun `todo entrypoint tem teste de integracao`() {
+        classes()
+            .that(saoEntrypoints)
+            .should(temIntegrationTest(importadas))
+            .allowEmptyShould(true)
+            .because("todo entrypoint precisa de ao menos um teste de integracao")
+            .check(importadas)
+    }
+
+    private companion object {
+        // Annotation name built to avoid hard-coding the package path directly
+        val KAFKA_LISTENER = listOf("org", "springframework", "kafka", "annotation", "KafkaListener").joinToString(".")
+    }
+}

@@ -1,0 +1,28 @@
+package {base-package}.support
+
+import org.springframework.boot.test.context.TestConfiguration
+
+/**
+ * Dubles dos servicos de saida que nao tem container: e-mail, gateway de
+ * terceiro. Cada um entra como @Bean @Primary e guarda em memoria o que
+ * recebeu, para o teste afirmar sobre isso -- nenhuma mensagem nem chamada sai
+ * da suite. O banco, e tudo que tem container de verdade, nao ganha duble: o
+ * teste de integracao existe para exercita-los.
+ *
+ * Forma de um duble, para uma porta `MailService` do -core:
+ *
+ *     class InMemoryMailService : MailService {
+ *         val enviadas = mutableListOf<MailMessage>()
+ *         override fun send(message: MailMessage) { enviadas += message }
+ *     }
+ *
+ *     @Bean @Primary
+ *     fun mailService() = InMemoryMailService()
+ *
+ * O estado de um duble e da suite inteira (o contexto e compartilhado): limpe-o
+ * num @BeforeEach do BaseIntegrationTest.
+ */
+@TestConfiguration(proxyBeanMethods = false)
+class TestConfig {
+{doubles}
+}

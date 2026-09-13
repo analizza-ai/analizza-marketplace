@@ -1,0 +1,26 @@
+package {base-package}.support;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.sql.Connection;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+/**
+ * Substitui o teste de contexto que o Spring Initializr gera: o mesmo "o
+ * contexto sobe", agora contra o banco do container, e fora do ./gradlew test,
+ * que deixa de precisar de banco.
+ */
+class ApplicationContextIT extends BaseIntegrationTest {
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Test
+    void oContextoSobeConectadoAoBancoDoContainer() throws Exception {
+        try (Connection conexao = dataSource.getConnection()) {
+            assertTrue(conexao.isValid(2), "a conexao com o banco do container nao e valida");
+        }
+    }
+}
