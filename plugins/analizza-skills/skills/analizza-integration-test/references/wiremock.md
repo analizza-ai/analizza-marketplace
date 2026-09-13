@@ -6,6 +6,9 @@ iniciado na mão, porta dinâmica e `resetAll()` antes de cada teste.
 
 ## Dependência
 
+Acrescente ao `dependencies {}` do build de `{it-module}` — é lá, e só lá, que
+o `BaseIntegrationTest` mora:
+
 ```kotlin
 testImplementation("org.wiremock:wiremock-standalone:3.13.1")   // build.gradle.kts
 ```

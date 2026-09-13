@@ -37,7 +37,7 @@ infraestrutura, um IT de contexto e a regra que obriga os próximos.
 | `{base-package}` | pacote raiz comum às classes de produção (ex.: `br.com.analizza.loja`) |
 | `{it-module}` | `{base}-integration-tests` (dedicado), o `-api` (projeto `-api`/`-core`) ou `.` (módulo único) |
 | `{it-src}` | `{it-module}/src/test/{src-dir}/{base-package com / no lugar de .}` |
-| `{group}`, `{java-version}`, `{boot-version}` | lidos do build do módulo que aplica o plugin do Spring Boot |
+| `{group}`, `{java-version}` | lidos do build do módulo que aplica o plugin do Spring Boot |
 
 ## Procedimento
 
@@ -79,7 +79,7 @@ com `build.gradle` recebe Groovy.
 **Banco.**
 
 ```bash
-grep -rhoE 'org\.postgresql:postgresql|com\.oracle\.database\.jdbc:ojdbc[0-9]*|com\.mysql:mysql-connector-j' --include='build.gradle*' . | sort -u
+grep -rhoE 'org\.postgresql:postgresql|com\.oracle\.database\.jdbc:ojdbc[0-9]*|com\.mysql:mysql-connector-j|mysql:mysql-connector-java' --include='build.gradle*' --include='libs.versions.toml' . | sort -u
 grep -rhoE 'jdbc:(postgresql|oracle|mysql)' --include='application*.properties' --include='application*.y*ml' . | sort -u
 find . -maxdepth 1 \( -name 'docker-compose*.y*ml' -o -name 'compose*.y*ml' \) -exec grep -hoE 'image: *(postgres|gvenzl/oracle[^ ]*|container-registry.oracle[^ ]*|mysql)[^ ]*' {} +
 ```
@@ -134,6 +134,11 @@ grep -rlE '@SpringBootApplication' --include='*.kt' --include='*.java' . | grep 
 4. Tire dos outros módulos as dependências de teste que só a integração usa:
    `spring-boot-testcontainers`, `testcontainers-*`, `archunit*`, `wiremock*`,
    `awaitility`. Mantenha o que teste unitário usa.
+5. Todo `testImplementation` de starter de teste do Spring Boot
+   (`spring-boot-starter-*-test`) que um módulo de origem declarar por causa
+   de um teste que o Passo 4 move para cá, leve para
+   `{base}-integration-tests`; tire do módulo de origem só se nada mais lá
+   depender dele.
 
 **Existente.** Mescle no `{it-module}/build.gradle{dsl-ext}` os trechos de
 [existing-module.gradle.template](./templates/backend/build/groovy/existing-module.gradle.template)
@@ -146,7 +151,13 @@ duplicar linha, e substitua configurações anteriores de `test` e
 
 ### Passo 3 — Aplicação do contexto de teste
 
-Conte as `@SpringBootApplication` do Passo 1.
+**Existente:** `{app-class}` é o nome simples da `@SpringBootApplication` de
+dentro do próprio `{it-module}` e `{app-package}`, o pacote dela — não conte
+`@SpringBootApplication` de outros módulos, e não grave
+`IntegrationTestApplication`: neste layout ela nunca existe.
+
+**Dedicado:** conte as `@SpringBootApplication` do Passo 1 em todos os
+módulos de produção do build.
 
 - **Uma:** `{app-class}` é o nome simples dela e `{app-package}`, o pacote.
 - **Mais de uma:** grave `{it-src}/IntegrationTestApplication.{kt|java}` a
@@ -154,9 +165,17 @@ Conte as `@SpringBootApplication` do Passo 1.
   [IntegrationTestApplication.kt.template](./templates/backend/source/kotlin/IntegrationTestApplication.kt.template)
   ou
   [IntegrationTestApplication.java.template](./templates/backend/source/java/IntegrationTestApplication.java.template);
-  `{app-class}=IntegrationTestApplication`, `{app-package}={base-package}`. Se
-  os módulos têm `application.properties`/`.yml` com nomes diferentes, liste
-  todos em `spring.config.name` numa `properties` do `@SpringBootTest`.
+  `{app-class}=IntegrationTestApplication`, `{app-package}={base-package}`.
+  Copie para ela toda anotação das classes `@SpringBootApplication`
+  originais além da própria `@SpringBootApplication` (ex.: `@EnableScheduling`,
+  `@EnableAsync`, `@EnableKafka`, `@ConfigurationPropertiesScan`,
+  `@EnableConfigurationProperties`, `@EntityScan`), com os imports
+  correspondentes — o template já deixa um comentário lembrando disto. Se os
+  módulos têm `application.properties`/`.yml` com nomes diferentes, liste
+  todos em `spring.config.name` numa `properties` do `@SpringBootTest`; se
+  dois módulos tiverem arquivo de configuração com o **mesmo nome**, avise o
+  usuário e use `spring.config.import`, com o caminho de classpath explícito
+  de cada um, em vez de `spring.config.name`.
 
 A configuração da aplicação chega ao classpath dos ITs pela dependência de
 projeto: não copie `application.properties` para o módulo de testes.
@@ -212,29 +231,34 @@ por esta e diga ao usuário.
 
 ### Passo 6 — Documentar o layout nas convenções
 
-Se o projeto tem arquivo de convenções com uma seção *Testes* (o que a
-`analizza-new-project` grava — procure `grep -qE '^#{1,4} Testes$'` em
-`docs/INSTRUCTIONS.md`, `docs/superpowers/INSTRUCTIONS.md`,
-`.specify/memory/constitution.md` e `openspec/project.md`; o título conta como
-existente em qualquer nível de heading):
+Resolva `{conventions-file}` com a mesma ordem de detecção da
+`analizza-new-project` — pare no primeiro sinal que bater (tabela "Detecção"
+de
+[sdd-frameworks.md](../analizza-new-project/references/sdd-frameworks.md)):
 
-- **Dedicado:** troque a frase de que o `-api` é o único módulo com
-  Testcontainers por: "**O `{base}-integration-tests` é o único módulo com
-  Testcontainers.** Nenhum módulo de produção tem dependência de teste de
-  container; é o módulo dedicado, pela dependência de projeto sobre os outros,
-  quem sobe os containers e testa a infraestrutura de ponta a ponta através
-  do `BaseIntegrationTest`." e troque todo caminho
-  `{project-name}-api/src/test/...` da seção por
-  `{base}-integration-tests/src/test/...`.
-- **Os dois layouts:** a seção deixa de dizer que a infraestrutura "não existe
-  ainda" e passa a dizer que `./gradlew test` roda só o que não precisa de banco
-  e `./gradlew integrationTest` sobe os containers.
+```bash
+if   [ -d openspec ];                then conventions_file=openspec/PROJECT.md
+elif [ -d specs ] || [ -d .specify ]; then conventions_file=specs/CONSTITUTION.md
+elif [ -d docs/superpowers ];         then conventions_file=docs/superpowers/INSTRUCTIONS.md
+else                                       conventions_file=docs/INSTRUCTIONS.md
+fi
+```
 
-Sem arquivo de convenções, este passo não faz nada; o Passo 8 cria um.
+Se `{conventions-file}` existir e tiver uma seção *Testes*
+(`grep -qE '^#{1,4} Testes$'` — o título conta como existente em qualquer
+nível de heading), troque o **corpo inteiro** da seção — mantendo o heading
+dela — pelo texto de
+[testes-section.md](./references/testes-section.md), com os placeholders
+substituídos. Parágrafos da seção antiga que não são sobre a infraestrutura de
+teste (ex.: uma lição aprendida) ficam depois do novo corpo.
+
+Sem `{conventions-file}` ainda no disco, ou sem seção *Testes* nele, este
+passo não faz nada; o Passo 9 cria o arquivo e/ou acrescenta a seção, com o
+mesmo corpo de [testes-section.md](./references/testes-section.md).
 
 ### Passo 7 — Frontend
 
-Para cada `{web-dir}` e `{mobile-dir}` do Passo 0:
+Só roda se existir `{web-dir}` ou `{mobile-dir}` (Passo 0). Para cada um:
 
 **`-web` (Next.js).**
 
@@ -243,8 +267,7 @@ Confira `@types/node` antes de instalar: o Vitest atual (via Vite) exige
 major mais velha (ex.: `^20`), o que derruba o `npm install` com `ERESOLVE`.
 
 ```bash
-cd {web-dir}
-node -p "require('./package.json').devDependencies?.['@types/node'] ?? ''"
+(cd {web-dir} && node -p "require('./package.json').devDependencies?.['@types/node'] ?? ''")
 ```
 
 Se a major for menor que 22, troque `devDependencies["@types/node"]` para
@@ -253,7 +276,7 @@ para contornar o `ERESOLVE`: isso deixa o `vite` fora do `package-lock.json` e
 quebra o `npm ci` depois.
 
 ```bash
-npm install --save-dev vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/dom @testing-library/jest-dom
+(cd {web-dir} && npm install --save-dev vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/dom @testing-library/jest-dom)
 ```
 
 Grave `vitest.config.mts` e `vitest.setup.ts` a partir de
@@ -264,20 +287,23 @@ e o teste mínimo ao lado da página raiz (`src/app/page.test.tsx`, ou
 sobrescreva. Senão, confira antes o corpo da página raiz:
 
 ```bash
-grep -nE 'redirect\(' <página raiz>
+grep -nE '\b(permanentRedirect|redirect)\(' <página raiz>
 ```
 
-Se a página só faz `redirect(...)`, use
+Se a página só faz essa chamada — o corpo da página é só a chamada, sem JSX
+próprio — use
 [page-redirect.test.tsx.template](./templates/frontend/web/page-redirect.test.tsx.template)
-com `{redirect-target}` = o caminho passado a `redirect`. Senão, use
+com `{redirect-target}` = o caminho passado a `redirect`/`permanentRedirect` e
+`{redirect-fn}` = qual das duas o grep achou; o template mocka as duas
+funções, para não quebrar se a página trocar de uma para a outra sem que este
+arquivo seja atualizado. Senão, use
 [page.test.tsx.template](./templates/frontend/web/page.test.tsx.template).
 Não sobrescreva um `vitest.config.*` existente: mescle.
 
 **`-mobile` (Expo).**
 
 ```bash
-cd {mobile-dir}
-npx expo install jest-expo jest @types/jest @testing-library/react-native -- --save-dev
+(cd {mobile-dir} && npx expo install jest-expo jest @types/jest @testing-library/react-native -- --save-dev)
 ```
 
 No `package.json`, acrescente `"jest": { "preset": "jest-expo" }` se não
@@ -290,31 +316,50 @@ com `{app-dir}` = `./src/app` se existir `src/app`, senão `./app`. Se o
 `tsc --noEmit` reclamar de `expo-env.d.ts` ausente, crie-o com
 `/// <reference types="expo/types" />` (é o que o `expo start` geraria).
 
-**Os dois.** Acrescente os `scripts` `test` e `typecheck` e os alvos do
-`Makefile` de [makefile-targets.md](./templates/frontend/makefile-targets.md).
+### Passo 8 — Makefile e checkpoints
 
-**Checkpoints.** Grave `docs/checkpoints/README.md` a partir de
+Roda para todo escopo, inclusive backend sem frontend: um projeto só de API
+também precisa de `make test-backend`/`make test-integration` e de um
+runbook.
+
+**Makefile.** Acrescente os alvos do `Makefile` de
+[makefile-targets.md](./templates/frontend/makefile-targets.md) e, para cada
+frontend do Passo 0, os `scripts` `test` e `typecheck` do `package.json` —
+só os alvos e os `scripts` das partes que existirem (sem `-mobile`, sem
+`test-mobile`; sem backend, sem `test-backend`/`test-integration`).
+
+**Checkpoints.** Decida `{conventions-file}` — a resolução do Passo 6, ou
+`docs/INSTRUCTIONS.md` a ser criado se nenhuma bateu — **antes** de gravar o
+bloco do `CLAUDE.md` abaixo, porque ele referencia esse caminho. Grave
+`docs/checkpoints/README.md` a partir de
 [checkpoints-readme.md](./references/checkpoints-readme.md) se ele não
 existir, e acrescente ao `CLAUDE.md` da raiz o bloco de
-[claude-md-obligation.md](./references/claude-md-obligation.md) se
+[claude-md-obligation.md](./references/claude-md-obligation.md) — com
+`{conventions-file}` substituído — se
 `grep -qE '^#{1,4} O que "pronto" inclui$' CLAUDE.md` não achar — a seção conta
 como existente em qualquer nível de heading. Os checkpoints entram também num
 projeto só com backend: um runbook `api` é tão devido quanto um de tela.
 
-### Passo 8 — Regras de projeto
+### Passo 9 — Regras de projeto
 
-Destino: o arquivo de convenções do Passo 6; sem nenhum, `docs/INSTRUCTIONS.md`
-(crie com um título `# {base}`). Acrescente as seções de
+Destino: `{conventions-file}` do Passo 6; sem nenhuma ainda resolvida, crie
+`docs/INSTRUCTIONS.md` (com um título `# {base}`). Acrescente as seções de
 [project-rules.md](./references/project-rules.md) que o arquivo ainda não
 tiver — pelo `grep -qE '^#{1,4} <título>$'` de lá, que conta um título em
 qualquer nível de heading como já existente, não só `##` — e o parágrafo de
-*Testes* dentro da seção *Testes*. Nunca sobrescreva. Quando as seções entram
+*Testes* dentro da seção *Testes* (pule esse parágrafo se
+`grep -q 'não é evidência sobre o que aquele sistema produz'` já achar). Se
+`{conventions-file}` não tiver seção *Testes* ainda (o Passo 6 não achou uma),
+crie-a agora com o corpo de
+[testes-section.md](./references/testes-section.md), placeholders
+substituídos, e só então acrescente o parágrafo de *Testes* dentro dela. Nunca
+sobrescreva. Quando as seções entram
 num arquivo cujas seções irmãs são `###` (ex.: aninhadas sob `##
 Arquitetura`), acrescente-as no mesmo nível dessas irmãs. Se criou o arquivo,
 diga no relatório — e confira que o bloco do `CLAUDE.md` aponta para ele em
 `{conventions-file}`.
 
-### Passo 9 — Instructions de teste e README
+### Passo 10 — Instructions de teste e README
 
 Procure instructions de teste de outras ferramentas:
 
@@ -332,7 +377,7 @@ No `README.md`, acrescente (ou atualize) uma seção *Testes* com os comandos
 onde os ITs moram. Sem `README.md` na raiz, crie-o com um título `# {base}` e
 essa seção *Testes*.
 
-### Passo 10 — Verificar
+### Passo 11 — Verificar
 
 Obrigatório. Redirecione a saída e leia o código de saída, nunca por pipe:
 
@@ -340,13 +385,18 @@ Obrigatório. Redirecione a saída e leia o código de saída, nunca por pipe:
 ./gradlew test --console=plain > /tmp/it-unit.log 2>&1; echo "EXIT=$?"
 ./gradlew integrationTest --console=plain > /tmp/it-integration.log 2>&1; echo "EXIT=$?"
 find . -path '*/build/test-results/integrationTest/*.xml' -not -path '*/node_modules/*' \
-  -exec grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' {} \;
+  -exec grep -ho 'testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' {} \;
+find . -path '*/build/test-results/test/*.xml' -not -path '*/node_modules/*' \
+  -exec grep -l 'Creating container' {} +
 ```
 
 Exija `EXIT=0` nos dois e, nos XML de `integrationTest`, `failures="0"
 errors="0"` com `ApplicationContextIT` e `EntrypointHasIntegrationTestIT`
-presentes (`tests` ≥ 1 em cada). `./gradlew test` não pode subir container:
-`grep -c 'Creating container' /tmp/it-unit.log` deve ser `0`.
+presentes (`tests` ≥ 1 em cada). `./gradlew test` não pode subir container: o
+segundo `find` acima — sobre os XML de `test`, nunca sobre os de
+`integrationTest` — não pode imprimir nenhum arquivo; um `grep -c` sobre o log
+do console não serve, porque o console pode não imprimir a mensagem do
+Testcontainers mesmo quando um container sobe.
 
 Prove que a regra falha quando deve: crie um controller descartável sem IT,
 rode de novo e exija falha nomeando-o — o nome aparece na saída do console de
@@ -360,12 +410,21 @@ verde.
 class SemTesteController
 ```
 
+```java
+// {it-module de producao}/src/main/{src-dir}/{base-package}/SemTesteController.java (descartavel)
+package {base-package};
+
+@org.springframework.web.bind.annotation.RestController
+public class SemTesteController {
+}
+```
+
 Frontend: `make test-web` e `make test-mobile` (ou `npm run typecheck && npm
 test` em cada diretório) com exit 0. Prove o typecheck: acrescente num arquivo
 `.ts` do `-web` a linha `const quebra: number = "texto";`, exija falha do
 `typecheck`, desfaça.
 
-### Passo 11 — Relatar e oferecer WireMock
+### Passo 12 — Relatar e oferecer WireMock
 
 Informe: escopo, linguagem, DSL, banco, layout e `{it-module}`; os arquivos
 criados e movidos; os `EXIT=` e as contagens dos XML; as provas de falha (regra

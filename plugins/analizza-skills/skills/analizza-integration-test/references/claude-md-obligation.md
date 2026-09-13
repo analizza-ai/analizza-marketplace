@@ -1,7 +1,7 @@
 # Obrigação de runbook no `CLAUDE.md`
 
 Acrescente ao fim do `CLAUDE.md` da raiz (crie o arquivo com este bloco se ele
-não existir). `{conventions-file}` é o arquivo de convenções em que o Passo 8
+não existir). `{conventions-file}` é o arquivo de convenções em que o Passo 9
 gravou as regras de projeto.
 
 ```markdown

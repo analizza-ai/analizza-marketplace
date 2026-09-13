@@ -55,7 +55,8 @@ correspondente — `tsc --noEmit` acusa
 com o teste correto. Este passo é sempre necessário quando o teste usa
 `toHavePathname` (o template desta skill usa).
 
-Grave `expo-router-testing-library.d.ts` na raiz do `{mobile-dir}`:
+Se `expo-router-testing-library.d.ts` já existir na raiz do `{mobile-dir}`,
+pule este passo. Senão, grave-o lá:
 
 ```ts
 // expo-router/testing-library registra estes matchers em runtime

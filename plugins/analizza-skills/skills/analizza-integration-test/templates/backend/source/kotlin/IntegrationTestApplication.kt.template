@@ -15,6 +15,12 @@ import org.springframework.context.annotation.FilterType
  * Nao e @SpringBootApplication de proposito: o scan dela nao aceita filtro de
  * exclusao, e as aplicacoes originais precisam ficar fora dele para nao
  * aplicarem a autoconfiguracao uma segunda vez.
+ *
+ * Toda anotacao das @SpringBootApplication originais, alem da propria
+ * @SpringBootApplication (ex.: @EnableScheduling, @EnableAsync, @EnableKafka,
+ * @ConfigurationPropertiesScan, @EnableConfigurationProperties, @EntityScan),
+ * precisa ser repetida aqui, com os imports correspondentes -- esta classe
+ * nao herda anotacao nenhuma delas.
  */
 @SpringBootConfiguration
 @EnableAutoConfiguration

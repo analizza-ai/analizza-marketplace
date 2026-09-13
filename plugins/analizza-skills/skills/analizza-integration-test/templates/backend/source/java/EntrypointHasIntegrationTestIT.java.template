@@ -29,6 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>{@code @KafkaListener} e comparado pelo nome para a regra compilar sem
  * spring-kafka. {@code allowEmptyShould(true)} porque um projeto novo ainda nao
  * tem entrypoint.
+ *
+ * <p>Um {@code @KafkaListener} de classe (com metodos {@code @KafkaHandler})
+ * nao e coberto: a regra so olha metodos anotados diretamente.
  */
 class EntrypointHasIntegrationTestIT {
 

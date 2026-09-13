@@ -11,6 +11,9 @@ plugins {
 <!-- fim se java -->
     jacoco
     id("io.spring.dependency-management")
+    // apply false: so para o BOM_COORDINATES abaixo resolver na classpath do
+    // script deste modulo. O modulo continua sem aplicar o plugin do Boot.
+    id("org.springframework.boot") apply false
 }
 
 group = "{group}"
@@ -26,11 +29,12 @@ repositories {
     mavenCentral()
 }
 
-// Sem o plugin do Boot, o BOM vem importado a mao para versionar starters e
-// modulos do Testcontainers.
+// Sem o plugin do Boot aplicado, o BOM vem importado a mao para versionar
+// starters e modulos do Testcontainers -- SpringBootPlugin.BOM_COORDINATES
+// segue a versao do plugin declarada na raiz, sem hardcode aqui.
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.boot:spring-boot-dependencies:{boot-version}")
+        mavenBom(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
     }
 }
 

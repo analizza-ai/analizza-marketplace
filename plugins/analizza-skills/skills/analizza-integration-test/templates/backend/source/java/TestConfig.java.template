@@ -9,7 +9,9 @@ import org.springframework.boot.test.context.TestConfiguration;
  * da suite. O banco, e tudo que tem container de verdade, nao ganha duble: o
  * teste de integracao existe para exercita-los.
  *
- * <p>Forma de um duble, para uma porta {@code MailService} do -core:
+ * <p>Forma de um duble, para uma porta {@code MailService} do -core (precisa
+ * importar {@code org.springframework.context.annotation.Bean} e
+ * {@code org.springframework.context.annotation.Primary}):
  *
  * <pre>
  * static class InMemoryMailService implements MailService {
@@ -18,7 +20,7 @@ import org.springframework.boot.test.context.TestConfiguration;
  * }
  *
  * &#64;Bean &#64;Primary
- * InMemoryMailService mailService() { return new InMemoryMailService(); }
+ * InMemoryMailService inMemoryMailService() { return new InMemoryMailService(); }
  * </pre>
  *
  * <p>O estado de um duble e da suite inteira (o contexto e compartilhado):

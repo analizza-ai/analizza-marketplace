@@ -281,6 +281,9 @@ referência já roda com Spring Boot 4:
 - **P6 — O teste `*ApplicationTests` gerado pelo Initializr vira `ApplicationContextIT`**, estendendo
   `BaseIntegrationTest` e afirmando que a conexão com o banco do container é válida, para que
   `./gradlew test` não precise mais de banco.
+- **P7 — Os templates de build não trazem bloco de `springmockk`/`mockito`.** O Mockito já vem com
+  o `spring-boot-starter-test`; uma biblioteca de mock para Kotlin é escolha de projeto, não
+  infraestrutura desta skill.
 
 #### Limpeza em relação às skills antigas
 

@@ -1,6 +1,6 @@
 # Regras de projeto
 
-Seções acrescentadas pelo Passo 8 ao arquivo de convenções do projeto. Cada
+Seções acrescentadas pelo Passo 9 ao arquivo de convenções do projeto. Cada
 uma entra **só se o arquivo ainda não tiver uma seção com o mesmo título**
 (`grep -qE '^#{1,4} <título>$'`); nunca sobrescreva uma existente. Uma seção
 com o mesmo título em qualquer nível de heading conta como já existente —
