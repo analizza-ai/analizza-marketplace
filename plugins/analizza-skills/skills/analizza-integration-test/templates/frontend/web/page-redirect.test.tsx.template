@@ -1,0 +1,23 @@
+import { expect, test, vi } from "vitest";
+
+// Teste minimo: prova que a suite roda e que a rota raiz se comporta como
+// esperado. A pagina nao e renderizada procurando <main> porque o corpo dela
+// e so a chamada a {redirect-fn}(), de Server Component -- render() jogaria a
+// excecao interna NEXT_REDIRECT em vez de montar markup. As duas funcoes --
+// redirect e permanentRedirect -- ficam mockadas mesmo que a pagina use so
+// uma: o corpo da pagina e so a chamada, sem JSX proprio, entao o teste nao
+// deve quebrar se ela trocar de uma para a outra sem que este arquivo seja
+// atualizado.
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+  permanentRedirect: vi.fn(),
+}));
+
+test("a raiz redireciona para {redirect-target}", async () => {
+  const { {redirect-fn} } = await import("next/navigation");
+  const Home = (await import("./page")).default;
+
+  Home();
+
+  expect({redirect-fn}).toHaveBeenCalledWith("{redirect-target}");
+});
