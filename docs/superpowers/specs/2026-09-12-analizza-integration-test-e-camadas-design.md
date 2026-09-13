@@ -205,7 +205,7 @@ Quando invocada pela `analizza-new-project` (Entrega 3), os valores chegam preen
 pergunta vira uma confirmação.
 
 **Passos 2–6 — Backend.** Os passos atuais das duas skills (criar módulo ou não, isolar libs
-pesadas, jacoco + tasks `test`/`integrationTest` por `@Tag("integration")`, `BaseIntegrationTest`
+pesadas, jacoco + tasks `test`/`integrationTest` separadas pelo sufixo `IT`, `BaseIntegrationTest`
 e organização dos ITs, assets de container em `src/test/resources/<engine>/`, ArchUnit), com:
 
 - Fonte escolhido pela linguagem (`source/<linguagem>/`), build pela DSL (`build/<dsl>/`).
@@ -256,6 +256,31 @@ teste existentes e documentar a organização no `README.md`), mantido.
 lidos no XML; `make test-web` / `make test-mobile` com exit 0.
 
 **Passo 11 — Opcionais.** Perguntar sobre WireMock quando o projeto depende de HTTP externo.
+
+#### Decisões do plano da Entrega 2
+
+Tomadas ao planejar, lendo as skills antigas ao lado da infraestrutura de teste que o projeto de
+referência já roda com Spring Boot 4:
+
+- **P1 — IT se separa por nome.** `test` exclui `*IT` e `integrationTest` inclui `*IT`
+  (`excludeTestsMatching`/`includeTestsMatching`). A regra ArchUnit já obriga o sufixo `IT`; uma
+  tag seria um segundo marcador para esquecer.
+- **P2 — ArchUnit com o artefato `archunit`, sem `archunit-junit5` e sem `FreezingArchRule`.** O
+  engine do `archunit-junit5` conflita com a JUnit Platform do Boot 4; freeze sem store falha e,
+  com store, esconde entrypoint sem teste. A regra usa `allowEmptyShould(true)` — projeto novo não
+  tem entrypoint — e compara `@KafkaListener` pelo nome, para compilar sem `spring-kafka`. A classe
+  se chama `EntrypointHasIntegrationTestIT`, como no template de convenções da new-project.
+- **P3 — Um container de banco para a suíte inteira**, num campo estático do `BaseIntegrationTest`
+  com `@ServiceConnection`, iniciado na mão. Imagens padrão: `postgres:17-alpine`,
+  `gvenzl/oracle-free:23-slim-faststart`, `mysql:8.4`; `Dockerfile` próprio de Oracle só se o
+  projeto já tiver um.
+- **P4 — `IntegrationTestApplication` só quando o build tem mais de uma `@SpringBootApplication`.**
+  Com uma, o `BaseIntegrationTest` aponta direto para ela.
+- **P5 — JaCoCo gera relatório, sem limiar de cobertura.** Um mínimo de 80% quebraria todo projeto
+  novo; quem quiser um limiar o acrescenta depois.
+- **P6 — O teste `*ApplicationTests` gerado pelo Initializr vira `ApplicationContextIT`**, estendendo
+  `BaseIntegrationTest` e afirmando que a conexão com o banco do container é válida, para que
+  `./gradlew test` não precise mais de banco.
 
 #### Limpeza em relação às skills antigas
 
