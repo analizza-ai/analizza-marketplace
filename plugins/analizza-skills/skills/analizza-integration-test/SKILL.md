@@ -65,8 +65,8 @@ padrão. Diga o que detectou e de onde.
 **Linguagem.**
 
 ```bash
-find . -path '*/src/main/kotlin/*.kt' -not -path '*/build/*' | head -1   # achou: kotlin
-find . -path '*/src/main/java/*.java' -not -path '*/build/*' | head -1   # achou: java
+find . -path '*/src/main/kotlin/*.kt' -not -path '*/build/*' -not -path '*/node_modules/*' | head -1   # achou: kotlin
+find . -path '*/src/main/java/*.java' -not -path '*/build/*' -not -path '*/node_modules/*' | head -1   # achou: java
 ```
 
 Se achar os dois, pergunte sem padrão.
@@ -178,7 +178,11 @@ A partir de `templates/backend/source/{language}/`, grave em
   implementadas por classes que falam com SMTP, HTTP externo ou mensageria —
   escreva uma classe em memória que registra o que recebeu e um `@Bean
   @Primary` que a devolve, na forma do comentário do template. Sem nenhuma
-  interface assim, `{doubles}` fica vazio.
+  interface assim, `{doubles}` fica vazio. Em Kotlin, não escreva um glob com
+  `/*` ou `**/` dentro de um KDoc (`/** … */`): Kotlin aninha comentários de
+  bloco, e a sequência `*/` embutida no glob fecha o comentário antes da hora
+  e o arquivo para de compilar — escreva o caminho sem o glob (ex.:
+  `infrastructure/data/anticorruptionLayer`, sem o `/**` final).
 - [ApplicationContextIT](./templates/backend/source/kotlin/ApplicationContextIT.kt.template)
   ([Java](./templates/backend/source/java/ApplicationContextIT.java.template)).
   Apague o teste de contexto que o Spring Initializr gerou
@@ -233,8 +237,21 @@ Para cada `{web-dir}` e `{mobile-dir}` do Passo 0:
 
 **`-web` (Next.js).**
 
+Confira `@types/node` antes de instalar: o Vitest atual (via Vite) exige
+`@types/node ^22 || >=24` como peer, e o scaffold padrão do Next.js fixa uma
+major mais velha (ex.: `^20`), o que derruba o `npm install` com `ERESOLVE`.
+
 ```bash
 cd {web-dir}
+node -p "require('./package.json').devDependencies?.['@types/node'] ?? ''"
+```
+
+Se a major for menor que 22, troque `devDependencies["@types/node"]` para
+`"^24"` no `package.json` antes de instalar. Nunca use `--legacy-peer-deps`
+para contornar o `ERESOLVE`: isso deixa o `vite` fora do `package-lock.json` e
+quebra o `npm ci` depois.
+
+```bash
 npm install --save-dev vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/dom @testing-library/jest-dom
 ```
 
@@ -254,8 +271,11 @@ npx expo install jest-expo jest @types/jest @testing-library/react-native -- --s
 ```
 
 No `package.json`, acrescente `"jest": { "preset": "jest-expo" }` se não
-houver configuração de jest. Grave `__tests__/tela-inicial-test.tsx` a partir
-de [tela-inicial-test.tsx.template](./templates/frontend/mobile/tela-inicial-test.tsx.template),
+houver configuração de jest. Siga
+[mobile-jest.md](./references/mobile-jest.md) antes de escrever o teste — ele
+cobre gaps do Expo/Reanimated/Worklets/NativeWind que o `jest-expo` sozinho
+não resolve. Grave `__tests__/tela-inicial-test.tsx` a partir de
+[tela-inicial-test.tsx.template](./templates/frontend/mobile/tela-inicial-test.tsx.template),
 com `{app-dir}` = `./src/app` se existir `src/app`, senão `./app`. Se o
 `tsc --noEmit` reclamar de `expo-env.d.ts` ausente, crie-o com
 `/// <reference types="expo/types" />` (é o que o `expo start` geraria).
@@ -294,7 +314,8 @@ entrypoint com IT, IT percorre banco e HTTP de verdade, `./gradlew test` vs
 No `README.md`, acrescente (ou atualize) uma seção *Testes* com os comandos
 `make test-backend`, `make test-integration`, `make test-web`,
 `make test-mobile` — ou os `./gradlew`/`npm` equivalentes sem `Makefile` — e
-onde os ITs moram.
+onde os ITs moram. Sem `README.md` na raiz, crie-o com um título `# {base}` e
+essa seção *Testes*.
 
 ### Passo 10 — Verificar
 
@@ -313,7 +334,10 @@ presentes (`tests` ≥ 1 em cada). `./gradlew test` não pode subir container:
 `grep -c 'Creating container' /tmp/it-unit.log` deve ser `0`.
 
 Prove que a regra falha quando deve: crie um controller descartável sem IT,
-rode de novo e exija falha nomeando-o; apague-o e rode de novo até verde.
+rode de novo e exija falha nomeando-o — o nome aparece na saída do console de
+`integrationTest` (o `testLogging` do build o imprime) e também em
+`build/test-results/integrationTest/*.xml`; apague-o e rode de novo até
+verde.
 
 ```kotlin
 // {it-module de producao}/src/main/{src-dir}/{base-package}/SemTesteController.kt (descartavel)

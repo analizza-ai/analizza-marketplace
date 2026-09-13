@@ -34,6 +34,11 @@ def integrationTest = tasks.register('integrationTest', Test) {
         failOnNoMatchingTests = false
     }
     shouldRunAfter tasks.named('test')
+    // Sem isto o console so mostra FAILED; a mensagem da regra fica no XML.
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
 }
 
 // Classes que nao tem comportamento a cobrir: ponto de entrada e configuracao.
