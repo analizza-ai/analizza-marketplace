@@ -1,0 +1,106 @@
+// build.gradle.kts do modulo {base}-integration-tests.
+// Nao e implantavel: nao aplica o plugin do Spring Boot e nao gera jar. So
+// compila e roda os testes de integracao contra os modulos de producao.
+plugins {
+<!-- se kotlin -->
+    kotlin("jvm")
+    kotlin("plugin.spring")
+<!-- fim se kotlin -->
+<!-- se java -->
+    java
+<!-- fim se java -->
+    jacoco
+    id("io.spring.dependency-management")
+}
+
+group = "{group}"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Sem o plugin do Boot, o BOM vem importado a mao para versionar starters e
+// modulos do Testcontainers.
+dependencyManagement {
+    imports {
+        mavenBom("org.springframework.boot:spring-boot-dependencies:{boot-version}")
+    }
+}
+
+dependencies {
+    // Um testImplementation(project(":<modulo>")) por modulo de producao do build.
+{project-dependencies}
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    // spring-web e spring-context entram explicitos: os modulos de producao os
+    // declaram como implementation, que nao chega ao classpath de compilacao
+    // deste modulo, e a base e a regra ArchUnit importam classes dos dois.
+    testImplementation("org.springframework:spring-web")
+    testImplementation("org.springframework:spring-context")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("{testcontainers-db-module}")
+    testImplementation("com.tngtech.archunit:archunit:1.4.1")
+<!-- se kotlin -->
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+<!-- fim se kotlin -->
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.named<Jar>("jar") {
+    enabled = false
+}
+
+// Neste modulo tudo e integracao; `test` fica vazio sem falhar.
+tasks.named<Test>("test") {
+    useJUnitPlatform()
+    filter {
+        excludeTestsMatching("*IT")
+        isFailOnNoMatchingTests = false
+    }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Testes de integracao (classes *IT), sobre Testcontainers."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching("*IT")
+        isFailOnNoMatchingTests = false
+    }
+    shouldRunAfter(tasks.named("test"))
+}
+
+// Classes que nao tem comportamento a cobrir: ponto de entrada e configuracao.
+val excludeFromCoverageJacoco = listOf("**/*Application*", "**/configuration/**")
+
+// Um testImplementation(project(...)) acima corresponde a uma entrada aqui.
+val modulosCobertos = listOf({coverage-modules})
+
+tasks.register<JacocoReport>("integrationTestCoverageReport") {
+    description = "Cobertura dos testes de integracao sobre os modulos de producao."
+    group = "verification"
+    dependsOn(integrationTest)
+    executionData(integrationTest.get())
+    sourceDirectories.from(modulosCobertos.map { project(it).file("src/main/{src-dir}") })
+    classDirectories.from(
+        modulosCobertos.map { modulo ->
+            project(modulo).layout.buildDirectory.dir("classes/{src-dir}/main").map { dir ->
+                dir.asFileTree.matching { exclude(excludeFromCoverageJacoco) }
+            }
+        },
+    )
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}

@@ -1,0 +1,51 @@
+// Trechos para o build.gradle do modulo que recebe os testes de integracao
+// (o -api de um projeto -api/-core, ou o modulo unico). Mesclar no arquivo
+// existente: acrescentar ao plugins {} e ao dependencies {} que ja existem, e
+// substituir qualquer configuracao anterior das tasks test e jacocoTestReport.
+
+plugins {
+    id 'jacoco'
+}
+
+dependencies {
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation '{testcontainers-db-module}'
+    testImplementation 'com.tngtech.archunit:archunit:1.4.1'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    description = 'Testes unitarios. Nao sobe container nem banco.'
+    filter {
+        excludeTestsMatching '*IT'
+        failOnNoMatchingTests = false
+    }
+}
+
+def integrationTest = tasks.register('integrationTest', Test) {
+    description = 'Testes de integracao (classes *IT), sobre Testcontainers.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching '*IT'
+        failOnNoMatchingTests = false
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+// Classes que nao tem comportamento a cobrir: ponto de entrada e configuracao.
+def excludeFromCoverageJacoco = ['**/*Application*', '**/configuration/**']
+
+tasks.named('jacocoTestReport', JacocoReport) {
+    mustRunAfter tasks.named('test'), integrationTest
+    // Junta a cobertura de `test` e de `integrationTest`, do que tiver rodado.
+    executionData.setFrom(fileTree(layout.buildDirectory).include('jacoco/test.exec', 'jacoco/integrationTest.exec'))
+    classDirectories.setFrom(sourceSets.main.output.asFileTree.matching { exclude excludeFromCoverageJacoco })
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
