@@ -292,9 +292,11 @@ Skill não tem suíte automática; a prova é executar a skill em diretório des
 o projeto gerado passar no build.
 
 **Entrega 1.** Scaffold completo com `language=kotlin` e com `language=java`. Em cada um:
-só a DSL esperada (`find . -name '*.gradle*'`); nenhum `<!-- se` sobrando; `./gradlew
-:buildingBlocks:test` sem `NO-SOURCE`; `make build` com `EXIT=0` e testes lidos no XML; árvore do
-Passo 8 com `presenter/jobs`, `configuration/security` e `configuration/exception`.
+só a DSL esperada (`find . -name '*.gradle*' -not -path '*/.gradle*' -not -path '*/node_modules/*'`);
+nenhum `<!-- se` sobrando; `./gradlew :buildingBlocks:test` com a task de compilação da linguagem
+(`compileKotlin`/`compileJava`) fora de `NO-SOURCE` e classes geradas (`:buildingBlocks:test` é
+`NO-SOURCE` por desenho: o módulo não traz teste); `make build` com `EXIT=0` e testes lidos no XML;
+árvore do Passo 8 com `presenter/jobs`, `configuration/security` e `configuration/exception`.
 
 **Entrega 2.** Quatro execuções:
 

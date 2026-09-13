@@ -17,7 +17,7 @@ primeira fatia vertical.
 
 **A seta é sempre `-api → -core → buildingBlocks`.** O `-core` não conhece o
 `-api`: nenhuma classe do `-core` importa nada de `{package}.presenter`, e o
-`build.gradle` do `-core` não declara o `-api` como dependência — só o
+`build.gradle{dsl-ext}` do `-core` não declara o `-api` como dependência — só o
 contrário. O `-core` **pode** depender de Spring (veja a seção seguinte); o
 que ele não faz é depender do módulo de entrada.
 
@@ -156,7 +156,7 @@ O `-core` aplica `org.jetbrains.kotlin.plugin.spring` e `plugin.jpa` (para
 que classe Kotlin `final` por padrão funcione com proxy do Spring e da JPA
 sem precisar declarar `open` manualmente) e depende de
 `spring-boot-starter-data-jpa` e das demais dependências de saída que o caso
-de uso exigir — veja o `build.gradle` do `{project-name}-core`.
+de uso exigir — veja o `build.gradle.kts` do `{project-name}-core`.
 `@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
 `@Configuration` para os beans de saída — tudo isso é normal aqui.
 <!-- fim se kotlin -->
@@ -256,7 +256,7 @@ Spring) e `{package}.presenter.exception`. Quando usar cada um:
   alternativo a `ProblemDetail` (veja a seção seguinte). Use um ou outro, não
   os dois: escolha o formato de erro do projeto e registre a decisão aqui.
 
-Sem essa lista, `buildingBlocks` vira gaveta: quinze arquivos e nenhuma pista
+Sem essa lista, `buildingBlocks` vira gaveta: esses arquivos e nenhuma pista
 de quando usar cada um.
 
 ### Falha e corpo de erro
@@ -280,7 +280,10 @@ Nem toda falha é regra de negócio quebrada. Buscar um recurso que não existe
 estoura uma exceção própria do `-core` (por exemplo
 `<Agregado>NotFoundException`), e o mesmo `GlobalExceptionHandler` a
 converte em 404, com um corpo genérico que não repete o identificador
-pedido nem diz se ele existiu e foi removido ou nunca existiu.
+pedido nem diz se ele existiu e foi removido ou nunca existiu. Quando revelar
+a própria existência do recurso já é o vazamento — por exemplo, uma busca por
+um identificador de login —, o caso de uso não usa esse 404: segue a exceção
+de opacidade descrita a seguir.
 
 **A exceção nomeada.** Nem toda falha pode passar pelo caminho padrão. O 422
 do `GlobalExceptionHandler` embute no corpo da resposta o `id` e a `message`
@@ -300,14 +303,18 @@ serviço externo do qual o caso de uso depende está fora do ar) não precisa
 dessa opacidade e pode virar uma resposta diferente — porque isso não é
 informação sobre o pedido, é sobre o próprio serviço estar no ar.
 
-O tipo fechado cobre só o que o caso de uso **decide**. Falha **inesperada**
-— um template quebrado, o banco fora — não tem valor no tipo: ela sobe como
+Essa indisponibilidade é um caso que o caso de uso **decide**: a saída fora
+do ar do serviço externo que ele existe para chamar pode, inclusive, virar
+uma variante a mais do tipo fechado (por exemplo `EntregaIndisponivel`),
+respondida com um status próprio, diferente do das causas opacas. O tipo
+fechado cobre só o que o caso de uso decide. Falha **inesperada** — um
+template quebrado, o banco fora — não tem valor no tipo: ela sobe como
 exceção, a `Route` não a traduz, e o resultado é 500. A distinção é o
-ponto, não uma brecha: o tipo fechado existe para que decisão de negócio
-não vaze pelo corpo do erro, e a exceção continua existindo para que
-defeito nosso não se disfarce de sucesso. Por isso a `Route` de um caso de
-uso opaco não envolve a chamada num "captura tudo e devolve o status de
-sucesso".
+ponto, não uma brecha: tudo que o caso de uso não decide — um defeito
+nosso, o banco fora, um template quebrado — é exceção, e é isso que
+impede que defeito nosso se disfarce de sucesso. Por isso a `Route` de um
+caso de uso opaco não envolve a chamada num "captura tudo e devolve o
+status de sucesso".
 
 Use esse padrão só quando houver esse risco de vazamento. Uma regra que não
 tem esse risco usa o caminho padrão (`BusinessRule` + exceção + 422).
@@ -379,7 +386,7 @@ a migration, sempre.
 fato já montado**, no mesmo espírito da árvore de pastas vazia descrita no
 topo deste documento. O `SKILL.md` desta skill deixa "teste de arquitetura
 executável" explicitamente fora de escopo, e o
-`{project-name}-api/build.gradle` que sai do Initializr não ganha dependência
+`{project-name}-api/build.gradle{dsl-ext}` que sai do Initializr não ganha dependência
 de ArchUnit nem de Testcontainers, nem a task `integrationTest`. Num projeto
 recém-gerado, `./gradlew integrationTest` responde "Task not found" — não é
 defeito, é o esperado até a primeira fatia vertical acrescentar o que falta.
@@ -414,10 +421,10 @@ A convenção a seguir quando essa infraestrutura for construída:
   Spring" acima).
 - `./gradlew test` deve continuar rodando só o que não precisa de banco;
   `./gradlew integrationTest` é uma task nova, a acrescentar ao
-  `{project-name}-api/build.gradle` junto com o resto.
+  `{project-name}-api/build.gradle{dsl-ext}` junto com o resto.
 
 Para sair do papel, a primeira fatia vertical que precisar de teste de
-integração acrescenta ao `{project-name}-api/build.gradle`: a dependência do
+integração acrescenta ao `{project-name}-api/build.gradle{dsl-ext}`: a dependência do
 ArchUnit (`com.tngtech.archunit:archunit-junit5`), as de Testcontainers
 (`org.testcontainers:junit-jupiter`, `org.testcontainers:postgresql`,
 `org.springframework.boot:spring-boot-testcontainers`) e a task

@@ -19,8 +19,7 @@ repositories {
 // O -core nao aplica o plugin org.springframework.boot: nao gera bootJar,
 // continua biblioteca. Mas precisa do BOM para resolver as versoes dos
 // starters sem escreve-las a mao. Sem versao aqui: io.spring.dependency-management
-// reaproveita a versao ja resolvida no {project-name}-api (gerado pelo
-// Initializr), que faz parte do mesmo build.
+// herda a versao declarada no build.gradle da raiz.
 dependencyManagement {
     imports {
         mavenBom "org.springframework.boot:spring-boot-dependencies:{boot-version}"

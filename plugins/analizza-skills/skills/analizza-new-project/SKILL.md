@@ -23,7 +23,7 @@ argument-hint: "Sem argumentos — o nome vem da pasta raiz; linguagem, group, p
 
 ```
 {project-name}/
-├── settings.gradle              rootProject.name + os tres include
+├── settings.gradle{dsl-ext}     rootProject.name + os tres include
 ├── gradlew, gradle/             wrapper do Initializr, na raiz
 ├── buildingBlocks/              {language} puro: contratos base de Command, Query e domínio
 ├── {project-name}-api/          Spring Boot: presenter/ (rotas e configuração de entrada)
@@ -155,8 +155,8 @@ Crie o `{project-name}-core` a partir de
 (kotlin), gravado como `{project-name}-core/build.gradle{dsl-ext}` — que
 aplica `io.spring.dependency-management` com o BOM do Boot, as
 dependências de saída (`data-jpa`, `flyway`, `mail`, driver do Postgres) e
-`api project(':buildingBlocks')` — e acrescentar a dependência de projeto no
-api.
+a dependência `api` sobre `:buildingBlocks` — e acrescentar a dependência de
+projeto no api.
 
 Confirme com `./gradlew projects` que os dois subprojetos aparecem.
 
@@ -198,19 +198,20 @@ include(":buildingBlocks")       // kotlin (settings.gradle.kts)
 Verificação — obrigatória antes de seguir para o Passo 6:
 
 ```bash
-./gradlew :buildingBlocks:test --console=plain > /tmp/buildingblocks-test.log 2>&1; echo "EXIT=$?"
+./gradlew :buildingBlocks:test --console=plain > /tmp/buildingblocks-test.log 2>&1; gradle_exit=$?; echo "EXIT=$gradle_exit"
 compile=$([ "{language}" = kotlin ] && echo compileKotlin || echo compileJava)
 classes=$(find buildingBlocks/build/classes -name '*.class' 2>/dev/null | wc -l)
-if grep -q ":buildingBlocks:$compile NO-SOURCE" /tmp/buildingblocks-test.log || [ "$classes" -eq 0 ]; then
+if [ "$gradle_exit" -ne 0 ]; then
+  echo "FALHOU: o Gradle falhou — leia /tmp/buildingblocks-test.log"
+elif grep -q ":buildingBlocks:$compile NO-SOURCE" /tmp/buildingblocks-test.log || [ "$classes" -eq 0 ]; then
   echo "FALHOU: $compile sem fonte — as fontes ficaram fora de src/main, nada foi compilado"
 else
   echo "OK: $classes classes compiladas"
 fi
 ```
 
-(O `| tee` vira redirect + `echo "EXIT=$?"` porque num pipe o `$?` é do `tee`,
-não do Gradle — a mesma regra da seção "Verificação" de
-[pitfalls.md](./references/pitfalls.md).)
+Redirect em vez de `| tee`, porque num pipe o `$?` é o do `tee`, não o do
+Gradle (ver [armadilhas](./references/pitfalls.md), seção "Verificação").
 
 Precisam sair `EXIT=0` **e** `OK`. `:buildingBlocks:test NO-SOURCE` é
 esperado — o módulo só entrega contratos, sem nenhum teste — e por si só não
@@ -285,7 +286,8 @@ spring.jpa.hibernate.ddl-auto=none
 Siga [sdd-frameworks.md](./references/sdd-frameworks.md): detecte o framework,
 escolha o destino e grave
 [architecture-conventions.md.template](./templates/architecture-conventions.md.template)
-com os placeholders substituídos — inclusive `{language}`, gravando só o bloco
+com os placeholders substituídos — inclusive `{language}` e `{dsl-ext}`,
+gravando só o bloco
 `<!-- se {language} -->` correspondente à escolha do Passo 2 e removendo os
 marcadores e o bloco do outro idioma.
 
