@@ -65,7 +65,6 @@ class EntrypointHasIntegrationTestIT {
     }
 
     private companion object {
-        // Annotation name built to avoid hard-coding the package path directly
-        val KAFKA_LISTENER = listOf("org", "springframework", "kafka", "annotation", "KafkaListener").joinToString(".")
+        const val KAFKA_LISTENER = "org.springframework.kafka.annotation.KafkaListener"
     }
 }
