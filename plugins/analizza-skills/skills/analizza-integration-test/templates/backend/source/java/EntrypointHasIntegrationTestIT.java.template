@@ -21,13 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
  * motivo que um controller, e com mais razao: ninguem recebe um 500 quando um
  * agendamento para de rodar.
  *
- * <p>Sem freeze store: um store so viraria lugar de esconder entrypoint sem
- * teste. Sem archunit-junit5: aquele engine traz uma JUnit Platform que conflita
- * com a do Spring Boot 4; um {@code @Test} comum basta.
+ * <p>Sem FreezingArchRule: um store de freeze so viraria lugar de esconder
+ * entrypoint sem teste. Sem archunit-junit5 ({@code @ArchTest}): aquele engine
+ * traz uma JUnit Platform que conflita com a do Spring Boot 4; um {@code @Test}
+ * comum basta.
  *
- * <p>Annotation comparada pelo nome para a regra compilar sem dependencia de
- * kafka. {@code allowEmptyShould(true)} porque um projeto novo ainda nao tem
- * entrypoint.
+ * <p>{@code @KafkaListener} e comparado pelo nome para a regra compilar sem
+ * spring-kafka. {@code allowEmptyShould(true)} porque um projeto novo ainda nao
+ * tem entrypoint.
  */
 class EntrypointHasIntegrationTestIT {
 
