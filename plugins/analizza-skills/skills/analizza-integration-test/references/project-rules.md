@@ -33,7 +33,7 @@ Um checkpoint é uma parada onde **uma pessoa olha o resultado rodando** antes
 de o trabalho seguir. Ele não substitui teste: existe para o que teste nenhum
 pega.
 
-**Proponha um checkpoint sem esperar que perçam** sempre que o critério de
+**Proponha um checkpoint sem esperar que peçam** sempre que o critério de
 aceite mora fora da suíte de testes:
 
 - **Aparência.** Uma tela nova ou redesenhada, comparada com um print, um

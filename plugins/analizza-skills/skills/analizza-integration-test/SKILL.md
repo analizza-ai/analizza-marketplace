@@ -81,7 +81,7 @@ com `build.gradle` recebe Groovy.
 ```bash
 grep -rhoE 'org\.postgresql:postgresql|com\.oracle\.database\.jdbc:ojdbc[0-9]*|com\.mysql:mysql-connector-j' --include='build.gradle*' . | sort -u
 grep -rhoE 'jdbc:(postgresql|oracle|mysql)' --include='application*.properties' --include='application*.y*ml' . | sort -u
-grep -hoE 'image: *(postgres|gvenzl/oracle[^ ]*|container-registry.oracle[^ ]*|mysql)[^ ]*' docker-compose*.y*ml compose*.y*ml 2>/dev/null
+find . -maxdepth 1 \( -name 'docker-compose*.y*ml' -o -name 'compose*.y*ml' \) -exec grep -hoE 'image: *(postgres|gvenzl/oracle[^ ]*|container-registry.oracle[^ ]*|mysql)[^ ]*' {} +
 ```
 
 Opções: `postgres`, `oracle`, `mysql`, outro. Com "outro", siga a seção
@@ -91,7 +91,7 @@ Opções: `postgres`, `oracle`, `mysql`, outro. Com "outro", siga a seção
 aplicações:
 
 ```bash
-grep -E "include" settings.gradle* 2>/dev/null
+find . -maxdepth 1 -name 'settings.gradle*' -exec grep -E "include" {} +
 grep -rlE '@SpringBootApplication' --include='*.kt' --include='*.java' . | grep '/src/main/'
 ```
 
@@ -284,7 +284,7 @@ aponta para ele em `{conventions-file}`.
 Procure instructions de teste de outras ferramentas:
 
 ```bash
-ls .github/instructions/*test* .github/copilot-instructions.md AGENTS.md 2>/dev/null
+find .github/instructions -name '*test*' 2>/dev/null; ls .github/copilot-instructions.md AGENTS.md 2>/dev/null
 ```
 
 Se existirem, acrescente as mesmas regras: ITs em `{it-module}`, todo
