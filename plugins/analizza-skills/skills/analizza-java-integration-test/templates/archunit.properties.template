@@ -1,3 +1,0 @@
-freeze.store.default.path=archunit_store
-freeze.store.default.allowStoreCreation=false
-freeze.refreeze=false
