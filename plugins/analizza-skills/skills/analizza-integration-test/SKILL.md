@@ -213,9 +213,10 @@ por esta e diga ao usuário.
 ### Passo 6 — Documentar o layout nas convenções
 
 Se o projeto tem arquivo de convenções com uma seção *Testes* (o que a
-`analizza-new-project` grava — procure `^### Testes` ou `^## Testes` em
+`analizza-new-project` grava — procure `grep -qE '^#{1,4} Testes$'` em
 `docs/INSTRUCTIONS.md`, `docs/superpowers/INSTRUCTIONS.md`,
-`.specify/memory/constitution.md` e `openspec/project.md`):
+`.specify/memory/constitution.md` e `openspec/project.md`; o título conta como
+existente em qualquer nível de heading):
 
 - **Dedicado:** troque a frase de que o `-api` é o único módulo com
   Testcontainers por: "**O `{base}-integration-tests` é o único módulo com
@@ -259,7 +260,16 @@ Grave `vitest.config.mts` e `vitest.setup.ts` a partir de
 [vitest.config.mts.template](./templates/frontend/web/vitest.config.mts.template)
 e [vitest.setup.ts.template](./templates/frontend/web/vitest.setup.ts.template),
 e o teste mínimo ao lado da página raiz (`src/app/page.test.tsx`, ou
-`app/page.test.tsx` sem `src/`) a partir de
+`app/page.test.tsx` sem `src/`). Se já existir um `page.test.tsx`, não
+sobrescreva. Senão, confira antes o corpo da página raiz:
+
+```bash
+grep -nE 'redirect\(' <página raiz>
+```
+
+Se a página só faz `redirect(...)`, use
+[page-redirect.test.tsx.template](./templates/frontend/web/page-redirect.test.tsx.template)
+com `{redirect-target}` = o caminho passado a `redirect`. Senão, use
 [page.test.tsx.template](./templates/frontend/web/page.test.tsx.template).
 Não sobrescreva um `vitest.config.*` existente: mescle.
 
@@ -286,8 +296,9 @@ com `{app-dir}` = `./src/app` se existir `src/app`, senão `./app`. Se o
 **Checkpoints.** Grave `docs/checkpoints/README.md` a partir de
 [checkpoints-readme.md](./references/checkpoints-readme.md) se ele não
 existir, e acrescente ao `CLAUDE.md` da raiz o bloco de
-[claude-md-obligation.md](./references/claude-md-obligation.md) se ele não
-tiver uma seção `## O que "pronto" inclui`. Os checkpoints entram também num
+[claude-md-obligation.md](./references/claude-md-obligation.md) se
+`grep -qE '^#{1,4} O que "pronto" inclui$' CLAUDE.md` não achar — a seção conta
+como existente em qualquer nível de heading. Os checkpoints entram também num
 projeto só com backend: um runbook `api` é tão devido quanto um de tela.
 
 ### Passo 8 — Regras de projeto
@@ -295,9 +306,13 @@ projeto só com backend: um runbook `api` é tão devido quanto um de tela.
 Destino: o arquivo de convenções do Passo 6; sem nenhum, `docs/INSTRUCTIONS.md`
 (crie com um título `# {base}`). Acrescente as seções de
 [project-rules.md](./references/project-rules.md) que o arquivo ainda não
-tiver, e o parágrafo de *Testes* dentro da seção *Testes*. Nunca sobrescreva.
-Se criou o arquivo, diga no relatório — e confira que o bloco do `CLAUDE.md`
-aponta para ele em `{conventions-file}`.
+tiver — pelo `grep -qE '^#{1,4} <título>$'` de lá, que conta um título em
+qualquer nível de heading como já existente, não só `##` — e o parágrafo de
+*Testes* dentro da seção *Testes*. Nunca sobrescreva. Quando as seções entram
+num arquivo cujas seções irmãs são `###` (ex.: aninhadas sob `##
+Arquitetura`), acrescente-as no mesmo nível dessas irmãs. Se criou o arquivo,
+diga no relatório — e confira que o bloco do `CLAUDE.md` aponta para ele em
+`{conventions-file}`.
 
 ### Passo 9 — Instructions de teste e README
 

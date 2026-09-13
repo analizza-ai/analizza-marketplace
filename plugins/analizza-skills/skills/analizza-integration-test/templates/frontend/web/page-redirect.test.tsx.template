@@ -1,0 +1,18 @@
+import { expect, test, vi } from "vitest";
+
+// Teste minimo: prova que a suite roda e que a rota raiz se comporta como
+// esperado. A pagina nao e renderizada procurando <main> porque o corpo dela
+// e um redirect() de Server Component -- render() jogaria a excecao interna
+// NEXT_REDIRECT em vez de montar markup.
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+}));
+
+test("a raiz redireciona para {redirect-target}", async () => {
+  const { redirect } = await import("next/navigation");
+  const Home = (await import("./page")).default;
+
+  Home();
+
+  expect(redirect).toHaveBeenCalledWith("{redirect-target}");
+});

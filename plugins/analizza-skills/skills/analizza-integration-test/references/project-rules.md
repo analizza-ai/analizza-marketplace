@@ -2,7 +2,9 @@
 
 Seções acrescentadas pelo Passo 8 ao arquivo de convenções do projeto. Cada
 uma entra **só se o arquivo ainda não tiver uma seção com o mesmo título**
-(`grep -q '^## <título>'`); nunca sobrescreva uma existente. O parágrafo de
+(`grep -qE '^#{1,4} <título>$'`); nunca sobrescreva uma existente. Uma seção
+com o mesmo título em qualquer nível de heading conta como já existente —
+projetos aninham estas seções sob `## Arquitetura` como `###`. O parágrafo de
 *Testes* vai para dentro da seção *Testes* que já existir, ou para uma nova.
 
 ## Variáveis de ambiente

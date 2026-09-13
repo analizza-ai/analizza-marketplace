@@ -15,8 +15,14 @@ BOM do Spring Boot: nenhum leva versão.
 | Banco | Kotlin | Java |
 |---|---|---|
 | `postgres` | `PostgreSQLContainer("{image}")` | `new PostgreSQLContainer("{image}")` |
-| `oracle` | `OracleContainer("{image}")` | `new OracleContainer("{image}")` |
+| `oracle` | `OracleContainer("{image}").withStartupTimeout(java.time.Duration.ofMinutes(6))` | `new OracleContainer("{image}").withStartupTimeout(java.time.Duration.ofMinutes(6))` |
 | `mysql` | `MySQLContainer("{image}")` | `new MySQLContainer("{image}")` |
+
+A primeira subida real da imagem do Oracle rotineiramente passa dos 60s que a
+biblioteca espera por padrão, e o timeout do comando Gradle não estende a
+espera própria do container — por isso `{container-new}` de `oracle` já leva
+`.withStartupTimeout(...)`, com `java.time.Duration` por extenso para
+`{container-import}` continuar sendo um único import.
 
 `{image}`: a mesma imagem e tag que o `docker-compose.yml` do projeto usa para
 aquele banco, se ele tiver uma — o teste roda contra a versão que o
