@@ -142,11 +142,6 @@ Todo o trabalho acontece num worktree do `analizza-marketplace`.
 O `mkdir` do `-api` passa a criar `presenter/routes`, `presenter/jobs`,
 `presenter/configuration/security` e `presenter/configuration/exception`.
 
-#### Fora de escopo (ajuste)
-
-"Teste de arquitetura executável" sai da lista de *Fora de escopo* do `SKILL.md`: passa a ter dono
-(Entrega 3).
-
 ### Entrega 2 — `analizza-integration-test`
 
 Pasta `plugins/analizza-skills/skills/analizza-integration-test/`.
@@ -279,6 +274,8 @@ lidos no XML; `make test-web` / `make test-mobile` com exit 0.
   `-mobile`.
 - "Relatar" vira **Passo 12** e informa se os guardrails foram aplicados e com quais respostas.
 - A seção *Testes* do template de convenções aponta para a skill (D7).
+- "Teste de arquitetura executável" sai da lista de *Fora de escopo* do `SKILL.md`: passa a ter
+  dono. Fica nesta entrega, e não na 1, porque antes do Passo 11 existir ninguém o entrega.
 
 ### Entrega 4 — Remoção das antigas
 
