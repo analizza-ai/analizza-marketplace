@@ -17,7 +17,7 @@ primeira fatia vertical.
 
 **A seta é sempre `-api → -core → buildingBlocks`.** O `-core` não conhece o
 `-api`: nenhuma classe do `-core` importa nada de `{package}.presenter`, e o
-`build.gradle` do `-core` não declara o `-api` como dependência — só o
+`build.gradle{dsl-ext}` do `-core` não declara o `-api` como dependência — só o
 contrário. O `-core` **pode** depender de Spring (veja a seção seguinte); o
 que ele não faz é depender do módulo de entrada.
 
@@ -53,8 +53,9 @@ Application                        ponto de entrada; a raiz do component scan
 presenter/
   routes/<agregado>/<casoDeUso>/   uma Route por caso de uso, com o Request
                                    co-locado no mesmo arquivo
+  jobs/                            jobs agendados: o agendamento e sua habilitação
   configuration/
-    security/                      cadeia de filtros, validação de token
+    security/                      cadeia de filtros, validação de credencial
     exception/                     o handler global e as exceções de transporte
 ```
 
@@ -65,6 +66,12 @@ não seja `presenter/`, provavelmente o código pertence ao `-core`.
 A classe de aplicação mora na raiz do pacote de propósito: é ela que define
 onde o component scan começa, e é por isso que os componentes do `-core`
 são encontrados sem varredura explícita.
+
+Um job agendado mora em `presenter/jobs/` pelo mesmo critério que uma Route
+mora em `presenter/routes/`: ele é **entrada** — recebe um gatilho, monta o
+Command, chama o handler e traduz o resultado em log. O gatilho é o
+relógio em vez de HTTP, e só isso muda. Um job não tem regra de negócio,
+pelo mesmo motivo que uma Route não tem.
 
 #### `{project-name}-core` — domínio, casos de uso e saída
 
@@ -106,6 +113,11 @@ conteúdo real, o padrão é o mesmo: um arquivo por regra ou serviço, sem
 sub-pastas por agregado — isso só se justifica se o número de agregados
 crescer a ponto de a raiz de `domain/` ficar difícil de navegar.
 
+Um serviço de `domain/services/` é lógica pura, sem Spring e sem banco — por
+exemplo, transformar uma lista plana numa árvore, ou derivar um código a
+partir de um nome. É isso que o mantém no `-core`: se ele morasse no `-web`,
+teria de ser reescrito no `-mobile`.
+
 **Não existe uma pasta `port/` dentro de `application/`.** A interface do serviço externo mora no
 próprio `infrastructure/`, ao lado do `impl/` que a implementa — por exemplo
 `infrastructure/data/anticorruptionLayer/<vendor>/<Servico>` (interface) e
@@ -117,6 +129,14 @@ a `@Entity` JPA e a interface do Spring Data) mora em
 `infrastructure/repositories/`, no mesmo módulo. Não há adapter "no outro
 módulo": o `-core` implementa suas próprias portas.
 
+Os recursos de saída — templates de mensagem, layouts de documento gerado e
+afins — moram em `{project-name}-core/src/main/resources/<saída>/` (por
+exemplo `mail/templates/`), pelo mesmo critério das migrations: são saída,
+pertencem ao `-core` e chegam ao classpath do `-api` pela dependência de
+projeto. O prefixo não pode colidir com as pastas que o Spring Boot varre
+sozinho (`templates/`, `static/`, `public/`): um `templates/` na raiz do
+classpath liga resolução de view no `-api`, que é uma API JSON.
+
 **Critério para decidir o que é `infrastructure/`:** é infraestrutura tudo
 que é **saída** — qualquer coisa que fale com algo fora do processo (banco,
 SMTP, um serviço externo, emissão de credencial). O caso que mais confunde é
@@ -124,10 +144,10 @@ uma credencial que o próprio `-core` emite: **emitir** é saída
 (`infrastructure/security/`, porque é o `-core` produzindo um artefato para
 outra parte consumir) — mas **validar** uma credencial de uma requisição que
 chega é guarda de entrada, e por isso mora no `-api`, em
-`presenter/configuration/`, não no `-core`. A pergunta a fazer diante de um
-caso novo é: isso está produzindo algo para o mundo de fora, ou decidindo se
-algo que chegou pode entrar? A primeira resposta é `infrastructure/`; a
-segunda é `presenter/`.
+`presenter/configuration/security/`, não no `-core`. A pergunta a fazer
+diante de um caso novo é: isso está produzindo algo para o mundo de fora, ou
+decidindo se algo que chegou pode entrar? A primeira resposta é
+`infrastructure/`; a segunda é `presenter/`.
 
 ### `-core` pode usar Spring
 
@@ -136,7 +156,7 @@ O `-core` aplica `org.jetbrains.kotlin.plugin.spring` e `plugin.jpa` (para
 que classe Kotlin `final` por padrão funcione com proxy do Spring e da JPA
 sem precisar declarar `open` manualmente) e depende de
 `spring-boot-starter-data-jpa` e das demais dependências de saída que o caso
-de uso exigir — veja o `build.gradle` do `{project-name}-core`.
+de uso exigir — veja o `build.gradle.kts` do `{project-name}-core`.
 `@Component` em handler, `@Entity` e `@Repository` em `infrastructure/`,
 `@Configuration` para os beans de saída — tudo isso é normal aqui.
 <!-- fim se kotlin -->
@@ -207,26 +227,36 @@ Spring) e `{package}.presenter.exception`. Quando usar cada um:
   implementar a interface do zero quando não precisar de um id customizado.
 - **`ResultCommandHandler<TCommand, TResult>`** — escrita com retorno. É o
   caso mais comum: a maioria dos casos de uso de escrita confirma algo ao
-  chamador (id gerado, estado resultante). Repare que **`ResultCommand` não
-  estende `Command`**: um `ResultCommand` não tem `id`. Se o caso de uso
-  precisar de um identificador de correlação, declare o campo você mesmo — o
-  contrato não empresta um.
+  chamador (id gerado, estado resultante). Um handler pode ser quase
+  passthrough para uma porta de `infrastructure/` e ainda assim existir de
+  propósito: é ele que impede a Route de injetar a porta direto e furar a
+  regra de que o `-api` não importa `infrastructure/`.
+  Handler magro é o preço de manter a seta, não sinal de camada sobrando.
+  Repare que **`ResultCommand` não estende `Command`**: um `ResultCommand`
+  não tem `id`. Se o caso de uso precisar de um identificador de
+  correlação, declare o campo você mesmo — o contrato não empresta um.
 - **`QueryHandler<TQuery, TResult>`** — leitura.
 - **`Entity`** — base para agregado que valida sua própria invariante ao
-  nascer, via `checkAllRules(...)`.
+  nascer, via `checkAllRules(...)`. Herdar de `Entity` **sem** chamar
+  `checkAllRules` é caso normal, não esquecimento: quando a invariante
+  depende de um argumento da fábrica e não de um campo do agregado, é a
+  fábrica que chama um `RuleChecker` direto (veja o item seguinte).
 - **`Id`** — base para agregado cujo identificador é numérico sequencial
   (`Long`). Um agregado com `UUID` ou outro tipo de identificador
   simplesmente não o estende.
 - **`BusinessRule` + `RuleChecker`** — regra que estoura
   `BusinessRulesBrokenException` quando quebrada. `Entity.checkAllRules` usa
-  um `RuleChecker` internamente.
+  um `RuleChecker` internamente; uma fábrica chama um `RuleChecker` direto
+  quando a regra olha um argumento da fábrica em vez de um campo do
+  agregado — `checkAllRules` foi feito para uma entidade validar os
+  próprios campos, não a entrada da fábrica.
 - **`Event`** — para um caso de uso que precise publicar algo que aconteceu;
   consumidor e mecanismo de publicação são decisão de quem implementar.
 - **`ErrorMessage` / `ListErrorMessage`** — formato de corpo de erro
   alternativo a `ProblemDetail` (veja a seção seguinte). Use um ou outro, não
   os dois: escolha o formato de erro do projeto e registre a decisão aqui.
 
-Sem essa lista, `buildingBlocks` vira gaveta: quinze arquivos e nenhuma pista
+Sem essa lista, `buildingBlocks` vira gaveta: esses arquivos e nenhuma pista
 de quando usar cada um.
 
 ### Falha e corpo de erro
@@ -241,10 +271,19 @@ escolher esse caminho, substitua esta decisão e registre a troca aqui.)
 **Padrão: exceção.** Uma regra de domínio quebrada estoura
 `BusinessRulesBrokenException` (do `buildingBlocks`), e um
 `GlobalExceptionHandler`, em
-`{project-name}-api/.../presenter/configuration/`, a converte em
+`{project-name}-api/.../presenter/configuration/exception/`, a converte em
 422, com um `errors` no corpo listando o `code` e a `message` de cada
 `BusinessRule` que quebrou. Fatia nova que precisa de um novo tipo de erro
 acrescenta um `@ExceptionHandler` ali, não inventa formato próprio.
+
+Nem toda falha é regra de negócio quebrada. Buscar um recurso que não existe
+estoura uma exceção própria do `-core` (por exemplo
+`<Agregado>NotFoundException`), e o mesmo `GlobalExceptionHandler` a
+converte em 404, com um corpo genérico que não repete o identificador
+pedido nem diz se ele existiu e foi removido ou nunca existiu. Quando revelar
+a própria existência do recurso já é o vazamento — por exemplo, uma busca por
+um identificador de login —, o caso de uso não usa esse 404: segue a exceção
+de opacidade descrita a seguir.
 
 **A exceção nomeada.** Nem toda falha pode passar pelo caminho padrão. O 422
 do `GlobalExceptionHandler` embute no corpo da resposta o `id` e a `message`
@@ -263,6 +302,19 @@ as causas que precisam ficar opacas. Uma falha de infraestrutura de fato (o
 serviço externo do qual o caso de uso depende está fora do ar) não precisa
 dessa opacidade e pode virar uma resposta diferente — porque isso não é
 informação sobre o pedido, é sobre o próprio serviço estar no ar.
+
+Essa indisponibilidade é um caso que o caso de uso **decide**: a saída fora
+do ar do serviço externo que ele existe para chamar pode, inclusive, virar
+uma variante a mais do tipo fechado (por exemplo `EntregaIndisponivel`),
+respondida com um status próprio, diferente do das causas opacas. O tipo
+fechado cobre só o que o caso de uso decide. Falha **inesperada** — um
+template quebrado, o banco fora — não tem valor no tipo: ela sobe como
+exceção, a `Route` não a traduz, e o resultado é 500. A distinção é o
+ponto, não uma brecha: tudo que o caso de uso não decide — um defeito
+nosso, o banco fora, um template quebrado — é exceção, e é isso que
+impede que defeito nosso se disfarce de sucesso. Por isso a `Route` de um
+caso de uso opaco não envolve a chamada num "captura tudo e devolve o
+status de sucesso".
 
 Use esse padrão só quando houver esse risco de vazamento. Uma regra que não
 tem esse risco usa o caminho padrão (`BusinessRule` + exceção + 422).
@@ -284,8 +336,8 @@ Decidido na forma, não no mecanismo: o `-api` é um resource server stateless
 deixar a requisição entrar. **Emitir** a credencial é saída
 (`infrastructure/security/` no `-core`, com o par interface + `impl/`
 descrito acima); **validar** a credencial de uma requisição que chega é
-guarda de entrada (`presenter/configuration/` no `-api`) — mesmo critério de
-"o que é `infrastructure/`" aplicado à autenticação.
+guarda de entrada (`presenter/configuration/security/` no `-api`) — mesmo
+critério de "o que é `infrastructure/`" aplicado à autenticação.
 
 Qual credencial o usuário apresenta (senha, código, OAuth, certificado), o
 formato da credencial emitida e sua validade são decisão de produto —
@@ -334,7 +386,7 @@ a migration, sempre.
 fato já montado**, no mesmo espírito da árvore de pastas vazia descrita no
 topo deste documento. O `SKILL.md` desta skill deixa "teste de arquitetura
 executável" explicitamente fora de escopo, e o
-`{project-name}-api/build.gradle` que sai do Initializr não ganha dependência
+`{project-name}-api/build.gradle{dsl-ext}` que sai do Initializr não ganha dependência
 de ArchUnit nem de Testcontainers, nem a task `integrationTest`. Num projeto
 recém-gerado, `./gradlew integrationTest` responde "Task not found" — não é
 defeito, é o esperado até a primeira fatia vertical acrescentar o que falta.
@@ -351,18 +403,28 @@ A convenção a seguir quando essa infraestrutura for construída:
   dependência de projeto sobre o `-core`, quem sobe o Postgres e testa a
   infraestrutura do `-core` (repositório JPA, migrations) de ponta a ponta
   através do `BaseIntegrationTest`.
+- Nenhuma mensagem nem chamada sai da suíte. Um `TestConfig` em
+  `{project-name}-api/src/test/.../support/` registra, com `@Primary`, um
+  dublê para cada serviço de saída que não tem container (e-mail, gateway de
+  terceiro): o dublê guarda o que recebeu em memória para o teste afirmar
+  sobre isso. O banco e o que tem container de verdade não ganham dublê — o
+  teste de integração existe para exercitá-los.
 - Uma regra ArchUnit (por exemplo `EntrypointHasIntegrationTestIT`, em
   `{project-name}-api/src/test/.../architecture/`) com **um único
-  trabalho**: todo `@RestController` precisa ter uma classe `<Nome>IT` que
-  estenda `BaseIntegrationTest`. Não precisa de regra de pureza de pacote
-  (nada impede hoje, por exemplo, um import de `infrastructure/` dentro de
-  `domain/` — veja "`-core` pode usar Spring" acima).
+  trabalho**: todo entrypoint — `@RestController` ou classe com um método
+  `@Scheduled` — precisa ter uma classe `<Nome>IT` que estenda
+  `BaseIntegrationTest`. Um job entra na regra pelo mesmo motivo que um
+  controller, e com mais razão: ninguém recebe um 500 quando um agendamento
+  para de rodar, então o risco de ele quebrar em silêncio é maior, não menor.
+  Não precisa de regra de pureza de pacote (nada impede hoje, por exemplo, um
+  import de `infrastructure/` dentro de `domain/` — veja "`-core` pode usar
+  Spring" acima).
 - `./gradlew test` deve continuar rodando só o que não precisa de banco;
   `./gradlew integrationTest` é uma task nova, a acrescentar ao
-  `{project-name}-api/build.gradle` junto com o resto.
+  `{project-name}-api/build.gradle{dsl-ext}` junto com o resto.
 
 Para sair do papel, a primeira fatia vertical que precisar de teste de
-integração acrescenta ao `{project-name}-api/build.gradle`: a dependência do
+integração acrescenta ao `{project-name}-api/build.gradle{dsl-ext}`: a dependência do
 ArchUnit (`com.tngtech.archunit:archunit-junit5`), as de Testcontainers
 (`org.testcontainers:junit-jupiter`, `org.testcontainers:postgresql`,
 `org.springframework.boot:spring-boot-testcontainers`) e a task

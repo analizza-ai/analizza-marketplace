@@ -214,9 +214,11 @@ uma corrida que falha de forma intermitente — o pior tipo de falha.
 
 ### A única versão de dependência Java pinada da skill
 
-O `core-build.gradle.template` pina o `junit-bom`. O core importa, sim, o BOM
-do Spring Boot (`dependencyManagement { imports { mavenBom
-"org.springframework.boot:spring-boot-dependencies:{boot-version}" } }`), mas
+Os dois templates do core (`core-build.gradle.template` e
+`core-build.gradle.kts.template`) pinam o `junit-bom`. O core importa, sim, o
+BOM do Spring Boot (`dependencyManagement { imports { mavenBom
+"org.springframework.boot:spring-boot-dependencies:{boot-version}" } }` —
+ou `mavenBom("...")` no `.kts`), mas
 esse BOM gerencia versão de dependência de produção; quem traria a versão do
 JUnit gerenciada é o `spring-boot-starter-test`, que o core não aplica (não é
 starter de teste, é o próprio core que depende de teste leve). Sem esse
