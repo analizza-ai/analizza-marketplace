@@ -1,0 +1,71 @@
+plugins {
+    `java-library`
+    kotlin("jvm")
+    kotlin("plugin.spring")
+    kotlin("plugin.jpa")
+    id("io.spring.dependency-management")
+}
+
+group = "{group}"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// O -core nao aplica o plugin org.springframework.boot: nao gera bootJar,
+// continua biblioteca. Mas precisa do BOM para resolver as versoes dos
+// starters sem escreve-las a mao. Sem versao aqui: os plugins do Kotlin e o
+// io.spring.dependency-management herdam a versao declarada no
+// build.gradle.kts da raiz.
+dependencyManagement {
+    imports {
+        mavenBom("org.springframework.boot:spring-boot-dependencies:{boot-version}")
+    }
+}
+
+dependencies {
+    api(project(":buildingBlocks"))
+
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    // spring-boot-starter-flyway existe a partir do Boot 4.x; em Boot 3.x
+    // troque por "org.flywaydb:flyway-core" direto.
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    implementation("org.springframework.boot:spring-boot-starter-mail")
+    // Spring, Jackson e Hibernate leem classe Kotlin via reflexao; sem isso
+    // alguns caminhos (serializacao, proxy de metodo) falham em runtime.
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    runtimeOnly("org.postgresql:postgresql")
+
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll("-Xjsr305=strict")
+    }
+}
+
+// domain/ e infrastructure/ nao sao module boundaries do Gradle -- sao pastas
+// do mesmo modulo. Sem allOpen, uma classe Kotlin e final por padrao e nem
+// o Hibernate (proxy de @Entity) nem o Spring (proxy de @Configuration)
+// conseguem estender ela em runtime.
+allOpen {
+    annotation("jakarta.persistence.Entity")
+    annotation("jakarta.persistence.MappedSuperclass")
+    annotation("jakarta.persistence.Embeddable")
+    annotation("org.springframework.context.annotation.Configuration")
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}

@@ -1,0 +1,74 @@
+package {base-package}.architecture;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import {base-package}.support.BaseIntegrationTest;
+import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Um unico trabalho: todo entrypoint -- {@code @RestController}, metodo
+ * {@code @Scheduled} ou metodo {@code @KafkaListener} -- precisa de um
+ * {@code <Nome>IT} que estenda BaseIntegrationTest. Um job entra pelo mesmo
+ * motivo que um controller, e com mais razao: ninguem recebe um 500 quando um
+ * agendamento para de rodar.
+ *
+ * <p>Sem FreezingArchRule: um store de freeze so viraria lugar de esconder
+ * entrypoint sem teste. Sem archunit-junit5 ({@code @ArchTest}): aquele engine
+ * traz uma JUnit Platform que conflita com a do Spring Boot 4; um {@code @Test}
+ * comum basta.
+ *
+ * <p>{@code @KafkaListener} e comparado pelo nome para a regra compilar sem
+ * spring-kafka. {@code allowEmptyShould(true)} porque um projeto novo ainda nao
+ * tem entrypoint.
+ *
+ * <p>Um {@code @KafkaListener} de classe (com metodos {@code @KafkaHandler})
+ * nao e coberto: a regra so olha metodos anotados diretamente.
+ */
+class EntrypointHasIntegrationTestIT {
+
+    private static final String KAFKA_LISTENER = "org.springframework.kafka.annotation.KafkaListener";
+
+    private final JavaClasses importadas = new ClassFileImporter().importPackages("{base-package}");
+
+    private final DescribedPredicate<JavaClass> saoEntrypoints = DescribedPredicate.describe(
+            "sao entrypoints (@RestController, @Scheduled ou @KafkaListener)",
+            classe -> classe.isAnnotatedWith(RestController.class)
+                    || classe.getMethods().stream().anyMatch(m ->
+                            m.isAnnotatedWith(Scheduled.class) || m.isAnnotatedWith(KAFKA_LISTENER)));
+
+    private ArchCondition<JavaClass> temIntegrationTest(JavaClasses todas) {
+        return new ArchCondition<>("ter um <Nome>IT que estenda BaseIntegrationTest") {
+            @Override
+            public void check(JavaClass entrypoint, ConditionEvents eventos) {
+                String esperado = entrypoint.getSimpleName() + "IT";
+                boolean achou = todas.stream().anyMatch(c ->
+                        c.getSimpleName().equals(esperado) && c.isAssignableTo(BaseIntegrationTest.class));
+                if (achou) {
+                    eventos.add(SimpleConditionEvent.satisfied(entrypoint, esperado + " existe"));
+                } else {
+                    eventos.add(SimpleConditionEvent.violated(entrypoint,
+                            entrypoint.getName() + " nao tem '" + esperado + "' estendendo BaseIntegrationTest"));
+                }
+            }
+        };
+    }
+
+    @Test
+    void todoEntrypointTemTesteDeIntegracao() {
+        classes()
+                .that(saoEntrypoints)
+                .should(temIntegrationTest(importadas))
+                .allowEmptyShould(true)
+                .because("todo entrypoint precisa de ao menos um teste de integracao")
+                .check(importadas);
+    }
+}

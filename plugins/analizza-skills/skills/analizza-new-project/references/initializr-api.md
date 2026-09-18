@@ -33,8 +33,8 @@ não estiverem, use o `default` do metadata e diga ao usuário o que mudou.
 
 ```bash
 curl -sS --max-time 90 -o starter.zip -G https://start.spring.io/starter.zip \
-  --data-urlencode 'type=gradle-project' \
-  --data-urlencode 'language=java' \
+  --data-urlencode 'type={initializr-type}' \
+  --data-urlencode 'language={language}' \
   --data-urlencode 'bootVersion={boot-version}' \
   --data-urlencode 'groupId={group}' \
   --data-urlencode 'artifactId={project-name}-api' \
@@ -56,16 +56,14 @@ Use `-G` com `--data-urlencode` em vez de montar a query à mão: o `groupId` e 
 | `gradle-project-kotlin` | Gradle - Kotlin (DSL do `build.gradle.kts`) |
 | `maven-project` | Maven |
 
-`type` escolhe o DSL do build script, não a linguagem do código-fonte — quem
-decide Java vs. Kotlin é `language`. Os dois são eixos independentes: dá para
-pedir `language=kotlin` com `type=gradle-project` (código Kotlin, build
-script Groovy) do mesmo jeito que dá para pedir `language=java` com
-`type=gradle-project-kotlin` (código Java, build script Kotlin DSL). Esta
-skill usa sempre `type=gradle-project`, mesmo com `language=kotlin`: todo
-template Gradle que ela grava (`core-build.gradle.template`,
-`buildingBlocks/build.gradle.template`, `root-build.gradle.template`) é
-Groovy, e misturar DSL entre módulos do mesmo build não traz nenhum
-benefício aqui.
+`type` escolhe a DSL do build script, não a linguagem do código-fonte — quem
+decide Java vs. Kotlin é `language`. Na API os dois são eixos independentes
+(dá para pedir código Kotlin com build Groovy). Esta skill os amarra:
+`language=kotlin` usa `type=gradle-project-kotlin` e `language=java` usa
+`type=gradle-project`, porque todo template Gradle que ela grava existe nas
+duas DSLs e o `-api` gerado pelo Initializr precisa estar na mesma DSL dos
+módulos que a skill escreve. Misturar DSL no mesmo build não traz benefício e
+dobra o que alguém precisa ler para mexer nele.
 
 ### IDs de dependência usados por padrão
 
@@ -110,5 +108,5 @@ A API devolve sempre um projeto de módulo único. Não existe parâmetro para
 ver [gradle-multi-module.md](./gradle-multi-module.md).
 
 Gere com `artifactId={project-name}-api`: é o artefato que vira jar executável.
-O `rootProject.name` no `settings.gradle` é reescrito depois para
+O `rootProject.name` no `settings.gradle{dsl-ext}` é reescrito depois para
 `{project-name}`, sem sufixo — a raiz é o produto, os módulos são partes dele.

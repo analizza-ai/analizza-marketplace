@@ -1,0 +1,48 @@
+package {base-package}.support;
+
+import {app-package}.{app-class};
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.test.web.servlet.client.RestTestClient;
+import {container-import};
+
+/**
+ * Base de todo teste de integracao: toda classe terminada em IT a estende.
+ *
+ * <p>Um container de banco para a suite inteira, iniciado na mao e sem
+ * {@code @Container}: o ciclo do {@code @Container} e por classe e reiniciaria
+ * o banco a cada IT. O Ryuk do Testcontainers derruba o container no fim do build.
+ */
+@SpringBootTest(
+        classes = {app-class}.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+)
+@Import(TestConfig.class)
+public abstract class BaseIntegrationTest {
+
+    @ServiceConnection
+    protected static final {container-type} DATABASE = {container-new};
+
+    static {
+        DATABASE.start();
+    }
+
+    @LocalServerPort
+    private int port;
+
+    protected RestTestClient http;
+
+    @BeforeEach
+    void prepararCliente() {
+        // O JdkClientHttpRequestFactory vai explicito porque bindToServer() sem
+        // argumento escolhe o cliente HTTP pelo classpath: uma dependencia nova
+        // pode trocar o transporte do teste -- e o retry dele -- sem aviso.
+        http = RestTestClient.bindToServer(new JdkClientHttpRequestFactory())
+                .baseUrl("http://localhost:" + port)
+                .build();
+    }
+}

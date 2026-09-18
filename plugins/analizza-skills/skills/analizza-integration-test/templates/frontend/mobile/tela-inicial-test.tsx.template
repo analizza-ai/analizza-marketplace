@@ -1,0 +1,10 @@
+import { renderRouter } from "expo-router/testing-library";
+
+// Teste minimo: prova que a suite roda e que o roteador abre a tela inicial.
+// Troque pelo primeiro teste de comportamento quando a tela ganhar um.
+test("a tela inicial abre na rota raiz", () => {
+  // O matcher toHavePathname le o valor devolvido por renderRouter; o `screen`
+  // importado do testing-library nao ganha getPathname.
+  const tela = renderRouter("{app-dir}");
+  expect(tela).toHavePathname("/");
+});
