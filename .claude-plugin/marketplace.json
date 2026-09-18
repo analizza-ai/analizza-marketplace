@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "analizza-skills",
-      "description": "Skills da Analizza para scaffolding e qualidade de projetos. Inclui analizza-integration-test, que configura testes de integração em projetos Spring Boot (Java ou Kotlin, Groovy ou Kotlin DSL) e guardrails de teste nos frontends Next.js e Expo, e analizza-new-project, que cria do zero, em Java ou Kotlin, um monorepo de cinco módulos: buildingBlocks com os contratos base, api, core, web e mobile.",
+      "description": "Skills da Analizza para scaffolding e qualidade de projetos. Inclui analizza-integration-test, que configura testes de integração em projetos Spring Boot (Java ou Kotlin, Groovy ou Kotlin DSL) e guardrails de teste nos frontends Next.js e Expo, e analizza-new-project, que cria do zero, em Java ou Kotlin, um monorepo de cinco módulos: buildingBlocks com os contratos base, api, core, web e mobile. A test-runbook implanta, em qualquer projeto, o mecanismo de checkpoint de conferência manual conduzido por essa mesma skill.",
       "author": {
         "name": "Diego Lirio",
         "email": "diegolirio.dl@gmail.com"
