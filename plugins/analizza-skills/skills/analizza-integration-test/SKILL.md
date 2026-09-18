@@ -332,13 +332,18 @@ só os alvos e os `scripts` das partes que existirem (sem `-mobile`, sem
 `docs/INSTRUCTIONS.md` a ser criado se nenhuma bateu — **antes** de gravar o
 bloco do `CLAUDE.md` abaixo, porque ele referencia esse caminho. Grave
 `docs/checkpoints/README.md` a partir de
-[checkpoints-readme.md](./references/checkpoints-readme.md) se ele não
-existir, e acrescente ao `CLAUDE.md` da raiz o bloco de
+[checkpoints-readme.md](../test-runbook/references/checkpoints-readme.md) se
+ele não existir, e acrescente ao `CLAUDE.md` da raiz o bloco de
 [claude-md-obligation.md](./references/claude-md-obligation.md) — com
 `{conventions-file}` substituído — se
 `grep -qE '^#{1,4} O que "pronto" inclui$' CLAUDE.md` não achar — a seção conta
 como existente em qualquer nível de heading. Os checkpoints entram também num
 projeto só com backend: um runbook `api` é tão devido quanto um de tela.
+
+Em seguida, implante a skill `test-runbook`
+(`plugins/analizza-skills/skills/test-runbook/SKILL.md`) neste mesmo projeto — ela gera
+`.claude/skills/test-runbook/` (a skill que conduz o checkpoint no dia a dia) sem perguntar e sem
+sobrescrever o que já existir. Isto vale para todo escopo, inclusive backend sem frontend.
 
 ### Passo 9 — Regras de projeto
 
