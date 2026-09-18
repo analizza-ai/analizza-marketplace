@@ -1,0 +1,194 @@
+---
+name: test-runbook
+description: Conduz um checkpoint de conferência manual a partir dos runbooks em docs/checkpoints/ deste projeto. Lista os runbooks disponíveis, pergunta qual executar, e então ou entrega os passos prontos para a pessoa seguir, ou executa pelo navegador embutido se ela pedir. Use sempre que alguém invocar /test-runbook, disser que vai conferir ou testar uma funcionalidade na mão, perguntar "qual runbook", quiser rodar o checkpoint de uma fatia, ou quando você acabar de implementar algo e for propor a conferência — mesmo que a palavra "runbook" não apareça.
+---
+
+# Conduzir um checkpoint pelo runbook
+
+Um checkpoint é uma parada onde **uma pessoa olha o resultado rodando**. Ele
+existe para o que teste nenhum pega — tela que sumiu com a suíte verde, CORS
+que só quebra no navegador, migration que não casou uma linha.
+
+Isso define o seu papel: você encurta o caminho, mostra o que olhar e diz o
+que **não** conseguiu verificar. Quem olha e quem aprova é a pessoa. Rodar o
+fluxo e apresentar a saída como se fosse a conferência troca julgamento por
+carimbo, e é exatamente o que não se quer aqui.
+
+## Escreva pouco
+
+Quem vai conferir quer agir, não ler. O porquê das coisas já está no runbook
+e em `docs/checkpoints/README.md` — não repita nada disso na conversa. Vale
+lista curta, comando pronto, e o mínimo de prosa que ainda faça sentido.
+
+Leia `docs/checkpoints/README.md` uma vez antes de começar.
+
+## 1. Veja o estado do ambiente antes de falar
+
+```bash
+.claude/skills/test-runbook/scripts/preflight.sh
+```
+
+Rode isso primeiro, sempre. Descobrir no meio do caminho que um serviço está
+parado é o tipo de atrito que faz a pessoa desistir de conferir.
+
+Se algo estiver fora do ar, o comando para subir o ambiente deste projeto é:
+
+```bash
+{comando-de-subida}
+```
+
+## 2. Liste os runbooks e pergunte qual
+
+Os runbooks são os `.md` de `docs/checkpoints/`, menos o `README.md`.
+Descubra por listagem, nunca por uma lista fixa dentro desta skill.
+
+**Pergunte com `AskUserQuestion`, não com uma lista numerada em texto.** Monte
+as opções a partir dos arquivos encontrados — `label` é o nome do runbook,
+`description` é o que ele cobre em umas oito palavras, e vale dizer ali se
+tem tela ou não.
+
+Antes da pergunta, uma linha de ambiente, só com o que está fora do lugar.
+
+Pergunte mesmo quando só houver um runbook — a escolha é dela.
+
+Se a funcionalidade citada **não tiver** runbook, diga isso em vez de
+improvisar passos — a falta de um é um achado por si só. Ofereça escrevê-lo.
+
+## 3. O tipo do runbook decide se há segunda pergunta
+
+Todo runbook declara no topo onde a conferência acontece:
+
+```markdown
+---
+type: screen-web
+---
+```
+
+`screen-web`/`screen-mobile` têm tela; `api` é terminal e HTTP; `inbox` é
+numa caixa de entrada. **O navegador embutido só vale para `screen-web` e
+`inbox`.**
+
+- **`screen-web`/`inbox`** → uma **segunda** `AskUserQuestion`, com estes
+  dois `label` **literais**:
+
+  1. `IA executa pelo navegador e você assiste`
+  2. `Você executa passo a passo, eu te forneço a sequência`
+
+- **qualquer outro tipo** → não pergunte. Diga numa linha que ali é terminal
+  e vá para o caminho manual.
+
+**Use esses rótulos como estão, sem reescrever.** Cada opção precisa dizer
+quem faz e quem olha, com o sujeito explícito — "eu" e "você" trocam de dono
+conforme quem lê, e uma pergunta que exige decifrar quem é quem é uma
+pergunta que se aprende a pular.
+
+As duas perguntas são separadas quando existem: juntá-las obriga a decidir
+como conferir antes de saber o que conferir.
+
+**Um runbook `api` ainda pode precisar de tela no setup.** Isso não muda o
+tipo, porque o tipo descreve onde se confere. Se a preparação for mais
+rápida pela API, faça pela API e diga.
+
+## 4a. Caminho manual: entregue passos, não um resumo
+
+Traduza a seção 1 do runbook numa sequência numerada, em ordem de execução,
+com os comandos prontos para colar e o que observar em cada um.
+
+Três coisas que fazem a diferença:
+
+- **O que precisa ser feito antes não pode aparecer depois.** Ordene por
+  dependência, não pela ordem do arquivo.
+- **Preencha o que o runbook deixou genérico.** Se pede "um arquivo de mais
+  de 5 MB", procure um no sistema e cite o caminho.
+- **Diga o que cada passo prova**, não só o que fazer.
+
+Termine com as seções 2 e 3 do runbook — as provocações e o lembrete de
+estranhar número que aparece sem ter sido pedido.
+
+## 4b. Caminho navegador: execute, observe, e devolva o julgamento
+
+Use o navegador embutido (`mcp__Claude_Browser__`).
+
+**Abra o painel do navegador antes de qualquer passo, e deixe visível.**
+`preview_start` com a URL inicial o abre; `tabs_context` diz em qual estado
+ele está.
+
+Vá num ritmo que dê para acompanhar. Diga o que vai fazer antes de fazer, e
+prefira passos separados a um lote grande.
+
+Execute os passos da seção 1 e relate o que viu, com evidência: print da
+tela, o que apareceu na aba Network, a saída de comandos. Você consegue
+**verificar** valor, formato, status — o que você não consegue é **julgar**
+aparência. "A tela parece errada" não é verificação; mostre e devolva:
+
+> Print abaixo. Se a tela está como você desenhou, eu não sei dizer — olhe e
+> me diga.
+
+E nunca aprove. A frase final é dela, não sua.
+
+**Dicas gerais do navegador embutido (limitação da ferramenta, não do
+projeto):**
+
+- **Ele não sobe arquivo por clique.** Não há seletor de arquivo nativo
+  visível. Contorno: sirva o arquivo pela mesma origem (ex.: pasta pública
+  do frontend) e injete no input pelo `javascript_tool`:
+
+  ```js
+  const blob = await (await fetch('/arquivo.ext')).blob();
+  const dt = new DataTransfer();
+  dt.items.add(new File([blob], 'arquivo.ext', { type: 'application/octet-stream' }));
+  const input = document.querySelector('input[type=file]');
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  ```
+
+  Diga no relatório que o clique/arraste do seletor em si não foi exercitado.
+- **Campos separados que avançam sozinhos** (código em vários quadrados, por
+  exemplo) não aceitam a string inteira de uma vez. Use `form_input` em
+  cada um.
+- **Limpe a rede antes do passo que interessa** (`read_network_requests` com
+  `clear`), senão o que importa fica enterrado sob chamadas do próprio
+  framework.
+
+**Cuidados e armadilhas:**
+
+- **A seção 2 do runbook pode ter passos destrutivos.** Derrubar um
+  container no meio de um fluxo é um teste legítimo e também pode afetar
+  algo que está sendo usado para outra coisa. Diga o que vai fazer e como
+  desfazer, antes de fazer.
+- **Não invente passos.** Se o runbook não cobre algo que você acha que
+  deveria, diga isso — provavelmente o runbook está desatualizado, e isso é
+  um achado.
+
+## 5. Feche dizendo o que ficou sem verificação
+
+Toda conferência termina com duas listas, e a segunda é a que importa:
+
+```
+Verifiquei:
+- <o que você mediu, com o valor observado>
+
+Não consegui verificar:
+- <o que precisa do olho de quem está conferindo>
+
+A decisão de seguir é sua.
+```
+
+Escreva a segunda lista sem que perguntem — é o que impede o checkpoint de
+virar carimbo.
+
+## 6. Se algo foi encontrado, o runbook muda
+
+Achou defeito? A seção 4 do runbook (`O que este checkpoint já pegou`) ganha
+uma entrada datada, com o achado real e **por que os testes não pegaram**.
+
+Se a funcionalidade mudou, o runbook muda junto — desatualizado ele é pior
+que ausente.
+
+## Cuidados específicos deste projeto
+
+Nenhum registrado ainda. Ao encontrar uma armadilha própria deste projeto
+durante um checkpoint (um serviço externo que manda algo de verdade, um
+contorno de tela específico daqui, um dado que precisa existir antes),
+registre aqui — data e o que aprender evita repetir a mesma surpresa na
+próxima conferência.

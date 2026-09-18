@@ -18,6 +18,9 @@ quatro seções e por que elas são essas — está em
 conferência está em [{conventions-file}]({conventions-file}), na seção
 *Checkpoints de conferência*.
 
+**Quem conduz** a conferência é a skill implantada em `.claude/skills/test-runbook/` — invoque-a
+(`/test-runbook`) em vez de seguir o runbook improvisando os passos.
+
 Esta obrigação mora aqui, e não só no arquivo de convenções, porque este
 arquivo entra em contexto sozinho: uma definição de pronto que mora apenas no
 arquivo que pode não ser lido se perde em silêncio — e o runbook é o que mais
