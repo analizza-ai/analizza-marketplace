@@ -368,12 +368,43 @@ Informe ao usuário:
 - Que o banco sobe sem schema: Flyway com zero migrations e nenhuma entidade é o
   esperado, não defeito
 - Em qual arquivo as convenções de arquitetura foram gravadas
+- Que a skill vai acionar, a seguir, o guardrail de testes de integração (Passo 12)
+
+### Passo 12 — Acionar o guardrail de testes de integração
+
+Como última tarefa do scaffold, **invoque diretamente** — sem perguntar se o
+usuário quer pular — a skill de testes de integração correspondente à
+`language` escolhida no Passo 2:
+
+| `language` | Skill a invocar |
+|---|---|
+| `java` | `analizza-java-integration-test` |
+| `kotlin` | `analizza-kotlin-integration-test` |
+
+As duas descobrem tudo por conta própria a partir do `settings.gradle` que
+este scaffold já escreveu — módulos e nome base do projeto —, então não é
+preciso passar nenhum parâmetro. Elas
+encontram a estrutura multi-módulo recém-criada (`{project-name}-api`,
+`{project-name}-core`, `buildingBlocks`) e constroem a infraestrutura
+descrita (e ainda não implementada) na seção "Testes" das convenções
+gravadas no Passo 8: módulo dedicado `{project-name}-integration-tests`,
+`BaseIntegrationTest`, Testcontainers, a regra ArchUnit de cobertura de
+entrypoints e JaCoCo.
+
+O relatório dessa skill some depois do dela mesma — não repita nem resuma o
+checklist de conclusão dela no relatório do Passo 11; os dois relatórios
+ficam separados, cada skill responde pelo que fez.
 
 ## Fora de escopo
 
 Endpoint ou entidade de exemplo, paginação, upload de arquivos, versionamento
-da API, observabilidade além do Actuator, teste de arquitetura executável,
-Dockerfile da aplicação, CI/CD e integração entre os frontends e o backend.
+da API, observabilidade além do Actuator, Dockerfile da aplicação, CI/CD e
+integração entre os frontends e o backend.
+
+Teste de arquitetura executável (ArchUnit, Testcontainers, `BaseIntegrationTest`)
+não é escrito por esta skill diretamente — o Passo 12 aciona a skill irmã
+(`analizza-java-integration-test` ou `analizza-kotlin-integration-test`), que
+constrói essa infraestrutura como última tarefa do scaffold.
 
 Autenticação, CORS e o formato do corpo de erro têm a **forma** decidida e
 documentada nas convenções de arquitetura (Passo 8) — onde o código de cada
