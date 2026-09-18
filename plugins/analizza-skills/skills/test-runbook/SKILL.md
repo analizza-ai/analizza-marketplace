@@ -70,7 +70,10 @@ preencha nada nela, é para a pessoa (ou um checkpoint futuro) preencher.
 A partir de `templates/preflight.sh.template`. Placeholders:
 
 - `{PORTAS}` — array bash `("porta:nome" ...)` com o que foi detectado no
-  passo 2 (ex.: `("8080:api" "3000:web")`).
+  passo 2 (ex.: `("8080:api" "3000:web")`). Se nenhuma porta for detectada,
+  inclua ao menos uma entrada com a porta padrão do stack (ex.:
+  `8080:api`) — um array vazio quebra o `set -u` do script no bash 3.2
+  (padrão no macOS).
 - `{BANCO_CHECK}` — um comando de "está pronto" para o banco detectado.
   Prontos para copiar:
   - Postgres: `docker exec {container} pg_isready -U {usuario} >/dev/null 2>&1`
@@ -80,7 +83,7 @@ A partir de `templates/preflight.sh.template`. Placeholders:
   `docker-compose.yml`. Nunca escreva uma query de negócio aqui — é
   health-check de infraestrutura, não conferência de dado.
 
-O bloco `== email ==` do template vem marcado com o comentário
+O bloco `== e-mail ==` do template vem marcado com o comentário
 `# BLOCO-EMAIL`. Se o passo 2 **não** encontrou nada de e-mail/SMTP, remova o
 bloco inteiro (do comentário de abertura ao de fechamento) — não deixe
 metade dele nem um placeholder sem preencher. Se encontrou, preencha

@@ -340,8 +340,8 @@ ele não existir, e acrescente ao `CLAUDE.md` da raiz o bloco de
 como existente em qualquer nível de heading. Os checkpoints entram também num
 projeto só com backend: um runbook `api` é tão devido quanto um de tela.
 
-Em seguida, implante a skill `test-runbook`
-(`plugins/analizza-skills/skills/test-runbook/SKILL.md`) neste mesmo projeto — ela gera
+Em seguida, implante a skill [test-runbook](../test-runbook/SKILL.md) neste
+mesmo projeto — ela gera
 `.claude/skills/test-runbook/` (a skill que conduz o checkpoint no dia a dia) sem perguntar e sem
 sobrescrever o que já existir. Isto vale para todo escopo, inclusive backend sem frontend.
 
