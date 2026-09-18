@@ -78,3 +78,11 @@ evidência sobre o que aquele sistema produz.** Teste de adapter que monta à
 mão uma URL, um JSON ou uma mensagem "como o SDK devolveria" prova só que o
 código entende o exemplo. O teste que protege a integração usa a saída real —
 do SDK, do container, do serviço — ao menos uma vez.
+
+**O inverso também vale: o teste de integração não substitui o unitário.**
+Subir container e contexto Spring a cada ramo de erro é caro demais para
+cobrir todos eles a cada mudança — é o teste unitário do handler, com dublê
+da dependência externa, que cobre os ramos de erro exaustivamente e roda em
+segundos. Todo entrypoint tem os dois: o unitário prova os ramos, o
+`<Nome>IT` prova que o sistema de verdade se comporta como o dublê promete.
+Nenhum dos dois é opcional por causa do outro.
