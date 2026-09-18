@@ -16,19 +16,19 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Um unico trabalho: todo entrypoint -- {@code @RestController}, metodo
- * {@code @Scheduled} ou metodo {@code @KafkaListener} -- precisa de um
- * {@code <Nome>IT} que estenda BaseIntegrationTest. Um job entra pelo mesmo
- * motivo que um controller, e com mais razao: ninguem recebe um 500 quando um
- * agendamento para de rodar.
+ * {@code @Scheduled}, metodo {@code @KafkaListener} ou metodo {@code @Tool} --
+ * precisa de um {@code <Nome>IT} que estenda BaseIntegrationTest. Um job
+ * entra pelo mesmo motivo que um controller, e com mais razao: ninguem
+ * recebe um 500 quando um agendamento para de rodar.
  *
  * <p>Sem FreezingArchRule: um store de freeze so viraria lugar de esconder
  * entrypoint sem teste. Sem archunit-junit5 ({@code @ArchTest}): aquele engine
  * traz uma JUnit Platform que conflita com a do Spring Boot 4; um {@code @Test}
  * comum basta.
  *
- * <p>{@code @KafkaListener} e comparado pelo nome para a regra compilar sem
- * spring-kafka. {@code allowEmptyShould(true)} porque um projeto novo ainda nao
- * tem entrypoint.
+ * <p>{@code @KafkaListener} e {@code @Tool} sao comparados pelo nome para a
+ * regra compilar sem spring-kafka nem spring-ai. {@code allowEmptyShould(true)}
+ * porque um projeto novo ainda nao tem entrypoint.
  *
  * <p>Um {@code @KafkaListener} de classe (com metodos {@code @KafkaHandler})
  * nao e coberto: a regra so olha metodos anotados diretamente.
@@ -36,14 +36,16 @@ import org.springframework.web.bind.annotation.RestController;
 class EntrypointHasIntegrationTestIT {
 
     private static final String KAFKA_LISTENER = "org.springframework.kafka.annotation.KafkaListener";
+    private static final String TOOL = "org.springframework.ai.tool.annotation.Tool";
 
     private final JavaClasses importadas = new ClassFileImporter().importPackages("{base-package}");
 
     private final DescribedPredicate<JavaClass> saoEntrypoints = DescribedPredicate.describe(
-            "sao entrypoints (@RestController, @Scheduled ou @KafkaListener)",
+            "sao entrypoints (@RestController, @Scheduled, @KafkaListener ou @Tool)",
             classe -> classe.isAnnotatedWith(RestController.class)
-                    || classe.getMethods().stream().anyMatch(m ->
-                            m.isAnnotatedWith(Scheduled.class) || m.isAnnotatedWith(KAFKA_LISTENER)));
+                    || classe.getMethods().stream().anyMatch(m -> m.isAnnotatedWith(Scheduled.class)
+                            || m.isAnnotatedWith(KAFKA_LISTENER)
+                            || m.isAnnotatedWith(TOOL)));
 
     private ArchCondition<JavaClass> temIntegrationTest(JavaClasses todas) {
         return new ArchCondition<>("ter um <Nome>IT que estenda BaseIntegrationTest") {

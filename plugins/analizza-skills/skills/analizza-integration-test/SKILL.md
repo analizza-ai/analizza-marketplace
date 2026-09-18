@@ -23,6 +23,14 @@ grava regras de projeto que valem para as duas. Ela nunca promove um projeto de
 módulo único a multi-módulo e nunca escreve teste de domínio: entrega a
 infraestrutura, um IT de contexto e a regra que obriga os próximos.
 
+Todo entrypoint precisa de dois testes — um unitário rápido do handler, com
+dublê da dependência externa cobrindo os ramos de erro, e um IT real sobre
+`BaseIntegrationTest` — e nenhum substitui o outro (ver
+[testes-section.md](./references/testes-section.md) e o parágrafo *Testes*
+de [project-rules.md](./references/project-rules.md)). Esta skill entrega só
+a metade de integração e a regra ArchUnit que a garante; o unitário do
+handler não tem guardrail automático aqui.
+
 ## Vocabulário
 
 | Placeholder | Valor |
