@@ -207,6 +207,39 @@ ou [McpEndpointIT.java.template](./templates/source/java/McpEndpointIT.java.temp
 
 O `{port}` vem do `BaseIntegrationTest` (`@LocalServerPort`).
 
+### Passo 6 — Runbook e regras de projeto
+
+Grave `docs/checkpoints/mcp-server.md` a partir de
+[runbook-mcp.md](./references/runbook-mcp.md), com os placeholders
+substituídos. Se `docs/checkpoints/README.md` não existir, a
+`analizza-integration-test` é quem o cria — diga ao usuário em vez de criar um
+diferente aqui.
+
+Acrescente ao arquivo de convenções do projeto — a mesma detecção da
+`analizza-integration-test` (`openspec/PROJECT.md`, `specs/CONSTITUTION.md`,
+`docs/superpowers/INSTRUCTIONS.md` ou `docs/INSTRUCTIONS.md`) — a seção de
+[project-rules-mcp.md](./references/project-rules-mcp.md), se ela ainda não
+existir (`grep -qE '^#{1,4} Servidor MCP$'`).
+
+### Passo 7 — Verificar e relatar
+
+Obrigatório. Redirecione a saída e leia o código de saída:
+
+```bash
+./gradlew build --console=plain > /tmp/mcp-build.log 2>&1; echo "EXIT=$?"
+./gradlew integrationTest --tests '*McpEndpointIT*' --console=plain > /tmp/mcp-it.log 2>&1; echo "EXIT=$?"
+```
+
+Exija `EXIT=0` nos dois. Prove que a regra ArchUnit cobre a tool: renomeie
+temporariamente `McpEndpointIT` para `McpEndpointTeste`, rode
+`./gradlew integrationTest` e exija falha nomeando a classe da tool; desfaça e
+rode de novo até verde.
+
+Relate: linguagem, DSL, `{mcp-module}`, o caso de uso que virou tool, se há
+barreira de papel (e **diga quando não há**), os `EXIT=`, o que o IT prova e o
+que ele não prova (semeadura vazia, por exemplo), e que a seção 3 do runbook
+ainda não foi conferida por ninguém.
+
 ## Fora de escopo
 
 Módulo com `main()` e pod próprios. Token de vida longa/revogável (PAT). Gerar
