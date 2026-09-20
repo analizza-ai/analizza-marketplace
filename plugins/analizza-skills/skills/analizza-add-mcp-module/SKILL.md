@@ -180,6 +180,33 @@ Se `anyRequest()` for `permitAll()`, ou se o projeto não tiver Spring Security,
 autenticação nenhuma, e a `CurrentMcpUser` não teria o que ler. Só siga depois
 que o usuário decidir como fechar.
 
+### Passo 5 — O teste de integração
+
+O IT mora onde os outros ITs do projeto moram — o módulo
+`{base}-integration-tests` se a `analizza-integration-test` já rodou, senão o
+`src/test` do `{api-module}`. Acrescente ao build **desse** módulo:
+
+```groovy
+testImplementation 'io.modelcontextprotocol.sdk:mcp-core:2.0.0'
+testImplementation project(':{base}-mcp')
+```
+
+(kts: `testImplementation("io.modelcontextprotocol.sdk:mcp-core:2.0.0")` e
+`testImplementation(project(":{base}-mcp"))`.)
+
+Grave `McpEndpointIT` a partir de
+[McpEndpointIT.kt.template](./templates/source/kotlin/McpEndpointIT.kt.template)
+ou [McpEndpointIT.java.template](./templates/source/java/McpEndpointIT.java.template):
+
+| Placeholder | Como preencher |
+|---|---|
+| `{token-autenticado}` | a expressão que o projeto já usa para emitir um token válido num IT (ex.: `tokenFor("alguem@exemplo.com")`). Sem helper assim, escreva um e diga no relatório. |
+| `{semeadura}` | as linhas que gravam **uma** linha pelo repositório do agregado, para a tool ter o que devolver. Sem repositório acessível no IT, deixe vazio e **relate** que o teste prova protocolo e autenticação, mas não que a tool devolve dado. |
+| `{assercao-dado}` | a asserção sobre o dado semeado (ex.: que o `structuredContent` contém o título gravado). Vazio se `{semeadura}` ficou vazio. |
+| `{teste-papel}` | com papéis (Passo 3), um terceiro teste: token **sem** o papel exigido chama a tool e o resultado vem com `isError` verdadeiro. Sem papéis, vazio. |
+
+O `{port}` vem do `BaseIntegrationTest` (`@LocalServerPort`).
+
 ## Fora de escopo
 
 Módulo com `main()` e pod próprios. Token de vida longa/revogável (PAT). Gerar
