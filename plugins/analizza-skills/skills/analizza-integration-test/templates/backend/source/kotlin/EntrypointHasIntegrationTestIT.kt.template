@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController
 
 /**
  * Um unico trabalho: todo entrypoint -- @RestController, metodo @Scheduled,
- * metodo @KafkaListener ou metodo @Tool -- precisa de um <Nome>IT que estenda
+ * metodo @KafkaListener, @Tool ou @McpTool -- precisa de um <Nome>IT que estenda
  * BaseIntegrationTest. Um job entra pelo mesmo motivo que um controller, e com
  * mais razao: ninguem recebe um 500 quando um agendamento para de rodar.
  *
@@ -23,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController
  * entrypoint sem teste. Sem archunit-junit5 (@ArchTest): aquele engine traz uma
  * JUnit Platform que conflita com a do Spring Boot 4; um @Test comum basta.
  *
- * @KafkaListener e @Tool sao comparados pelo nome para a regra compilar sem
- * spring-kafka nem spring-ai. allowEmptyShould(true) porque um projeto novo
- * ainda nao tem entrypoint.
+ * @KafkaListener, @Tool e @McpTool sao comparados pelo nome para a regra
+ * compilar sem spring-kafka nem spring-ai. As duas de tool sao anotacoes
+ * diferentes: @Tool e tool-calling exposto por ToolCallbackProvider, @McpTool
+ * e o scanner de anotacoes do servidor MCP. allowEmptyShould(true) porque um
+ * projeto novo ainda nao tem entrypoint.
  *
  * Um @KafkaListener de classe (com metodos @KafkaHandler) nao e coberto: a
  * regra so olha metodos anotados diretamente.
@@ -35,10 +37,13 @@ class EntrypointHasIntegrationTestIT {
     private val importadas: JavaClasses = ClassFileImporter().importPackages("{base-package}")
 
     private val saoEntrypoints: DescribedPredicate<JavaClass> =
-        DescribedPredicate.describe("sao entrypoints (@RestController, @Scheduled, @KafkaListener ou @Tool)") { classe ->
+        DescribedPredicate.describe("sao entrypoints (@RestController, @Scheduled, @KafkaListener, @Tool ou @McpTool)") { classe ->
             classe.isAnnotatedWith(RestController::class.java) ||
                 classe.methods.any {
-                    it.isAnnotatedWith(Scheduled::class.java) || it.isAnnotatedWith(KAFKA_LISTENER) || it.isAnnotatedWith(TOOL)
+                    it.isAnnotatedWith(Scheduled::class.java) ||
+                        it.isAnnotatedWith(KAFKA_LISTENER) ||
+                        it.isAnnotatedWith(TOOL) ||
+                        it.isAnnotatedWith(MCP_TOOL)
                 }
         }
 
@@ -73,5 +78,6 @@ class EntrypointHasIntegrationTestIT {
     private companion object {
         const val KAFKA_LISTENER = "org.springframework.kafka.annotation.KafkaListener"
         const val TOOL = "org.springframework.ai.tool.annotation.Tool"
+        const val MCP_TOOL = "org.springframework.ai.mcp.annotation.McpTool"
     }
 }
