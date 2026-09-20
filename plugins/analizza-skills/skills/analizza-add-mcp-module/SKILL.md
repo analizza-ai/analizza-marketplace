@@ -110,6 +110,76 @@ faz o component scan do `@SpringBootApplication` alcançar as `@McpTool` sem
 **O módulo nunca depende do `{api-module}`.** Se uma tool precisar de algo que
 mora lá, esse algo desce para o `{core-module}`.
 
+### Passo 3 — A ponte de autenticação, o erro e a tool
+
+Grave em `{mcp-src}/`, a partir de `templates/source/{language}/`:
+
+- `CurrentMcpUser` — [Kotlin](./templates/source/kotlin/CurrentMcpUser.kt.template),
+  [Java](./templates/source/java/CurrentMcpUser.java.template). Sem substituição
+  além de `{base-package}`.
+- `McpToolException` — [Kotlin](./templates/source/kotlin/McpToolException.kt.template),
+  [Java](./templates/source/java/McpToolException.java.template).
+- A tool — [Kotlin](./templates/source/kotlin/Tools.kt.template),
+  [Java](./templates/source/java/Tools.java.template), com:
+
+| Placeholder | Como preencher |
+|---|---|
+| `{Tools-class}` | `<Agregado>Tools`, do caso de uso escolhido no Passo 1 |
+| `{tool-name}` | `snake_case` do caso de uso (ex.: `list_documents`) |
+| `{tool-method}` | `camelCase` do mesmo nome |
+| `{tool-description}` | uma frase em português dizendo o que a tool devolve |
+| `{handler-class}`, `{handler-import}` | o `QueryHandler` escolhido |
+| `{query-class}`, `{query-import}`, `{query-construcao}` | a Query dele e como construí-la |
+| `{result-class}`, `{result-import}` | o tipo que o handler devolve |
+
+**Papéis.** Procure modelo de papel no projeto:
+
+```bash
+grep -rnE "hasRole|hasAnyRole|SimpleGrantedAuthority|ROLE_" --include='*.kt' --include='*.java' {api-module}/src/main | head
+```
+
+- **Achou:** pergunte quais papéis a tool exige. `{papel-constante}` vira
+  `private const val PAPEL_INSUFICIENTE = "Seu papel nao tem acesso a esta consulta."`
+  (Java: `private static final String PAPEL_INSUFICIENTE = ...;`) e
+  `{papel-checagem}` vira
+  `if (!usuario.temPapel("<PAPEL>")) throw McpToolException(PAPEL_INSUFICIENTE)`
+  (Java: `if (!usuario.temPapel("<PAPEL>")) { throw new McpToolException(PAPEL_INSUFICIENTE); }`).
+- **Não achou:** `{papel-constante}` e `{papel-checagem}` ficam **vazios**, e o
+  relatório do Passo 6 diz, com todas as letras, que a tool não tem barreira de
+  papel — só exige estar autenticado. Nunca gere a checagem num projeto de
+  authorities vazias: ela negaria toda chamada.
+
+Se `{papel-checagem}` ficou vazio, a tool não usa `usuario` — tire o parâmetro
+`usuario` do construtor para o código não ficar com dependência morta.
+
+### Passo 4 — Configuração e a guarda do `/mcp`
+
+No `application.properties` do `{api-module}`:
+
+```properties
+# Servidor MCP servido no mesmo processo deste app.
+# SYNC nao e preferencia: e o que garante a tool rodar na mesma thread servlet
+# que autenticou a requisicao, deixando SecurityContextHolder legivel dentro
+# do @McpTool (CurrentMcpUser depende disso).
+spring.ai.mcp.server.protocol=STREAMABLE
+spring.ai.mcp.server.type=SYNC
+spring.ai.mcp.server.name={base}-mcp
+spring.ai.mcp.server.streamable-http.mcp-endpoint=/mcp
+```
+
+Em `.yml`, a mesma árvore aninhada.
+
+**Confirme que `/mcp` cai numa regra autenticada** antes de seguir:
+
+```bash
+grep -rn "anyRequest\|permitAll\|requestMatchers" --include='*.kt' --include='*.java' {api-module}/src/main | grep -i security
+```
+
+Se `anyRequest()` for `permitAll()`, ou se o projeto não tiver Spring Security,
+**pare e avise**: o `/mcp` nasceria aberto a quem alcançar a porta, sem
+autenticação nenhuma, e a `CurrentMcpUser` não teria o que ler. Só siga depois
+que o usuário decidir como fechar.
+
 ## Fora de escopo
 
 Módulo com `main()` e pod próprios. Token de vida longa/revogável (PAT). Gerar

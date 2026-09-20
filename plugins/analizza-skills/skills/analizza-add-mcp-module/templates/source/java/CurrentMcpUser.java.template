@@ -1,0 +1,49 @@
+package {base-package}.mcp;
+
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+
+/**
+ * Le quem chamou a partir do que o SecurityFilterChain do projeto ja validou.
+ *
+ * Le a Authentication, nao o token: getName() devolve o sub num resource
+ * server OAuth2 e o identificador do usuario num filtro de autenticacao
+ * escrito a mao. Ler o principal como Jwt amarraria a tool a um mecanismo so,
+ * e devolveria null em qualquer projeto que use outro -- toda chamada morreria
+ * como "nao autenticado".
+ *
+ * So funciona porque a tool roda na mesma thread servlet que autenticou a
+ * requisicao, o que vale em spring.ai.mcp.server.type=SYNC. Em modo streaming
+ * o ThreadLocal nao e garantido.
+ */
+@Component
+public class CurrentMcpUser {
+
+    private static final String SEM_AUTENTICACAO = "nenhuma sessao autenticada nesta chamada";
+
+    public String identidade() {
+        Authentication autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        if (autenticacao == null
+                || !autenticacao.isAuthenticated()
+                || autenticacao instanceof AnonymousAuthenticationToken) {
+            throw new McpToolException(SEM_AUTENTICACAO);
+        }
+        return autenticacao.getName();
+    }
+
+    /** Mesmo prefixo ROLE_ que hasAnyRole usa no SecurityFilterChain. */
+    public boolean temPapel(String... papeis) {
+        Authentication autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        Collection<? extends GrantedAuthority> autoridades =
+                autenticacao == null ? List.of() : autenticacao.getAuthorities();
+        return Arrays.stream(papeis).anyMatch(papel ->
+                autoridades.stream().anyMatch(a -> a.getAuthority().equals("ROLE_" + papel)));
+    }
+}
