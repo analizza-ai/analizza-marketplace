@@ -49,7 +49,7 @@ Só roda em projeto Gradle multi-módulo com Spring Boot 4.x. Confira:
 ```bash
 find . -maxdepth 1 -name 'settings.gradle*'
 grep -rlE '@SpringBootApplication' --include='*.kt' --include='*.java' . | grep '/src/main/'
-grep -rhoE "org.springframework.boot['\"]? version ['\"][0-9]+" --include='build.gradle*' . | sort -u
+grep -rhoE "org\.springframework\.boot[\"')]* version [\"'][0-9]+" --include='build.gradle*' . | sort -u
 ```
 
 Sem `settings.gradle*`, ou com Boot 3.x, **pare e diga**: o starter
