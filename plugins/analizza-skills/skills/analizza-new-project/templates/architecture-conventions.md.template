@@ -331,20 +331,33 @@ com um `record` por causa.
 
 ### Autenticação e autorização
 
-Decidido na forma, não no mecanismo: o `-api` é um resource server stateless
-— recebe uma credencial em cada requisição autenticada e a valida antes de
-deixar a requisição entrar. **Emitir** a credencial é saída
-(`infrastructure/security/` no `-core`, com o par interface + `impl/`
-descrito acima); **validar** a credencial de uma requisição que chega é
-guarda de entrada (`presenter/configuration/security/` no `-api`) — mesmo
-critério de "o que é `infrastructure/`" aplicado à autenticação.
+O `-api` é um resource server stateless — recebe uma credencial em cada
+requisição autenticada e a valida antes de deixar a requisição entrar.
+**Emitir** a credencial é saída (`infrastructure/security/` no `-core`, com o
+par interface + `impl/` descrito acima); **validar** a credencial de uma
+requisição que chega é guarda de entrada
+(`presenter/configuration/security/` no `-api`) — mesmo critério de "o que é
+`infrastructure/`" aplicado à autenticação.
 
-Qual credencial o usuário apresenta (senha, código, OAuth, certificado), o
-formato da credencial emitida e sua validade são decisão de produto —
-implemente e registre aqui quando a primeira fatia de autenticação for
-escrita. Falha de autenticação que precisar ser opaca por segurança (não
-revelar, por exemplo, se um identificador de login existe) segue o padrão da
-seção anterior.
+Decidido também o mecanismo da validação: `spring-boot-starter-oauth2-resource-server`
+com um `JwtDecoder`, não um filtro de autenticação escrito à mão. Validar
+credencial é onde bug de segurança mora, e o Spring Security já entrega
+decodificação, conferência de assinatura, expiração e emissor. O filtro
+próprio também deixa de fora, sem ninguém perceber, o que o resto do
+ecossistema assume: papéis em `GrantedAuthority`, `@PreAuthorize`, e um
+`Authentication` que outras camadas conseguem ler sem conhecer o formato do
+token.
+
+Continua **aberto**, porque é decisão de produto: qual credencial o usuário
+apresenta no login (senha, código, OAuth, certificado), o formato da
+credencial emitida e sua validade — implemente e registre aqui quando a
+primeira fatia de autenticação for escrita. Falha de autenticação que
+precisar ser opaca por segurança (não revelar, por exemplo, se um
+identificador de login existe) segue o padrão da seção anterior.
+
+Qualquer código que precise saber **quem** chamou lê `Authentication.getName()`
+e `getAuthorities()`, nunca o objeto do token. É o que mantém uma tool MCP, um
+job ou um interceptor funcionando se o mecanismo mudar.
 
 ### CORS e como `-web` e `-mobile` alcançam o `-api`
 
