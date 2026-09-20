@@ -29,7 +29,14 @@ class {Tools-class}(
     @McpTool(name = "{tool-name}", description = "{tool-description}")
     fun {tool-method}(): {result-class} =
         protegido("{tool-name}") {
+            // Ler a identidade e a primeira coisa que a tool faz, com ou sem
+            // barreira de papel: e a leitura do SecurityContextHolder dentro do
+            // dispatch do Spring AI que o {Tools-class}IT prova. Sem ela, a ponte
+            // e o teste nao provariam nada. Se a Query aceitar quem chamou,
+            // passe `quemChamou` para ela em vez de so registrar.
+            val quemChamou = usuario.identidade()
 {papel-checagem}
+            log.debug("Tool MCP {tool-name} chamada por {}", quemChamou)
             handler.handle({query-construcao})
         }
 

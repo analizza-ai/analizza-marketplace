@@ -6,6 +6,7 @@ import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTranspor
 import io.modelcontextprotocol.spec.McpSchema;
 import {base-package}.support.BaseIntegrationTest;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.web.server.LocalServerPort;
 
 import java.util.Map;
 
@@ -18,12 +19,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * sobrevive ao dispatch do Spring AI ate dentro do metodo @McpTool -- o que so
  * vale em spring.ai.mcp.server.type=SYNC. Chamar a tool como metodo e popular o
  * contexto a mao provaria a logica e nada sobre o transporte.
+ *
+ * <p>O nome da classe e {Tools-class}IT de proposito: a regra ArchUnit
+ * EntrypointHasIntegrationTestIT exige, para cada entrypoint -- e uma classe
+ * com {@code @McpTool} e um --, um teste chamado {@code <NomeDoEntrypoint>IT}.
+ * Renomear este arquivo para qualquer outra coisa faz a regra falhar.
  */
-class McpEndpointIT extends BaseIntegrationTest {
+class {Tools-class}IT extends BaseIntegrationTest {
+
+    // A porta e declarada aqui, e nao herdada: o campo port da
+    // BaseIntegrationTest e private, entao subclasse nenhuma o enxerga. O Spring
+    // injeta em cada classe de teste que pedir. Nome proprio para nao esbarrar
+    // no da base se ela um dia abrir o dela.
+    @LocalServerPort
+    private int portaMcp;
 
     private McpSyncClient clienteMcp(String token) {
         HttpClientStreamableHttpTransport.Builder construtor =
-                HttpClientStreamableHttpTransport.builder("http://localhost:" + port).endpoint("/mcp");
+                HttpClientStreamableHttpTransport.builder("http://localhost:" + portaMcp).endpoint("/mcp");
         if (token != null) {
             construtor = construtor.httpRequestCustomizer(
                     (builder, metodo, uri, corpo, contexto) ->

@@ -35,6 +35,7 @@ mesmo Tomcat do `-api`. Processo e pod continuam um só.
 | `{base-package}` | pacote da classe `@SpringBootApplication` |
 | `{api-module}` | módulo que tem a `@SpringBootApplication` |
 | `{core-module}` | módulo de domínio do qual o MCP depende (o `-core`) |
+| `{it-module}` | módulo onde os ITs do projeto moram (o `{base}-integration-tests` da `analizza-integration-test`) |
 | `{mcp-module}` | `{base}-mcp` |
 | `{mcp-src}` | `{mcp-module}/src/main/{src-dir}/{base-package com / no lugar de .}/mcp` |
 | `{group}`, `{java-version}` | lidos do build do `{api-module}` |
@@ -49,12 +50,26 @@ Só roda em projeto Gradle multi-módulo com Spring Boot 4.x. Confira:
 ```bash
 find . -maxdepth 1 -name 'settings.gradle*'
 grep -rlE '@SpringBootApplication' --include='*.kt' --include='*.java' . | grep '/src/main/'
-grep -rhoE "org\.springframework\.boot[\"')]* version [\"'][0-9]+" --include='build.gradle*' . | sort -u
+# Groovy e Kotlin DSL, com espaço repetido: id 'org.springframework.boot' version '4.0.0'
+grep -rhoE "org\.springframework\.boot[\"')]*[[:space:]]+version[[:space:]]+[\"'][0-9]+" --include='build.gradle*' . | sort -u
+# Version catalog: alias(libs.plugins.springBoot) ou version libs.versions.boot.get()
+find . -name 'libs.versions.toml' -not -path '*/build/*' -exec grep -nE "spring-?boot|springBoot|^[[:space:]]*boot[[:space:]]*=" {} +
 ```
 
-Sem `settings.gradle*`, ou com Boot 3.x, **pare e diga**: o starter
-`spring-ai-starter-mcp-server-webmvc` desta skill exige Boot 4.x. Não tente
-adaptar.
+Decida assim, e só assim:
+
+- **Sem `settings.gradle*`** — pare e diga: a skill só roda em projeto Gradle
+  multi-módulo.
+- **Boot 3.x detectado** — pare e diga: o starter
+  `spring-ai-starter-mcp-server-webmvc` desta skill exige Boot 4.x. Não tente
+  adaptar.
+- **Boot 4.x detectado** — siga.
+- **Nada detectado** (nem o grep dos `build.gradle*` nem o do catálogo
+  devolveram versão) — **não siga**.
+  Pergunte ao usuário qual versão do Spring Boot o projeto usa e espere a
+  resposta. Só continue se ele confirmar 4.x; com 3.x, ou sem resposta, pare
+  pelo mesmo motivo do caso acima. Esta é a única porta entre um projeto Boot
+  3.x e um starter que só existe no 4 — não a atravesse no escuro.
 
 ### Passo 1 — Detectar e perguntar
 
@@ -124,13 +139,21 @@ Grave em `{mcp-src}/`, a partir de `templates/source/{language}/`:
 
 | Placeholder | Como preencher |
 |---|---|
-| `{Tools-class}` | `<Agregado>Tools`, do caso de uso escolhido no Passo 1 |
+| `{Tools-class}` | `<Agregado>Tools`, do caso de uso escolhido no Passo 1. O mesmo valor volta no Passo 5, no nome do IT |
 | `{tool-name}` | `snake_case` do caso de uso (ex.: `list_documents`) |
 | `{tool-method}` | `camelCase` do mesmo nome |
 | `{tool-description}` | uma frase em português dizendo o que a tool devolve |
 | `{handler-class}`, `{handler-import}` | o `QueryHandler` escolhido |
-| `{query-class}`, `{query-import}`, `{query-construcao}` | a Query dele e como construí-la |
+| `{query-import}`, `{query-construcao}` | a Query dele e como construí-la |
 | `{result-class}`, `{result-import}` | o tipo que o handler devolve |
+
+A tool lê a identidade de quem chamou como **primeira** linha do bloco
+protegido (`val quemChamou = usuario.identidade()`), e o template já registra
+essa identidade em `log.debug`. Se a Query do projeto receber quem chamou — um
+`solicitante`, um `usuarioId`, um filtro por dono —, `{query-construcao}`
+passa `quemChamou` para ela (`{Query}(quemChamou)`) em vez de deixar a
+identidade só no log. Se a Query não receber ninguém, o `log.debug` já é uso
+suficiente: não invente parâmetro que o domínio não tem.
 
 **Papéis.** Procure modelo de papel no projeto:
 
@@ -145,12 +168,15 @@ grep -rnE "hasRole|hasAnyRole|SimpleGrantedAuthority|ROLE_" --include='*.kt' --i
   `if (!usuario.temPapel("<PAPEL>")) throw McpToolException(PAPEL_INSUFICIENTE)`
   (Java: `if (!usuario.temPapel("<PAPEL>")) { throw new McpToolException(PAPEL_INSUFICIENTE); }`).
 - **Não achou:** `{papel-constante}` e `{papel-checagem}` ficam **vazios**, e o
-  relatório do Passo 6 diz, com todas as letras, que a tool não tem barreira de
+  relatório do Passo 7 diz, com todas as letras, que a tool não tem barreira de
   papel — só exige estar autenticado. Nunca gere a checagem num projeto de
   authorities vazias: ela negaria toda chamada.
 
-Se `{papel-checagem}` ficou vazio, a tool não usa `usuario` — tire o parâmetro
-`usuario` do construtor para o código não ficar com dependência morta.
+**Nos dois casos o `usuario` fica no construtor.** Sem papéis a tool continua
+chamando `usuario.identidade()`, que exige sessão autenticada e é o que o
+`{Tools-class}IT` do Passo 5 prova sobreviver ao dispatch do Spring AI. Tirar o parâmetro
+num projeto sem modelo de papel deixaria a `CurrentMcpUser` sem chamador
+nenhum, e o IT provaria protocolo e mais nada.
 
 ### Passo 4 — Configuração e a guarda do `/mcp`
 
@@ -182,9 +208,20 @@ que o usuário decidir como fechar.
 
 ### Passo 5 — O teste de integração
 
-O IT mora onde os outros ITs do projeto moram — o módulo
-`{base}-integration-tests` se a `analizza-integration-test` já rodou, senão o
-`src/test` do `{api-module}`. Acrescente ao build **desse** módulo:
+O IT mora onde os outros ITs do projeto moram: o `{it-module}` que a
+`analizza-integration-test` criou. Ache a base que ele herda:
+
+```bash
+grep -rl "abstract class BaseIntegrationTest\|class BaseIntegrationTest" --include='*.kt' --include='*.java' . | grep -v '/build/'
+```
+
+**Sem `BaseIntegrationTest` no projeto, pare aqui**: rode a
+`analizza-integration-test` primeiro e volte depois. O template herda dessa
+base, o Passo 7 roda a task `integrationTest`, e as duas só existem quando
+aquela skill rodou. Escrever o IT em `src/test` do `{api-module}` sem ela
+produziria um arquivo que não compila e um comando que não existe.
+
+Acrescente ao build do `{it-module}`:
 
 ```groovy
 testImplementation 'io.modelcontextprotocol.sdk:mcp-core:2.0.0'
@@ -194,18 +231,53 @@ testImplementation project(':{base}-mcp')
 (kts: `testImplementation("io.modelcontextprotocol.sdk:mcp-core:2.0.0")` e
 `testImplementation(project(":{base}-mcp"))`.)
 
-Grave `McpEndpointIT` a partir de
+O `2.0.0` acompanha a `{spring-ai-version}` padrão. Se o projeto fixar outra
+Spring AI, confira a versão do SDK que ela traz e alinhe o pin:
+
+```bash
+./gradlew :{it-module}:dependencies --configuration testRuntimeClasspath | grep mcp
+```
+
+Grave o IT **como `{Tools-class}IT`** — o mesmo `{Tools-class}` do Passo 3 —
+a partir de
 [McpEndpointIT.kt.template](./templates/source/kotlin/McpEndpointIT.kt.template)
-ou [McpEndpointIT.java.template](./templates/source/java/McpEndpointIT.java.template):
+ou [McpEndpointIT.java.template](./templates/source/java/McpEndpointIT.java.template).
+O nome do template é histórico; o nome do arquivo gerado é
+`{Tools-class}IT.{kt|java}`, porque é isso que a regra ArchUnit exige de um
+entrypoint chamado `{Tools-class}`. Substitua também:
 
 | Placeholder | Como preencher |
 |---|---|
+| `{Tools-class}` | o mesmo do Passo 3 — vira o nome da classe de teste, `{Tools-class}IT` |
 | `{token-autenticado}` | a expressão que o projeto já usa para emitir um token válido num IT (ex.: `tokenFor("alguem@exemplo.com")`). Sem helper assim, escreva um e diga no relatório. |
 | `{semeadura}` | as linhas que gravam **uma** linha pelo repositório do agregado, para a tool ter o que devolver. Sem repositório acessível no IT, deixe vazio e **relate** que o teste prova protocolo e autenticação, mas não que a tool devolve dado. |
-| `{assercao-dado}` | a asserção sobre o dado semeado (ex.: que o `structuredContent` contém o título gravado). Vazio se `{semeadura}` ficou vazio. |
+| `{assercao-dado}` | a asserção sobre o dado semeado (ex.: que o `structuredContent` contém o título gravado). Vazio se `{semeadura}` ficou vazio. Se a asserção pedir um helper que o template não importa (`assertEquals`, por exemplo), acrescente o import. |
 | `{teste-papel}` | com papéis (Passo 3), um terceiro teste: token **sem** o papel exigido chama a tool e o resultado vem com `isError` verdadeiro. Sem papéis, vazio. |
 
-O `{port}` vem do `BaseIntegrationTest` (`@LocalServerPort`).
+A porta vem de um `@LocalServerPort` **do próprio IT** (`portaMcp`), já no
+template: o campo `port` da `BaseIntegrationTest` é `private` e subclasse
+nenhuma o enxerga. Não troque por herança.
+
+**A regra ArchUnit do projeto precisa conhecer `@McpTool`.** A cópia que o
+projeto tem foi gerada por uma versão anterior da `analizza-integration-test`
+e pode guardar só `@Tool`:
+
+```bash
+grep -rn "McpTool" --include='EntrypointHasIntegrationTestIT.*' . | grep -v '/build/'
+```
+
+- **Achou** — nada a fazer.
+- **Não achou** — acrescente a constante e a cláusula do predicado do mesmo
+  jeito que o template da sibling faz hoje: uma constante
+  `MCP_TOOL = "org.springframework.ai.mcp.annotation.McpTool"` e um
+  `it.isAnnotatedWith(MCP_TOOL)` (Java: `m.isAnnotatedWith(MCP_TOOL)`) ao lado
+  do `TOOL`, atualizando também a descrição do predicado. **Comparada pelo
+  nome, nunca importada**: a regra tem de compilar sem `spring-ai` no
+  classpath do `{it-module}`. Como alternativa, diga ao usuário para rodar a
+  `analizza-integration-test` de novo, que regrava o arquivo.
+
+O relatório do Passo 7 diz qual dos três aconteceu: já cobria, foi remendada
+aqui, ou ficou para o usuário rodar a sibling.
 
 ### Passo 6 — Runbook e regras de projeto
 
@@ -227,18 +299,24 @@ Obrigatório. Redirecione a saída e leia o código de saída:
 
 ```bash
 ./gradlew build --console=plain > /tmp/mcp-build.log 2>&1; echo "EXIT=$?"
-./gradlew integrationTest --tests '*McpEndpointIT*' --console=plain > /tmp/mcp-it.log 2>&1; echo "EXIT=$?"
+./gradlew integrationTest --tests '*{Tools-class}IT*' --console=plain > /tmp/mcp-it.log 2>&1; echo "EXIT=$?"
 ```
 
-Exija `EXIT=0` nos dois. Prove que a regra ArchUnit cobre a tool: renomeie
-temporariamente `McpEndpointIT` para `McpEndpointTeste`, rode
-`./gradlew integrationTest` e exija falha nomeando a classe da tool; desfaça e
-rode de novo até verde.
+Exija `EXIT=0` nos dois. Depois prove que a regra ArchUnit cobre a tool:
+renomeie temporariamente a classe **e o arquivo** de `{Tools-class}IT` para
+`{Tools-class}Teste`, rode `./gradlew integrationTest` e exija que o
+`EntrypointHasIntegrationTestIT` falhe dizendo que `{Tools-class}` não tem
+`'{Tools-class}IT'`; desfaça o rename e rode de novo até verde. É o nome
+esperado pela regra que está sendo provado — se a falha citar outra classe, ou
+se o verde não voltar, o problema é o nome, não a regra: não relaxe a regra
+para o build passar.
 
 Relate: linguagem, DSL, `{mcp-module}`, o caso de uso que virou tool, se há
-barreira de papel (e **diga quando não há**), os `EXIT=`, o que o IT prova e o
-que ele não prova (semeadura vazia, por exemplo), e que a seção 3 do runbook
-ainda não foi conferida por ninguém.
+barreira de papel (e **diga quando não há**), o que aconteceu com a regra
+ArchUnit do projeto (já cobria `@McpTool`, foi remendada no Passo 5, ou ficou
+para o usuário rodar a `analizza-integration-test`), os `EXIT=`, o que o IT
+prova e o que ele não prova (semeadura vazia, por exemplo), e que a seção 3 do
+runbook ainda não foi conferida por ninguém.
 
 ## Fora de escopo
 

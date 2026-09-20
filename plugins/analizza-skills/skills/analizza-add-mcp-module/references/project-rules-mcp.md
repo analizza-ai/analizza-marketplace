@@ -13,10 +13,11 @@ autenticação mudar.
 `ThreadLocal` do `SecurityContextHolder` não é garantido, e a tool perderia a
 identidade de quem chamou.
 
-Toda tool nova precisa de um `<Nome>IT` — a regra ArchUnit
-`EntrypointHasIntegrationTestIT` cobre `@McpTool` — e de uma passada pela seção
-3 do runbook antes de ser liberada: o que a tool devolve vai para um modelo de
-IA, e decidir isso é trabalho humano.
+Toda classe de tools nova precisa de um teste de integração com o nome dela
+mais `IT` (`<NomeDaClasseDeTools>IT`) — a regra ArchUnit
+`EntrypointHasIntegrationTestIT` cobre `@McpTool` e é exatamente esse nome que
+ela procura — e de uma passada pela seção 3 do runbook antes de ser liberada: o
+que a tool devolve vai para um modelo de IA, e decidir isso é trabalho humano.
 
 **Débito conhecido:** o MCP divide processo e pod com o `{api-module}`. Tráfego
 de MCP mal-comportado degrada o app que pessoas usam. Fechar é módulo com

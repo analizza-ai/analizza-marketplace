@@ -349,9 +349,10 @@ ecossistema assume: papéis em `GrantedAuthority`, `@PreAuthorize`, e um
 token.
 
 Continua **aberto**, porque é decisão de produto: qual credencial o usuário
-apresenta no login (senha, código, OAuth, certificado), o formato da
-credencial emitida e sua validade — implemente e registre aqui quando a
-primeira fatia de autenticação for escrita. Falha de autenticação que
+apresenta no login (senha, código, OAuth, certificado), e quais claims a
+credencial emitida carrega e por quanto tempo ela vale — o **formato** dela
+não, que o `JwtDecoder` acima já fixa em JWT. Implemente e registre aqui
+quando a primeira fatia de autenticação for escrita. Falha de autenticação que
 precisar ser opaca por segurança (não revelar, por exemplo, se um
 identificador de login existe) segue o padrão da seção anterior.
 

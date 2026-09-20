@@ -6,19 +6,31 @@ import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTranspor
 import io.modelcontextprotocol.spec.McpSchema
 import {base-package}.support.BaseIntegrationTest
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.springframework.boot.test.web.server.LocalServerPort
 
 /**
  * Prova por HTTP de verdade, com cliente MCP real, que o SecurityContextHolder
  * sobrevive ao dispatch do Spring AI ate dentro do metodo @McpTool -- o que so
  * vale em spring.ai.mcp.server.type=SYNC. Chamar a tool como metodo e popular o
  * contexto a mao provaria a logica e nada sobre o transporte.
+ *
+ * O nome da classe e {Tools-class}IT de proposito: a regra ArchUnit
+ * EntrypointHasIntegrationTestIT exige, para cada entrypoint -- e uma classe
+ * com @McpTool e um --, um teste chamado "<NomeDoEntrypoint>IT". Renomear este
+ * arquivo para qualquer outra coisa faz a regra falhar.
  */
-class McpEndpointIT : BaseIntegrationTest() {
+class {Tools-class}IT : BaseIntegrationTest() {
+
+    // A porta e declarada aqui, e nao herdada: o campo `port` da
+    // BaseIntegrationTest e private, entao subclasse nenhuma o enxerga. O Spring
+    // injeta em cada classe de teste que pedir. Nome proprio para nao esbarrar
+    // no da base se ela um dia abrir o dela.
+    @LocalServerPort
+    private var portaMcp: Int = 0
 
     private fun clienteMcp(token: String?): McpSyncClient {
-        val transporte = HttpClientStreamableHttpTransport.builder("http://localhost:$port")
+        val transporte = HttpClientStreamableHttpTransport.builder("http://localhost:$portaMcp")
             .endpoint("/mcp")
             .apply {
                 if (token != null) {
