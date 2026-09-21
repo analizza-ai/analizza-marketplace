@@ -4,7 +4,10 @@ import io.modelcontextprotocol.client.McpClient
 import io.modelcontextprotocol.client.McpSyncClient
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport
 import io.modelcontextprotocol.spec.McpSchema
-import {base-package}.support.BaseIntegrationTest
+// Nome completo resolvido no Passo 5 (grep pelo pacote da BaseIntegrationTest).
+// Ha projeto que a guarda em {base-package}.support e projeto que a guarda
+// direto em {base-package}: nao presuma subpacote.
+import {base-integration-test-fqn}
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import org.springframework.boot.test.web.server.LocalServerPort
@@ -15,8 +18,9 @@ import org.springframework.boot.test.web.server.LocalServerPort
  * vale em spring.ai.mcp.server.type=SYNC. Chamar a tool como metodo e popular o
  * contexto a mao provaria a logica e nada sobre o transporte.
  *
- * O nome da classe e {Tools-class}IT de proposito: a regra ArchUnit
- * EntrypointHasIntegrationTestIT exige, para cada entrypoint -- e uma classe
+ * O nome da classe e {Tools-class}IT de proposito: a regra ArchUnit de
+ * entrypoint do projeto (EntrypointHasIntegrationTest*, o sufixo varia com a
+ * release que a gerou) exige, para cada entrypoint -- e uma classe
  * com @McpTool e um --, um teste chamado "<NomeDoEntrypoint>IT". Renomear este
  * arquivo para qualquer outra coisa faz a regra falhar.
  */

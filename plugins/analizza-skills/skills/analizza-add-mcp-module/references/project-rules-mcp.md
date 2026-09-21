@@ -14,9 +14,10 @@ autenticação mudar.
 identidade de quem chamou.
 
 Toda classe de tools nova precisa de um teste de integração com o nome dela
-mais `IT` (`<NomeDaClasseDeTools>IT`) — a regra ArchUnit
-`EntrypointHasIntegrationTestIT` cobre `@McpTool` e é exatamente esse nome que
-ela procura — e de uma passada pela seção 3 do runbook antes de ser liberada: o
+mais `IT` (`<NomeDaClasseDeTools>IT`) — a regra ArchUnit de entrypoint do
+projeto (`EntrypointHasIntegrationTest*`) cobre `@McpTool` e é exatamente esse
+nome que ela procura — e de uma passada pela seção 3 do runbook antes de ser
+liberada: o
 que a tool devolve vai para um modelo de IA, e decidir isso é trabalho humano.
 
 **Débito conhecido:** o MCP divide processo e pod com o `{api-module}`. Tráfego
