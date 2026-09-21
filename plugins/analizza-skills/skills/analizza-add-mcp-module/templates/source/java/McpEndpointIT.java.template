@@ -1,0 +1,89 @@
+package {base-package}.mcp;
+
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.spec.McpSchema;
+// Nome completo resolvido no Passo 5 (grep pelo pacote da BaseIntegrationTest).
+// Ha projeto que a guarda em {base-package}.support e projeto que a guarda
+// direto em {base-package}: nao presuma subpacote.
+import {base-integration-test-fqn};
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.web.server.LocalServerPort;
+
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Prova por HTTP de verdade, com cliente MCP real, que o SecurityContextHolder
+ * sobrevive ao dispatch do Spring AI ate dentro do metodo @McpTool -- o que so
+ * vale em spring.ai.mcp.server.type=SYNC. Chamar a tool como metodo e popular o
+ * contexto a mao provaria a logica e nada sobre o transporte.
+ *
+ * <p>O nome da classe e {Tools-class}IT de proposito: a regra ArchUnit de
+ * entrypoint do projeto (EntrypointHasIntegrationTest*, o sufixo varia com a
+ * release que a gerou) exige, para cada entrypoint -- e uma classe
+ * com {@code @McpTool} e um --, um teste chamado {@code <NomeDoEntrypoint>IT}.
+ * Renomear este arquivo para qualquer outra coisa faz a regra falhar.
+ */
+class {Tools-class}IT extends BaseIntegrationTest {
+
+    // A porta e declarada aqui, e nao herdada: o campo port da
+    // BaseIntegrationTest e private, entao subclasse nenhuma o enxerga. O Spring
+    // injeta em cada classe de teste que pedir. Nome proprio para nao esbarrar
+    // no da base se ela um dia abrir o dela.
+    @LocalServerPort
+    private int portaMcp;
+
+    private McpSyncClient clienteMcp(String token) {
+        HttpClientStreamableHttpTransport.Builder construtor =
+                HttpClientStreamableHttpTransport.builder("http://localhost:" + portaMcp).endpoint("/mcp");
+        if (token != null) {
+            construtor = construtor.httpRequestCustomizer(
+                    (builder, metodo, uri, corpo, contexto) ->
+                            builder.header("Authorization", "Bearer " + token));
+        }
+        return McpClient.sync(construtor.build()).build();
+    }
+
+    @Test
+    void a_tool_responde_por_http_real_para_quem_esta_autenticado() {
+{semeadura}
+        McpSyncClient cliente = clienteMcp({token-autenticado});
+        try {
+            cliente.initialize();
+
+            McpSchema.CallToolResult resultado =
+                    cliente.callTool(new McpSchema.CallToolRequest("{tool-name}", Map.of()));
+
+            assertNotEquals(Boolean.TRUE, resultado.isError(), "esperava sucesso, veio erro");
+{assercao-dado}
+        } finally {
+            cliente.closeGracefully();
+        }
+    }
+
+    @Test
+    void sem_authorization_a_requisicao_e_recusada_antes_de_a_tool_rodar() {
+        McpSyncClient cliente = clienteMcp(null);
+        try {
+            Exception erro = assertThrows(Exception.class, cliente::initialize);
+
+            boolean recusou = false;
+            for (Throwable t = erro; t != null; t = t.getCause()) {
+                String m = t.getMessage();
+                if (m != null && (m.contains("401") || m.contains("Unauthorized") || m.contains("Authorization"))) {
+                    recusou = true;
+                    break;
+                }
+            }
+            assertTrue(recusou, "esperava recusa de autenticacao, veio: " + erro.getMessage());
+        } finally {
+            cliente.closeGracefully();
+        }
+    }
+{teste-papel}
+}

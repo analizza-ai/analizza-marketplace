@@ -1,0 +1,62 @@
+// build.gradle.kts do modulo {base}-mcp.
+// Biblioteca, nao aplicacao: sem main() e sem bootJar. As @McpTool daqui
+// entram no contexto do {api-module}, que declara este modulo como
+// dependencia -- processo e pod continuam um so.
+plugins {
+<!-- se kotlin -->
+    kotlin("jvm")
+    kotlin("plugin.spring")
+<!-- fim se kotlin -->
+<!-- se java -->
+    `java-library`
+<!-- fim se java -->
+    id("io.spring.dependency-management")
+    // apply false: so para o BOM_COORDINATES abaixo resolver na classpath do
+    // script deste modulo. O modulo continua sem aplicar o plugin do Boot.
+    id("org.springframework.boot") apply false
+}
+
+group = "{group}"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencyManagement {
+    imports {
+        mavenBom(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
+        // Este import NAO basta para o resto do projeto: o
+        // io.spring.dependency-management resolve versao por projeto que
+        // resolve a configuracao. O {api-module} e o {it-module} recebem o
+        // starter transitivamente daqui e precisam do MESMO import, senao
+        // resolvem com versao vazia (ver Passo 2 da skill). Nao e duplicacao
+        // para limpar.
+        mavenBom("org.springframework.ai:spring-ai-bom:{spring-ai-version}")
+    }
+}
+
+dependencies {
+    // So o dominio. Este modulo nunca depende do {api-module}: quem precisa
+    // saber quem chamou le a Authentication, nao uma classe do -api.
+    implementation(project(":{core-module}"))
+
+    // O starter -webmvc serve /mcp no mesmo Tomcat do {api-module}. O starter
+    // sem o sufixo e o de stdio, que exigiria processo proprio.
+    implementation("org.springframework.ai:spring-ai-starter-mcp-server-webmvc")
+    // SecurityContextHolder e Authentication vem daqui.
+    implementation("org.springframework.boot:spring-boot-starter-security")
+<!-- se kotlin -->
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+<!-- fim se kotlin -->
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}

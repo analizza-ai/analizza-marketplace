@@ -12,7 +12,7 @@ Montados pela skill `analizza-integration-test`.
 - Serviço de saída sem container (e-mail, gateway de terceiro) ganha um dublê `@Primary` no
   `TestConfig`: nenhuma mensagem nem chamada sai da suíte.
 - `EntrypointHasIntegrationTestIT` tem **um único trabalho**: todo entrypoint — `@RestController`,
-  método `@Scheduled`, `@KafkaListener` ou `@Tool` — precisa de um `<Nome>IT` que estenda
+  método `@Scheduled`, `@KafkaListener`, `@Tool` ou `@McpTool` — precisa de um `<Nome>IT` que estenda
   `BaseIntegrationTest`. Ela garante só a metade de integração do par acima — o unitário do
   handler não tem guardrail automático, é revisão de quem mexe. Um job entra pelo mesmo motivo
   que um controller, e com mais razão: ninguém recebe um 500 quando um agendamento para de rodar.

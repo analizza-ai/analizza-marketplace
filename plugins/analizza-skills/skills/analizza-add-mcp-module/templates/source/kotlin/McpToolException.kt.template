@@ -1,0 +1,8 @@
+package {base-package}.mcp
+
+/**
+ * Erro que a tool devolve ao modelo. A mensagem e sempre texto curado: o Spring
+ * AI repassa `message` (e a cadeia de `cause`) na resposta de erro da tool,
+ * entao nunca passe aqui uma excecao de infraestrutura como `cause`.
+ */
+class McpToolException(mensagem: String) : RuntimeException(mensagem)

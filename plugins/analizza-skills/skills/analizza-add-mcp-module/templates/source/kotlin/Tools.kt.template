@@ -1,0 +1,57 @@
+package {base-package}.mcp
+
+import org.slf4j.LoggerFactory
+import org.springframework.ai.mcp.annotation.McpTool
+import org.springframework.stereotype.Component
+{handler-import}
+{query-import}
+{result-import}
+
+private const val ERRO_INESPERADO = "Nao foi possivel concluir a consulta agora. Tente novamente em instantes."
+{papel-constante}
+
+/**
+ * Tool de exemplo. As outras seguem esta forma.
+ *
+ * Antes de acrescentar uma tool, confira campo a campo o que o Result carrega:
+ * o que sai daqui vai para um modelo de IA. Na implementacao de referencia um
+ * campo `url` com link assinado de 3 anos so nao vazou porque uma pessoa
+ * reparou -- ver a secao 3 do runbook.
+ */
+@Component
+class {Tools-class}(
+    private val handler: {handler-class},
+    private val usuario: CurrentMcpUser,
+) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    @McpTool(name = "{tool-name}", description = "{tool-description}")
+    fun {tool-method}(): {result-class} =
+        protegido("{tool-name}") {
+            // Ler a identidade e a primeira coisa que a tool faz, com ou sem
+            // barreira de papel: e a leitura do SecurityContextHolder dentro do
+            // dispatch do Spring AI que o {Tools-class}IT prova. Sem ela, a ponte
+            // e o teste nao provariam nada. Se a Query aceitar quem chamou,
+            // passe `quemChamou` para ela em vez de so registrar -- convertendo
+            // o tipo se ela nao aceitar String (identidade() devolve
+            // getName(), que e o toString() do principal).
+            val quemChamou = usuario.identidade()
+{papel-checagem}
+            log.debug("Tool MCP {tool-name} chamada por {}", quemChamou)
+            handler.handle({query-construcao})
+        }
+
+    private fun <T> protegido(nome: String, chamada: () -> T): T =
+        try {
+            chamada()
+        } catch (erro: McpToolException) {
+            throw erro
+        } catch (erro: Exception) {
+            // A excecao real fica no log do servidor; o modelo recebe so a
+            // mensagem curada. Acrescente aqui um catch por excecao de dominio
+            // que ja tenha mensagem propria, traduzindo-a como a rota HTTP faz.
+            log.error("Falha inesperada na tool MCP {}", nome, erro)
+            throw McpToolException(ERRO_INESPERADO)
+        }
+}
