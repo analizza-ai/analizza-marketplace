@@ -1,0 +1,34 @@
+// Trechos para o build.gradle do modulo de producao que tem a logica
+// ({mutation-module}: o -core de um projeto -api/-core, ou o modulo unico).
+// Mesclar no arquivo existente: acrescentar ao plugins {} que ja existe e
+// substituir qualquer bloco pitest {} anterior. Nunca aplicar no
+// -integration-tests: o Pitest roda contra os testes unitarios, sem container.
+//
+// A versao fica no build da raiz, com apply false:
+//     id 'info.solidsoft.pitest' version '1.19.0' apply false
+
+plugins {
+    id 'info.solidsoft.pitest'
+}
+
+<!-- se kotlin -->
+// Sem org.pitest:pitest-kotlin-plugin: ele nunca saiu de 0.1-SNAPSHOT e nao
+// resolve na maioria dos repositorios. O Pitest roda sem ele, com mutantes um
+// pouco piores em data class, elvis e safe-call. O aviso "Project uses kotlin,
+// but the Arcmutate kotlin plugin is not present" no log e esperado.
+<!-- fim se kotlin -->
+pitest {
+    junit5PluginVersion = '1.2.3'
+    targetClasses = [{target-classes-packages}]
+    // Mesma exclusao do JaCoCo: ponto de entrada e configuracao.
+    excludedClasses = ['*Application*', '{base-package}.configuration.*']
+    // So os unitarios: os *IT nao terminam em Test e ficam de fora.
+    targetTests = ['*Test']
+    outputFormats = ['HTML', 'XML']
+    timestampedReports = false
+    // Projeto recem-criado ainda nao tem classe de logica: zero mutantes nao e erro.
+    failWhenNoMutations = false
+    // Sem mutationThreshold de proposito: o mutation score e diagnostico, nao
+    // gate. Um limiar e ajuste manual do time, depois de revisar os mutantes
+    // equivalentes.
+}

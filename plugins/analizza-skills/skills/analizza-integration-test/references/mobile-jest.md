@@ -1,7 +1,7 @@
 # Jest num scaffold Expo real (`-mobile`)
 
 Depois de instalar `jest-expo jest @types/jest @testing-library/react-native`
-(Passo 7) e antes de gravar `__tests__/tela-inicial-test.tsx`, siga os passos
+(Passo 8) e antes de gravar `__tests__/tela-inicial-test.tsx`, siga os passos
 abaixo, cada um só se a condição indicada valer para o projeto. Eles resolvem
 gaps do ecossistema Expo SDK 57 / Reanimated 4 / Worklets / NativeWind que o
 `jest-expo` sozinho não cobre — sem eles, `tsc --noEmit` e `jest` falham num
