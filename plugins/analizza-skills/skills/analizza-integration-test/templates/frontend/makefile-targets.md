@@ -31,6 +31,10 @@ test-backend: ## Testes unitarios do backend (nao sobe banco)
 test-integration: ## Testes de integracao (*IT) sobre Testcontainers
 	$(GRADLEW) integrationTest
 
+.PHONY: test-mutation
+test-mutation: ## Teste de mutacao (Pitest) sobre os unitarios; diagnostico, fora do test
+	$(GRADLEW) {pitest-task}
+
 .PHONY: test-web
 test-web: $(WEB_DIR)/node_modules ## Lint, tipos e testes do web
 	cd $(WEB_DIR) && npm run lint
@@ -44,8 +48,11 @@ test-mobile: $(MOBILE_DIR)/node_modules ## Tipos e testes do mobile
 ```
 
 Retire do `test` o que não existir no projeto (sem `-mobile`, sem
-`test-mobile`; sem backend, sem os dois primeiros). `test-backend` **não**
-depende de `db-up`: depois desta skill, `./gradlew test` não sobe banco.
+`test-mobile`; sem backend, sem os dois primeiros e sem `test-mutation`).
+`test-backend` **não** depende de `db-up`: depois desta skill, `./gradlew test`
+não sobe banco. `test-mutation` fica **fora** do `test` de propósito: é
+diagnóstico, não gate, e custa vários minutos. `{pitest-task}` vem do
+vocabulário da skill: `:loja-core:pitest`, ou só `pitest` num módulo único.
 Tire a linha `cd $(WEB_DIR) && npm run lint` de `test-web` se o
 `package.json` do `-web` não tiver um script `lint`.
 

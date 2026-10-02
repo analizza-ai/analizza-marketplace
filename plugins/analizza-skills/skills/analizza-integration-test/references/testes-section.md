@@ -20,3 +20,7 @@ Montados pela skill `analizza-integration-test`.
   resposta que a tool devolveu.
 - `./gradlew test` roda só o que não precisa de banco; `./gradlew integrationTest` sobe o
   container. Os dois se separam pelo sufixo `IT`, não por tag.
+- **Teste de mutação mede os unitários, não a cobertura.** O Pitest roda em `{mutation-module}`
+  contra os `*Test` (`make test-mutation`), fora do `make test` e sem limiar: o mutation score é
+  diagnóstico. Mutante sobrevivente é assert fraco ou ramo sem teste — ou mutante equivalente,
+  que se documenta e aceita, sem silenciar a métrica.

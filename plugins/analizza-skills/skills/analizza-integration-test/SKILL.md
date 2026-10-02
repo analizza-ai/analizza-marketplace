@@ -7,11 +7,13 @@ description: >-
   módulo dedicado {base}-integration-tests (recomendado) ou o módulo existente —,
   cria BaseIntegrationTest com um container por suíte, tasks test/integrationTest
   separadas pelo sufixo IT, regra ArchUnit que exige IT para todo entrypoint,
-  dublês de saída, cobertura JaCoCo; no frontend, typecheck, Vitest e jest-expo;
-  e grava as regras de projeto (variáveis de ambiente, checkpoints com runbook por
-  funcionalidade, débitos técnicos). Use quando o usuário pedir "testes de
+  dublês de saída, cobertura JaCoCo, teste de mutação com Pitest; no
+  frontend, typecheck, Vitest e jest-expo; e grava as regras de projeto
+  (variáveis de ambiente, checkpoints com runbook por funcionalidade, débitos
+  técnicos). Use quando o usuário pedir "testes de
   integração", "integration tests", "guardrails de teste", "módulo de testes de
-  integração", "reduzir tempo de testcontainers", "analizza integration test",
+  integração", "reduzir tempo de testcontainers", "teste de mutação",
+  "mutation testing", "pitest", "analizza integration test",
   ou quando a analizza-new-project oferecer os guardrails.
 argument-hint: "Opcional: escopo=backend|frontend|ambos linguagem=java|kotlin banco=postgres|oracle|mysql layout=dedicado|existente — valores passados viram padrão a confirmar"
 ---
@@ -44,6 +46,8 @@ handler não tem guardrail automático aqui.
 | `{base}` | `rootProject.name` do `settings.gradle{dsl-ext}` |
 | `{base-package}` | pacote raiz comum às classes de produção (ex.: `br.com.analizza.loja`) |
 | `{it-module}` | `{base}-integration-tests` (dedicado), o `-api` (projeto `-api`/`-core`) ou `.` (módulo único) |
+| `{mutation-module}` | pasta do módulo de produção com a lógica, onde o Pitest roda (Passo 6); `.` no módulo único |
+| `{pitest-task}` | `:{mutation-module}:pitest` (ex.: `:loja-core:pitest`); `pitest` no módulo único |
 | `{it-src}` | `{it-module}/src/test/{src-dir}/{base-package com / no lugar de .}` |
 | `{group}`, `{java-version}` | lidos do build do módulo que aplica o plugin do Spring Boot |
 
@@ -63,7 +67,7 @@ done
 ```
 
 Ofereça backend só se existir `settings.gradle` ou `settings.gradle.kts`. Para
-frontend sem backend, pule para o Passo 7.
+frontend sem backend, pule para o Passo 8.
 
 ### Passo 1 — Detectar e perguntar
 
@@ -237,7 +241,44 @@ ou [EntrypointHasIntegrationTestIT.java.template](./templates/backend/source/jav
 Se o projeto já tiver uma regra de mesmo propósito com outro nome, substitua-a
 por esta e diga ao usuário.
 
-### Passo 6 — Documentar o layout nas convenções
+### Passo 6 — Teste de mutação (Pitest)
+
+Cobertura diz que a linha rodou; teste de mutação diz se algum teste notaria
+se ela estivesse errada. O Pitest troca operadores, retornos e condições do
+código de produção (os mutantes) e roda os testes unitários contra cada um:
+mutante que sobrevive aponta assert fraco ou ramo sem teste.
+
+`{mutation-module}` é o módulo de produção que tem a lógica: o `-core` num
+projeto `-api`/`-core`; o próprio módulo num módulo único. Em outro formato
+multi-módulo, é o que tem `application/` e `domain/` (ou os handlers e regras);
+se houver mais de um candidato, pergunte. **Nunca** o
+`{base}-integration-tests`: o Pitest roda contra os testes unitários (`*Test`),
+que não sobem container — os `*IT` ficam de fora pelo sufixo.
+
+1. Declare a versão no build da raiz, com `apply false`, igual aos outros
+   plugins do Passo 2: `id 'info.solidsoft.pitest' version '1.19.0' apply
+   false` (groovy) ou `id("info.solidsoft.pitest") version "1.19.0" apply
+   false` (kts).
+2. Mescle no `{mutation-module}/build.gradle{dsl-ext}` os trechos de
+   [pitest.gradle.template](./templates/backend/build/groovy/pitest.gradle.template)
+   (groovy) ou
+   [pitest.gradle.kts.template](./templates/backend/build/kts/pitest.gradle.kts.template)
+   (kts). Grave o bloco `<!-- se kotlin -->` só se `{language}=kotlin` e
+   remova os marcadores.
+   - `{target-classes-packages}`: os pacotes de lógica que existirem em
+     `{mutation-module}/src/main/{src-dir}` — `"{base-package}.application.*"`
+     e `"{base-package}.domain.*"` num projeto em camadas; sem essas pastas,
+     `"{base-package}.*"`. Nunca `"*"`: mutaria dependência de terceiro.
+   - Em Kotlin, não acrescente `org.pitest:pitest-kotlin-plugin`: ele nunca
+     saiu de `0.1-SNAPSHOT` e não resolve na maioria dos repositórios.
+   - Não configure `mutationThreshold`. O score é diagnóstico, não gate: um
+     limiar quebra o build por mutante equivalente que ninguém revisou ainda.
+     Se o usuário pedir um limiar, diga isso e só então configure.
+
+O `make test-mutation` (Passo 9) roda o Pitest fora da cadeia do `make test`,
+e o Passo 12 o executa uma vez.
+
+### Passo 7 — Documentar o layout nas convenções
 
 Resolva `{conventions-file}` com a mesma ordem de detecção da
 `analizza-new-project` — pare no primeiro sinal que bater (tabela "Detecção"
@@ -261,10 +302,10 @@ substituídos. Parágrafos da seção antiga que não são sobre a infraestrutur
 teste (ex.: uma lição aprendida) ficam depois do novo corpo.
 
 Sem `{conventions-file}` ainda no disco, ou sem seção *Testes* nele, este
-passo não faz nada; o Passo 9 cria o arquivo e/ou acrescenta a seção, com o
+passo não faz nada; o Passo 10 cria o arquivo e/ou acrescenta a seção, com o
 mesmo corpo de [testes-section.md](./references/testes-section.md).
 
-### Passo 7 — Frontend
+### Passo 8 — Frontend
 
 Só roda se existir `{web-dir}` ou `{mobile-dir}` (Passo 0). Para cada um:
 
@@ -324,7 +365,7 @@ com `{app-dir}` = `./src/app` se existir `src/app`, senão `./app`. Se o
 `tsc --noEmit` reclamar de `expo-env.d.ts` ausente, crie-o com
 `/// <reference types="expo/types" />` (é o que o `expo start` geraria).
 
-### Passo 8 — Makefile e checkpoints
+### Passo 9 — Makefile e checkpoints
 
 Roda para todo escopo, inclusive backend sem frontend: um projeto só de API
 também precisa de `make test-backend`/`make test-integration` e de um
@@ -334,9 +375,9 @@ runbook.
 [makefile-targets.md](./templates/frontend/makefile-targets.md) e, para cada
 frontend do Passo 0, os `scripts` `test` e `typecheck` do `package.json` —
 só os alvos e os `scripts` das partes que existirem (sem `-mobile`, sem
-`test-mobile`; sem backend, sem `test-backend`/`test-integration`).
+`test-mobile`; sem backend, sem `test-backend`/`test-integration`/`test-mutation`).
 
-**Checkpoints.** Decida `{conventions-file}` — a resolução do Passo 6, ou
+**Checkpoints.** Decida `{conventions-file}` — a resolução do Passo 7, ou
 `docs/INSTRUCTIONS.md` a ser criado se nenhuma bateu — **antes** de gravar o
 bloco do `CLAUDE.md` abaixo, porque ele referencia esse caminho. Grave
 `docs/checkpoints/README.md` a partir de
@@ -353,16 +394,16 @@ mesmo projeto — ela gera
 `.claude/skills/test-runbook/` (a skill que conduz o checkpoint no dia a dia) sem perguntar e sem
 sobrescrever o que já existir. Isto vale para todo escopo, inclusive backend sem frontend.
 
-### Passo 9 — Regras de projeto
+### Passo 10 — Regras de projeto
 
-Destino: `{conventions-file}` do Passo 6; sem nenhuma ainda resolvida, crie
+Destino: `{conventions-file}` do Passo 7; sem nenhuma ainda resolvida, crie
 `docs/INSTRUCTIONS.md` (com um título `# {base}`). Acrescente as seções de
 [project-rules.md](./references/project-rules.md) que o arquivo ainda não
 tiver — pelo `grep -qE '^#{1,4} <título>$'` de lá, que conta um título em
 qualquer nível de heading como já existente, não só `##` — e o parágrafo de
 *Testes* dentro da seção *Testes* (pule esse parágrafo se
 `grep -q 'não é evidência sobre o que aquele sistema produz'` já achar). Se
-`{conventions-file}` não tiver seção *Testes* ainda (o Passo 6 não achou uma),
+`{conventions-file}` não tiver seção *Testes* ainda (o Passo 7 não achou uma),
 crie-a agora com o corpo de
 [testes-section.md](./references/testes-section.md), placeholders
 substituídos, e só então acrescente o parágrafo de *Testes* dentro dela. Nunca
@@ -372,7 +413,7 @@ Arquitetura`), acrescente-as no mesmo nível dessas irmãs. Se criou o arquivo,
 diga no relatório — e confira que o bloco do `CLAUDE.md` aponta para ele em
 `{conventions-file}`.
 
-### Passo 10 — Instructions de teste e README
+### Passo 11 — Instructions de teste e README
 
 Procure instructions de teste de outras ferramentas:
 
@@ -382,15 +423,17 @@ find .github/instructions -name '*test*' 2>/dev/null; ls .github/copilot-instruc
 
 Se existirem, acrescente as mesmas regras: ITs em `{it-module}`, todo
 entrypoint com IT, IT percorre banco e HTTP de verdade, `./gradlew test` vs
-`./gradlew integrationTest`. Se não existirem, não crie.
+`./gradlew integrationTest`, `./gradlew {pitest-task}` como
+diagnóstico fora do `test`. Se não existirem, não crie.
 
 No `README.md`, acrescente (ou atualize) uma seção *Testes* com os comandos
-`make test-backend`, `make test-integration`, `make test-web`,
-`make test-mobile` — ou os `./gradlew`/`npm` equivalentes sem `Makefile` — e
+`make test-backend`, `make test-integration`, `make test-mutation`,
+`make test-web`, `make test-mobile` — ou os `./gradlew`/`npm` equivalentes
+sem `Makefile` — e
 onde os ITs moram. Sem `README.md` na raiz, crie-o com um título `# {base}` e
 essa seção *Testes*.
 
-### Passo 11 — Verificar
+### Passo 12 — Verificar
 
 Obrigatório. Redirecione a saída e leia o código de saída, nunca por pipe:
 
@@ -432,16 +475,40 @@ public class SemTesteController {
 }
 ```
 
+Teste de mutação: rode o Pitest uma vez, com a mesma regra de redirecionar e
+ler o código de saída:
+
+```bash
+./gradlew {pitest-task} --console=plain > /tmp/it-pitest.log 2>&1; echo "EXIT=$?"
+xml={mutation-module}/build/reports/pitest/mutations.xml
+if [ -f "$xml" ]; then
+  echo "mutantes=$(grep -c '<mutation ' "$xml") mortos=$(grep -c "status='KILLED'" "$xml")"
+  grep -E "status='(SURVIVED|NO_COVERAGE)'" "$xml" | grep -o '<mutatedClass>[^<]*' | sort | uniq -c
+else
+  echo "mutantes=0 (sem mutations.xml)"
+fi
+```
+
+Exija `EXIT=0`. Mutation score = `mortos / mutantes`. Sem nenhum mutante o
+Pitest não grava `mutations.xml` — daí o `else`. `mutantes=0` só é
+aceitável se `{mutation-module}` ainda não tiver classe nos pacotes de
+`{target-classes-packages}` — confira com um `find` em `src/main`; se houver
+classe ali e zero mutantes, o filtro está errado: corrija-o. Mutante
+sobrevivente **não se corrige aqui**: liste as classes e deixe a decisão ao
+time — assert fraco (melhorar o teste) ou mutante equivalente (documentar e
+aceitar, sem silenciar a métrica).
+
 Frontend: `make test-web` e `make test-mobile` (ou `npm run typecheck && npm
 test` em cada diretório) com exit 0. Prove o typecheck: acrescente num arquivo
 `.ts` do `-web` a linha `const quebra: number = "texto";`, exija falha do
 `typecheck`, desfaça.
 
-### Passo 12 — Relatar e oferecer WireMock
+### Passo 13 — Relatar e oferecer WireMock
 
 Informe: escopo, linguagem, DSL, banco, layout e `{it-module}`; os arquivos
-criados e movidos; os `EXIT=` e as contagens dos XML; as provas de falha (regra
-e typecheck); onde as regras de projeto foram gravadas; e o que não verificou.
+criados e movidos; os `EXIT=` e as contagens dos XML; o mutation score de
+`{mutation-module}` com as classes de mutantes sobreviventes; as provas de
+falha (regra e typecheck); onde as regras de projeto foram gravadas; e o que não verificou.
 
 Se o projeto chama HTTP externo (cliente `RestClient`, `WebClient`, `Feign` ou
 SDK de terceiro no `-core`), pergunte se quer WireMock no `BaseIntegrationTest`
@@ -451,6 +518,7 @@ e aplique [wiremock.md](./references/wiremock.md) só com um sim.
 
 Teste de ponta a ponta automatizado de tela (Playwright): automatizar o que é
 conferência humana destrói a propriedade que a faz valer. CI/CD. Limiar de
-cobertura. Containers de Kafka, Redis e afins (a forma está em
+cobertura e de mutation score. Corrigir mutante sobrevivente. Containers de
+Kafka, Redis e afins (a forma está em
 [containers.md](./templates/backend/containers.md)). Promover módulo único a
 multi-módulo.
