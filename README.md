@@ -42,6 +42,17 @@ O `agy` reconhece direto a pasta `plugins/` deste repositório (mesmo formato us
 agy plugin install https://github.com/analizza-ai/analizza-marketplace
 ```
 
+### GitHub Copilot CLI
+
+- Register the marketplace:   
+```bash
+copilot plugin marketplace add analizza-ai/analizza-marketplace
+```
+- Install the plugin:   
+```bash
+copilot plugin install analizza-skills@analizza-marketplace
+```
+
 ## Skills do plugin `analizza-skills`
 
 | Skill | O que faz |
