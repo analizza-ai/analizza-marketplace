@@ -46,7 +46,7 @@ módulo do agente a um projeto Gradle multi-módulo que já existe.
   não sai do scaffold, pela mesma fronteira da `new-project`.
 - **Código de domínio.** `domain/` nasce vazio.
 - **Alterar a `analizza-integration-test`.** Se ela não cobrir um caso (ver
-  D13), a lacuna é registrada como débito dela, não corrigida aqui.
+  D16), a lacuna é registrada como débito dela, não corrigida aqui.
 - **Qualquer coisa da Pags:** logger `pagseguro-logger`, URLs de intranet,
   `customerId`, Jenkinsfile, repositório Artifactory.
 
