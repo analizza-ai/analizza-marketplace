@@ -13,9 +13,13 @@ WEB_PORT ?= 3000
 SHELL := /bin/bash
 
 # Carrega um arquivo de variaveis e sobe o agente. O arquivo nunca e
-# versionado; o .example ao lado dele e.
+# versionado; o .example ao lado dele e. O arquivo e checado primeiro, para
+# que a falta dele falhe antes de subir qualquer coisa.
 define run_agent_with
 	@test -f $(1) || { echo "Erro: $(1) nao existe. Copie com: cp $(1).example $(1)"; exit 1; }
+<!-- se postgres -->
+	docker compose up -d --wait
+<!-- fim se postgres -->
 	set -a && . ./$(1) && set +a && $(GRADLEW) :$(AGENT_DIR):bootRun --console=plain
 endef
 
@@ -96,26 +100,16 @@ test-web: $(WEB_DIR)/node_modules ## Lint do web
 ##@ Execução
 
 .PHONY: run-agent
-<!-- se postgres -->
-run-agent: db-up ## Sobe o agente com as variáveis de local.env
-<!-- fim se postgres -->
-<!-- se sem-postgres -->
 run-agent: ## Sobe o agente com as variáveis de local.env
-<!-- fim se sem-postgres -->
 	$(call run_agent_with,local.env)
 
 .PHONY: run-agent-ollama
-<!-- se postgres -->
-run-agent-ollama: db-up ## Sobe o agente contra o Ollama local (local.env.ollama)
-<!-- fim se postgres -->
-<!-- se sem-postgres -->
 run-agent-ollama: ## Sobe o agente contra o Ollama local (local.env.ollama)
-<!-- fim se sem-postgres -->
 	$(call run_agent_with,local.env.ollama)
 <!-- se web -->
 
 .PHONY: run-web
-run-web: $(WEB_DIR)/node_modules ## Roda o web (dev) em http://localhost:$(WEB_PORT)
+run-web: $(WEB_DIR)/node_modules ## Roda o web (dev)
 	cd $(WEB_DIR) && AGENT_URL=http://localhost:$(AGENT_PORT) npm run dev
 
 .PHONY: run
