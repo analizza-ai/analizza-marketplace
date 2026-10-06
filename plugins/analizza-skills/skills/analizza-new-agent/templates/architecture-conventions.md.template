@@ -1,0 +1,433 @@
+## Arquitetura
+
+Monorepo de um agente conversacional. Esta seção descreve **como
+implementar**. O scaffold entrega uma fatia vertical pronta — a conversa — e a
+árvore de diretórios das camadas abaixo; `domain/` nasce vazio (`.gitkeep`),
+porque código de domínio é trabalho de quem for construir a primeira fatia de
+negócio. O que é específico de agente — LLM, servidor MCP, memória,
+observabilidade — está na subseção *Agente*, no fim.
+
+### Módulos
+
+| Módulo | Papel |
+|---|---|
+| `buildingBlocks` | `{language}` puro. Contratos base de Command, Query e domínio. Sem Spring |
+| `{agent-module}` | Spring Boot. `presenter/`, `application/`, `domain/` e `infrastructure/` no mesmo módulo |
+<!-- se it-dedicado -->
+| `{project-name}-integration-tests` | Testes de integração (`*IT`) sobre Testcontainers. Não é implantável |
+<!-- fim se it-dedicado -->
+<!-- se web -->
+| `{project-name}-web` | Next.js. Tela de chat |
+<!-- fim se web -->
+
+**A seta de módulos é `{agent-module} → buildingBlocks`.** Não existe a
+separação `-api` / `-core`: o `{agent-module}` é o único módulo de backend e
+carrega as quatro camadas. A separação que em outros projetos é de módulo aqui
+é **de pacote**, e a seta entre as camadas continua valendo dentro dele:
+
+```
+presenter → application → domain
+                 ↓
+           infrastructure  (implementa as portas de domain/)
+```
+
+Nenhuma classe de `application/`, `domain/` ou `infrastructure/` importa nada
+de `{base-package}.presenter`. É essa regra que mantém barato extrair um
+`-core` (e um `-api`) mais tarde: se ela for respeitada, a extração é mover
+pastas e acrescentar um `include` no `settings.gradle{dsl-ext}`.
+
+### O que mora onde
+
+Pacote base: `{base-package}`, o mesmo nos dois módulos `{language}` — não há
+sufixo por módulo. A camada é o primeiro segmento depois da raiz, e é ela,
+não o módulo, que dá o nome ao pacote. Por isso `buildingBlocks` e o
+`{agent-module}` compartilham `{base-package}.application` e
+`{base-package}.domain`: são o mesmo pacote em módulos diferentes (split
+package), de propósito.
+
+#### `buildingBlocks` — os contratos
+
+```
+application/   Command, CommandBase, CommandHandler
+               Query, QueryBase, QueryHandler
+               ResultCommand, ResultCommandHandler
+domain/        Entity, Id, Event
+               BusinessRule, RuleChecker, BusinessRulesBrokenException
+presenter/
+  exception/   ErrorMessage, ListErrorMessage
+```
+
+Sem Spring. Nenhum destes tem lógica de negócio — são a forma que as outras
+camadas preenchem. Quando usar cada um está na seção *Os contratos do
+`buildingBlocks`*.
+
+#### `{agent-module}` — entrada, casos de uso, domínio e saída
+
+```
+{app-class}                        ponto de entrada; a raiz do component scan
+presenter/
+  routes/<agregado>/<casoDeUso>/   uma Route por caso de uso, com o Request
+                                   co-locado no mesmo pacote
+  jobs/                            jobs agendados: o agendamento e sua habilitação
+  configuration/
+    security/                      cadeia de filtros, validação de credencial
+    exception/                     o handler global e as exceções de transporte
+application/
+  <agregado>/<casoDeUso>/          Command + Handler + Result
+domain/
+  <Agregado>    entidades e value objects, soltos na raiz
+  rules/        regras que não pertencem a uma entidade só
+  repositories/ interfaces de persistência. Portas, não implementações
+  services/     orquestração de domínio que não cabe numa entidade
+infrastructure/
+  repositories/                        Entity JPA, RepositoryImpl, interface do Spring Data
+  data/anticorruptionLayer/<vendor>/   integração externa: interface + impl/
+  security/                            emissão de credencial de saída: interface + impl/
+  observability/                       spans, métricas e conteúdo dos traces
+  utils/                               utilidades de saída
+  configuration/                       @Configuration do que é saída
+```
+
+A fatia de conversa que o scaffold entrega é mais rasa que essa árvore —
+`presenter/routes/chat/` e `application/chat/`, sem o nível de agregado —
+porque é um caso de uso só, sem agregado por trás. Uma fatia de negócio nova
+segue a árvore acima.
+
+`presenter/` é **só entrada**: nem entidade de persistência, nem adapter. Se
+você está prestes a pôr ali algo que fala com banco ou com serviço externo, o
+código pertence a `infrastructure/`.
+
+A classe de aplicação mora na raiz do pacote de propósito: é ela que define
+onde o component scan começa.
+
+Um job agendado mora em `presenter/jobs/` pelo mesmo critério que uma Route
+mora em `presenter/routes/`: ele é **entrada** — recebe um gatilho, monta o
+Command, chama o handler e traduz o resultado em log. O gatilho é o
+relógio em vez de HTTP, e só isso muda. Um job não tem regra de negócio,
+pelo mesmo motivo que uma Route não tem.
+
+<!-- se kotlin -->
+Um agregado é uma `class` que estende `Entity()` (do `buildingBlocks`) e
+valida sua invariante ao nascer, chamando `checkAllRules(...)` no `init`. Um
+value object sem identidade é um `data class` comum, ou um
+`@JvmInline value class` quando envolve um único valor primitivo e o custo
+zero em runtime compensa.
+<!-- fim se kotlin -->
+<!-- se java -->
+Um agregado é uma `class` que estende `Entity` (do `buildingBlocks`) e valida
+sua invariante ao nascer, chamando `checkAllRules(...)` no construtor. Um
+value object sem identidade é um `record`, com a validação no construtor
+compacto (`public MeuValueObject { /* regras aqui */ }`) — Java não tem
+equivalente a `@JvmInline value class`.
+<!-- fim se java -->
+
+Enquanto houver poucos agregados, `domain/` fica com os arquivos soltos na
+raiz e `rules/`/`services/` vazios (`.gitkeep`). Quando eles ganharem
+conteúdo real, o padrão é o mesmo: um arquivo por regra ou serviço, sem
+sub-pastas por agregado — isso só se justifica se o número de agregados
+crescer a ponto de a raiz de `domain/` ficar difícil de navegar.
+
+Um serviço de `domain/services/` é lógica pura, sem Spring e sem banco — por
+exemplo, transformar uma lista plana numa árvore, ou derivar um código a
+partir de um nome. É isso que o mantém no backend: lógica que morasse num
+cliente teria de ser reescrita em cada cliente novo.
+
+**Não existe uma pasta `port/` dentro de `application/`.** A interface do
+serviço externo mora no próprio `infrastructure/`, ao lado do `impl/` que a
+implementa — por exemplo
+`infrastructure/data/anticorruptionLayer/<vendor>/<Servico>` (interface) e
+`infrastructure/data/anticorruptionLayer/<vendor>/impl/<ServicoImpl>`
+(implementação). O provedor de LLM é um `<vendor>` como outro qualquer:
+`infrastructure/data/anticorruptionLayer/llm/Assistant` é a interface, e o
+`impl/` ao lado dela é o único lugar que conhece a biblioteca.
+
+`domain/repositories` guarda **interfaces**; a implementação (`RepositoryImpl`,
+a `@Entity` JPA e a interface do Spring Data) mora em
+`infrastructure/repositories/`.
+
+Os recursos de saída — prompts, templates de mensagem, layouts de documento
+gerado e afins — moram em `{agent-module}/src/main/resources/<saída>/` (por
+exemplo `prompts/`, que o scaffold já traz, ou `mail/templates/`). O prefixo
+não pode colidir com as pastas que o Spring Boot varre sozinho (`templates/`,
+`static/`, `public/`): um `templates/` com conteúdo na raiz do classpath liga
+resolução de view, e este módulo é uma API JSON.
+
+**Critério para decidir o que é `infrastructure/`:** é infraestrutura tudo
+que é **saída** — qualquer coisa que fale com algo fora do processo (banco,
+SMTP, um serviço externo, um LLM, um servidor MCP, emissão de credencial). O
+caso que mais confunde é uma credencial que o próprio backend emite:
+**emitir** é saída (`infrastructure/security/`, porque é o backend produzindo
+um artefato para outra parte consumir) — mas **validar** uma credencial de
+uma requisição que chega é guarda de entrada, e por isso mora em
+`presenter/configuration/security/`. A pergunta a fazer diante de um caso
+novo é: isso está produzindo algo para o mundo de fora, ou decidindo se algo
+que chegou pode entrar? A primeira resposta é `infrastructure/`; a segunda é
+`presenter/`.
+
+### Spring e a separação de camadas
+
+<!-- se kotlin -->
+O `{agent-module}` aplica `org.jetbrains.kotlin.plugin.spring`, para que
+classe Kotlin `final` por padrão funcione com proxy do Spring sem precisar
+declarar `open` manualmente — veja o `build.gradle{dsl-ext}` do módulo.
+`@Component` em handler, `@Configuration` para os beans de saída e, quando
+houver persistência JPA, `@Entity` e `@Repository` em `infrastructure/` — tudo
+isso é normal aqui.
+<!-- fim se kotlin -->
+<!-- se java -->
+O `{agent-module}` é um módulo Spring Boot inteiro — veja o
+`build.gradle{dsl-ext}` dele. `@Component` em handler, `@Configuration` para
+os beans de saída e, quando houver persistência JPA, `@Entity` e `@Repository`
+em `infrastructure/` — tudo isso é normal aqui.
+<!-- fim se java -->
+
+**Consequência que precisa ficar clara: não há regra de build separando as
+camadas.** `presenter/`, `application/`, `domain/` e `infrastructure/` são
+pastas do mesmo módulo, compiladas juntas, com o mesmo classpath. Nada no CI
+barra alguém de anotar uma classe de `domain/` com `@Entity`, de fazer um
+`Handler` chamar `JpaRepository` direto pulando a porta de
+`domain/repositories`, ou de fazer uma Route injetar um adapter de
+`infrastructure/`. A separação é convenção de pacote, e quem a garante é
+revisão de código — não o `./gradlew build`. Como aqui nem a fronteira entre
+`presenter/` e o resto é de módulo, essa disciplina pesa mais do que num
+projeto com módulo de entrada e módulo de domínio separados.
+
+### A fatia vertical
+
+Um caso de uso atravessa assim, tudo dentro do `{agent-module}`:
+
+1. **Route**, em `presenter/routes/<agregado>/<casoDeUso>/`, com o Request
+   co-locado no mesmo pacote. Recebe o request, monta o Command ou a Query,
+   traduz o resultado em resposta HTTP. Não tem regra de negócio.
+2. **Command / Query**, em `application/<agregado>/<casoDeUso>/`: objeto de
+   entrada do caso de uso.
+3. **Handler**, no mesmo pacote, anotado `@Component`, implementando o
+   contrato do `buildingBlocks` (`CommandHandler`, `ResultCommandHandler` ou
+   `QueryHandler`). Orquestra: carrega pelo repositório, chama a regra de
+   domínio, persiste, devolve o Result.
+4. **Domain**, em `domain/`: onde a decisão de negócio acontece de fato.
+5. **Adapter**, em `infrastructure/`: implementa a porta — a de
+   `domain/repositories` em `infrastructure/repositories/`, a de um serviço
+   externo em `infrastructure/data/anticorruptionLayer/<vendor>/impl/`.
+
+A conversa do scaffold é essa fatia sem o passo 4: `ChatRoute` → `ChatCommand`
+→ `ChatHandler` → `Assistant` (a porta) → `impl/`.
+
+CQRS aqui significa **separar escrita de leitura**, não event sourcing e não
+dois bancos. Uma Query pode ler por um caminho mais direto que o de escrita
+quando isso simplificar; o que não pode é uma Query mudar estado.
+
+### Os contratos do `buildingBlocks`
+
+<!-- se kotlin -->
+Quinze arquivos, um contrato por arquivo (com uma exceção: `ErrorMessage` e
+`ListErrorMessage` dividem arquivo, porque juntos cabem sem esforço num único
+arquivo Kotlin — não há a regra de um tipo público por arquivo que o Java
+impõe), distribuídos em três pacotes: `{base-package}.application` e
+`{base-package}.domain` (`{language}` puro, sem Spring) e
+`{base-package}.presenter.exception`. Quando usar cada um:
+<!-- fim se kotlin -->
+<!-- se java -->
+Dezesseis arquivos, um contrato por arquivo — inclusive `ErrorMessage` e
+`ListErrorMessage`, cada um no seu próprio arquivo: a regra de um tipo
+público por arquivo do Java não permite os dois num só — distribuídos em três
+pacotes: `{base-package}.application` e `{base-package}.domain` (`{language}`
+puro, sem Spring) e `{base-package}.presenter.exception`. Quando usar cada um:
+<!-- fim se java -->
+
+- **`CommandHandler<TCommand>`** — escrita sem retorno.
+- **`CommandBase` / `QueryBase`** — implementações prontas de `Command` e
+  `Query` que geram o `id` via UUID aleatório. Estenda-as em vez de
+  implementar a interface do zero quando não precisar de um id customizado.
+- **`ResultCommandHandler<TCommand, TResult>`** — escrita com retorno. É o
+  caso mais comum, e é o do `ChatHandler`. Um handler pode ser quase
+  passthrough para uma porta de `infrastructure/` e ainda assim existir de
+  propósito: é ele que impede a Route de injetar a porta direto e furar a
+  regra de que `presenter/` não importa `infrastructure/`.
+  Handler magro é o preço de manter a seta, não sinal de camada sobrando.
+  Repare que **`ResultCommand` não estende `Command`**: um `ResultCommand`
+  não tem `id`. Se o caso de uso precisar de um identificador de
+  correlação, declare o campo você mesmo — o contrato não empresta um.
+- **`QueryHandler<TQuery, TResult>`** — leitura.
+- **`Entity`** — base para agregado que valida sua própria invariante ao
+  nascer, via `checkAllRules(...)`. Herdar de `Entity` **sem** chamar
+  `checkAllRules` é caso normal, não esquecimento: quando a invariante
+  depende de um argumento da fábrica e não de um campo do agregado, é a
+  fábrica que chama um `RuleChecker` direto (veja o item seguinte).
+- **`Id`** — base para agregado cujo identificador é numérico sequencial
+  (`Long`). Um agregado com `UUID` ou outro tipo de identificador
+  simplesmente não o estende.
+- **`BusinessRule` + `RuleChecker`** — regra que estoura
+  `BusinessRulesBrokenException` quando quebrada. `Entity.checkAllRules` usa
+  um `RuleChecker` internamente; uma fábrica chama um `RuleChecker` direto
+  quando a regra olha um argumento da fábrica em vez de um campo do
+  agregado — `checkAllRules` foi feito para uma entidade validar os
+  próprios campos, não a entrada da fábrica.
+- **`Event`** — para um caso de uso que precise publicar algo que aconteceu;
+  consumidor e mecanismo de publicação são decisão de quem implementar.
+- **`ErrorMessage` / `ListErrorMessage`** — o corpo de erro do projeto (veja
+  a seção seguinte).
+
+Sem essa lista, `buildingBlocks` vira gaveta: esses arquivos e nenhuma pista
+de quando usar cada um.
+
+### Falha e corpo de erro
+
+Decidido: o corpo de erro do projeto inteiro é o `ErrorMessage` do
+`buildingBlocks` — `code` (estável, para o cliente decidir o que fazer) e
+`message` (fixa, para gente ler). O campo opcional `details` sai como
+`"details": null` quando não é preenchido. Quem converte exceção em resposta é
+o `GlobalExceptionHandler`, em
+`{agent-module}/.../presenter/configuration/exception/`. Fatia nova que
+precisa de um novo tipo de erro acrescenta um `@ExceptionHandler` ali, não
+inventa formato próprio.
+
+**O corpo nunca carrega stacktrace, token, URL nem o que o LLM ou o servidor
+MCP respondeu.** O detalhe vai para o log; a mensagem para o cliente é fixa.
+
+O que o scaffold já mapeia — status e `code` de cada falha da conversa — está
+em *Falhas da conversa*, na subseção *Agente*.
+
+As exceções que o caso de uso lança moram em `application/`, ao lado do
+handler — não em `presenter/`, senão o handler importaria a entrada.
+
+**Regra de domínio: exceção.** Uma regra quebrada estoura
+`BusinessRulesBrokenException` (do `buildingBlocks`). O scaffold ainda não tem
+handler para ela, porque ainda não tem regra de domínio: a primeira fatia de
+negócio acrescenta ao `GlobalExceptionHandler` a conversão em 422, com um
+`ListErrorMessage` listando o `code` e a `message` de cada `BusinessRule` que
+quebrou.
+
+Nem toda falha é regra de negócio quebrada. Buscar um recurso que não existe
+estoura uma exceção própria de `domain/` ou `application/` (por exemplo
+`<Agregado>NotFoundException`), convertida em 404, com um corpo genérico que
+não repete o identificador pedido nem diz se ele existiu e foi removido ou
+nunca existiu. Quando revelar a própria existência do recurso já é o
+vazamento — por exemplo, uma busca por um identificador de login —, o caso de
+uso não usa esse 404: segue a exceção de opacidade descrita a seguir.
+
+**A exceção nomeada.** Nem toda falha pode passar pelo caminho padrão. O 422
+embute no corpo da resposta o `code` e a `message` de cada `BusinessRule`
+quebrada — informação útil na maioria dos casos, mas às vezes é exatamente o
+que a resposta não pode revelar. Quando causas distintas de falha de um mesmo
+caso de uso precisarem ficar indistinguíveis para quem chama — por exemplo,
+um endpoint que não pode deixar quem chama descobrir se um registro existe
+testando qual mensagem de erro volta — usar uma `BusinessRule` por causa,
+cada uma com sua mensagem, já é o vazamento: o 422 resultante conta qual das
+causas é verdadeira.
+
+Nesse caso o Handler devolve um tipo de resultado fechado em vez de estourar
+exceção, e é a `Route` — não o `GlobalExceptionHandler` — quem traduz esse
+valor em status HTTP, sempre com o mesmo status e a mesma mensagem para todas
+as causas que precisam ficar opacas. Uma falha de infraestrutura de fato (o
+serviço externo do qual o caso de uso depende está fora do ar) não precisa
+dessa opacidade e pode virar uma resposta diferente — porque isso não é
+informação sobre o pedido, é sobre o próprio serviço estar no ar.
+
+O tipo fechado cobre só o que o caso de uso decide. Falha **inesperada** — um
+template quebrado, o banco fora — não tem valor no tipo: ela sobe como
+exceção, a `Route` não a traduz, e o resultado é 500. A distinção é o ponto,
+não uma brecha: tudo que o caso de uso não decide é exceção, e é isso que
+impede que defeito nosso se disfarce de sucesso. Por isso a `Route` de um
+caso de uso opaco não envolve a chamada num "captura tudo e devolve o status
+de sucesso".
+
+Use esse padrão só quando houver esse risco de vazamento. Uma regra que não
+tem esse risco usa o caminho padrão (`BusinessRule` + exceção + 422).
+
+<!-- se kotlin -->
+O tipo de retorno fechado é um `sealed interface`, com um `data class` ou
+`object` por causa.
+<!-- fim se kotlin -->
+<!-- se java -->
+O tipo de retorno fechado é um `sealed interface` (Java 17+, com `permits`),
+com um `record` por causa.
+<!-- fim se java -->
+
+### Autenticação e autorização
+
+O scaffold nasce **sem autenticação**: o endpoint de chat aceita qualquer
+chamada até essa fatia ser escrita. O que já está decidido é onde ela mora e
+com o quê é feita.
+
+**Validar** a credencial de uma requisição que chega é guarda de entrada
+(`presenter/configuration/security/`); **emitir** uma credencial é saída
+(`infrastructure/security/`, com o par interface + `impl/` descrito acima) —
+mesmo critério de "o que é `infrastructure/`" aplicado à autenticação.
+
+O mecanismo da validação é `spring-boot-starter-oauth2-resource-server` com
+um `JwtDecoder`, não um filtro de autenticação escrito à mão. Validar
+credencial é onde bug de segurança mora, e o Spring Security já entrega
+decodificação, conferência de assinatura, expiração e emissor. O filtro
+próprio também deixa de fora, sem ninguém perceber, o que o resto do
+ecossistema assume: papéis em `GrantedAuthority`, `@PreAuthorize`, e um
+`Authentication` que outras camadas conseguem ler sem conhecer o formato do
+token.
+
+Continua **aberto**, porque é decisão de produto: quem emite a credencial,
+quais claims ela carrega e por quanto tempo vale. Implemente e registre aqui
+quando a primeira fatia de autenticação for escrita.
+
+Qualquer código que precise saber **quem** chamou lê `Authentication.getName()`
+e `getAuthorities()`, nunca o objeto do token — e nunca a resposta do modelo
+(veja *Identidade vem da requisição, nunca do modelo*, na subseção *Agente*).
+<!-- se web -->
+
+### CORS e como o `-web` alcança o agente
+
+Decidido: o `-web` não fala com o agente direto do browser. Um Route Handler
+do Next (`src/app/api/chat/route.ts`) chama o agente de servidor para servidor
+e repassa o fluxo SSE — o browser só fala com o próprio Next. Como resultado,
+**não há CORS a configurar no agente**, e a URL dele (`AGENT_URL`) fica fora
+do bundle. Qualquer credencial de sessão que venha a existir fica guardada do
+lado do servidor do Next (por exemplo, num cookie `httpOnly`).
+<!-- fim se web -->
+<!-- se postgres -->
+
+### Migrations
+
+`{agent-module}/src/main/resources/db/migration/`, no formato do Flyway
+(`V1__descricao.sql`).
+
+Migration aplicada é imutável: um ambiente que já a rodou tem o checksum do
+arquivo original gravado em `flyway_schema_history`, e reescrever uma
+migration já aplicada quebra a validação de checksum no próximo boot.
+Correção vira sempre uma `V` nova.
+
+Quem cria e altera tabela é a migration, sempre: nenhuma biblioteca cria
+schema em runtime, e quando o módulo ganhar JPA o
+`spring.jpa.hibernate.ddl-auto` fica em `none`.
+<!-- fim se postgres -->
+
+### Testes
+
+- **`*Test` é unitário**: não sobe container, não fala com LLM nem com rede.
+  É o que `./gradlew test` roda, e é o que entra no `build`.
+- **`*IT` é integração**: estende `BaseIntegrationTest` (em `support/`), com a
+  aplicação inteira em porta aleatória. Roda com `./gradlew integrationTest`,
+  **fora** do `build`.
+- Regra de domínio e handler: teste unitário, sem Spring. Contrato HTTP de uma
+  Route: teste unitário de fatia web. O caminho inteiro: `*IT`.
+- Todo entrypoint — `@RestController` ou classe com método `@Scheduled` —
+  tem um `<Nome>IT`. Um job entra pelo mesmo motivo que um controller, e com
+  mais razão: ninguém recebe um 500 quando um agendamento para de rodar.
+- Nenhuma mensagem nem chamada sai da suíte. Serviço de saída que não tem
+  container (e-mail, gateway de terceiro) ganha um dublê em memória; o que
+  tem container de verdade não ganha — o teste de integração existe para
+  exercitá-lo.
+
+O que é próprio de agente — LLM roteirizado nos unitários, LLM real em
+container nos ITs — está em *Testes do agente*, na subseção *Agente*.
+
+### Não está decidido
+
+O scaffold deliberadamente não escolheu, e a primeira implementação que
+precisar deve decidir e registrar aqui:
+
+- paginação e ordenação nas listagens
+- upload e armazenamento de arquivos
+- versionamento da API
+
+Não improvise nenhum desses no meio de uma fatia: decida, escreva aqui,
+depois implemente. O que está em aberto sobre o agente em si está em *Não
+está decidido*, na subseção *Agente*.

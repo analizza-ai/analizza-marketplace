@@ -54,6 +54,10 @@ Java — método estático da classe:
 Imports: `org.springframework.test.context.DynamicPropertyRegistry` e
 `org.springframework.test.context.DynamicPropertySource`.
 
+`{mcp-name}` nos dois trechos é placeholder: troque pelo nome do servidor MCP
+do projeto (o mesmo prefixo do `application.yaml`, `tools-mcp` se nenhum foi
+informado). É por ele que a base desliga o cliente MCP nos ITs.
+
 ## 4. Conferir
 
 ```bash

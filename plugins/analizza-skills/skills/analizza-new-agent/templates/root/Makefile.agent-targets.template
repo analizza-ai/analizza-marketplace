@@ -5,9 +5,13 @@ AGENT_DIR  := {agent-module}
 AGENT_PORT ?= {agent-port}
 
 # Carrega um arquivo de variaveis e sobe o agente. O arquivo nunca e
-# versionado; o .example ao lado dele e.
+# versionado; o .example ao lado dele e. O arquivo e checado primeiro, para
+# que a falta dele falhe antes de subir qualquer coisa.
 define run_agent_with
 	@test -f $(1) || { echo "Erro: $(1) nao existe. Copie com: cp $(1).example $(1)"; exit 1; }
+<!-- se postgres -->
+	docker compose up -d --wait postgres-agent
+<!-- fim se postgres -->
 	set -a && . ./$(1) && set +a && ./gradlew :$(AGENT_DIR):bootRun --console=plain
 endef
 
@@ -35,3 +39,7 @@ langwatch-up: ## Sobe o LangWatch local em http://localhost:5560
 .PHONY: langwatch-down
 langwatch-down: ## Derruba o LangWatch local
 	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env down
+
+.PHONY: langwatch-logs
+langwatch-logs: ## Acompanha os logs do LangWatch local
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env logs -f

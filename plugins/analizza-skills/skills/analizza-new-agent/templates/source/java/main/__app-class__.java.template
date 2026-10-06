@@ -1,0 +1,15 @@
+<!-- arquivo se existente -->
+package {base-package};
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+// Na raiz do pacote do agente de proposito: e daqui que o component scan
+// comeca, e ele nao pode alcancar o pacote do -api nem o do -core.
+@SpringBootApplication
+public class {app-class} {
+
+    public static void main(String[] args) {
+        SpringApplication.run({app-class}.class, args);
+    }
+}
