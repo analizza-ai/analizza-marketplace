@@ -1,0 +1,40 @@
+package {base-package}.support
+
+import dev.langchain4j.agent.tool.ToolExecutionRequest
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.listener.ChatModelListener
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
+
+/**
+ * LLM falso e deterministico: cada chamada ao modelo consome o proximo passo
+ * do roteiro, e uma chamada alem do roteiro falha o teste. E o que permite
+ * afirmar o texto exato da resposta -- coisa que um modelo real nao permite.
+ */
+class ScriptedChatModel(
+    private val steps: List<(ChatRequest) -> AiMessage>,
+    private val listeners: List<ChatModelListener> = emptyList(),
+) : ChatModel {
+
+    val requests = mutableListOf<ChatRequest>()
+
+    override fun listeners(): List<ChatModelListener> = listeners
+
+    override fun doChat(request: ChatRequest): ChatResponse {
+        val call = requests.size
+        requests += request
+        check(call < steps.size) { "chamada inesperada ao modelo #${call + 1}" }
+        return ChatResponse.builder().aiMessage(steps[call](request)).build()
+    }
+
+    companion object {
+        fun callTool(name: String, argumentsJson: String): (ChatRequest) -> AiMessage = {
+            AiMessage.from(
+                ToolExecutionRequest.builder().id("call-$name").name(name).arguments(argumentsJson).build(),
+            )
+        }
+
+        fun answer(text: String): (ChatRequest) -> AiMessage = { AiMessage.from(text) }
+    }
+}

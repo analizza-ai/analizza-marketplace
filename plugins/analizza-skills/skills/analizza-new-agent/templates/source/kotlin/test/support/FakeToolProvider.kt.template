@@ -1,0 +1,33 @@
+package {base-package}.support
+
+import dev.langchain4j.agent.tool.ToolSpecification
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema
+import dev.langchain4j.service.tool.ToolExecutor
+import dev.langchain4j.service.tool.ToolProvider
+import dev.langchain4j.service.tool.ToolProviderResult
+
+/**
+ * Duble de um servidor MCP: uma tool com nome, descricao e parametro, e a
+ * resposta que o teste escolher. O servidor MCP de verdade e outro sistema e
+ * nao entra em teste unitario.
+ */
+object FakeToolProvider {
+
+    const val TOOL = "consultar_exemplo"
+
+    fun create(result: (String) -> String): ToolProvider {
+        val specification = ToolSpecification.builder()
+            .name(TOOL)
+            .description("Consulta um registro de exemplo pelo identificador.")
+            .parameters(
+                JsonObjectSchema.builder()
+                    .addStringProperty("id", "Identificador do registro")
+                    .required("id")
+                    .build(),
+            )
+            .build()
+        val executor = ToolExecutor { request, _ -> result(request.arguments()) }
+        val provided = ToolProviderResult.builder().add(specification, executor).build()
+        return ToolProvider { provided }
+    }
+}

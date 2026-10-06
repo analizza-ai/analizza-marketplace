@@ -1,0 +1,31 @@
+package {base-package}.presenter.routes.chat
+
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+
+class ConversationIdsTest {
+
+    @Test
+    fun `header vence o campo from`() {
+        assertEquals("do-header", ConversationIds.resolve(" do-header ", "do-corpo"))
+    }
+
+    @Test
+    fun `sem header usa o campo from`() {
+        assertEquals("do-corpo", ConversationIds.resolve("   ", " do-corpo "))
+    }
+
+    @Test
+    fun `sem header e sem from gera um id novo a cada chamada`() {
+        val primeiro = ConversationIds.resolve(null, null)
+        val segundo = ConversationIds.resolve(null, null)
+        assertEquals(36, primeiro.length)
+        assertNotEquals(primeiro, segundo)
+    }
+
+    @Test
+    fun `corta em 128 caracteres`() {
+        assertEquals(128, ConversationIds.resolve("x".repeat(300), null).length)
+    }
+}

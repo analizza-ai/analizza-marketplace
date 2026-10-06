@@ -1,0 +1,83 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.mcp
+
+import dev.langchain4j.mcp.client.McpClient
+import dev.langchain4j.service.tool.ToolProvider
+import dev.langchain4j.service.tool.ToolProviderRequest
+import dev.langchain4j.service.tool.ToolProviderResult
+import io.mockk.mockk
+import io.mockk.verify
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+
+class LazyMcpToolProviderTest {
+
+    private val request = mockk<ToolProviderRequest>(relaxed = true)
+    private val noTools = ToolProvider { ToolProviderResult.builder().build() }
+
+    @Test
+    fun `nao conecta enquanto nenhuma conversa pede as tools`() {
+        var connections = 0
+
+        LazyMcpToolProvider("tools-mcp", { connections++; mockk(relaxed = true) }, { noTools })
+
+        assertEquals(0, connections)
+    }
+
+    @Test
+    fun `servidor fora vira McpUnavailableException e a conversa seguinte tenta de novo`() {
+        var connections = 0
+        val provider = LazyMcpToolProvider(
+            "tools-mcp",
+            { connections++; throw IllegalStateException("connection refused") },
+            { noTools },
+        )
+
+        val error = assertFailsWith<McpUnavailableException> { provider.provideTools(request) }
+        assertFailsWith<McpUnavailableException> { provider.provideTools(request) }
+
+        assertTrue(error.message!!.contains("tools-mcp"))
+        assertEquals(2, connections)
+    }
+
+    @Test
+    fun `reaproveita a conexao enquanto o servidor responde`() {
+        var connections = 0
+        val provider = LazyMcpToolProvider("tools-mcp", { connections++; mockk(relaxed = true) }, { noTools })
+
+        provider.provideTools(request)
+        provider.provideTools(request)
+
+        assertEquals(1, connections)
+    }
+
+    @Test
+    fun `falha ao listar as tools fecha o cliente e reconecta na proxima`() {
+        val clients = mutableListOf<McpClient>()
+        var failing = true
+        val provider = LazyMcpToolProvider(
+            "tools-mcp",
+            { mockk<McpClient>(relaxed = true).also { clients += it } },
+            { ToolProvider { if (failing) throw IllegalStateException("sessao invalida") else noTools.provideTools(it) } },
+        )
+
+        assertFailsWith<McpUnavailableException> { provider.provideTools(request) }
+        failing = false
+        provider.provideTools(request)
+
+        assertEquals(2, clients.size)
+        verify(exactly = 1) { clients[0].close() }
+    }
+
+    @Test
+    fun `close fecha o cliente conectado`() {
+        val client = mockk<McpClient>(relaxed = true)
+        val provider = LazyMcpToolProvider("tools-mcp", { client }, { noTools })
+        provider.provideTools(request)
+
+        provider.close()
+
+        verify(exactly = 1) { client.close() }
+    }
+}

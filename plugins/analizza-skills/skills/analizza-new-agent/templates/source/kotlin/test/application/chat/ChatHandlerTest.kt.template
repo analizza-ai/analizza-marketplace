@@ -1,0 +1,135 @@
+package {base-package}.application.chat
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant
+import {base-package}.infrastructure.data.anticorruptionLayer.mcp.McpUnavailableException
+import {base-package}.infrastructure.observability.ChatTelemetry
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import io.opentelemetry.api.OpenTelemetry
+import org.junit.jupiter.api.Test
+import reactor.core.publisher.Flux
+import java.util.concurrent.TimeoutException
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+class ChatHandlerTest {
+
+    private val registry = SimpleMeterRegistry()
+    private val telemetry = ChatTelemetry(OpenTelemetry.noop().getTracer("test"), registry)
+
+    /** Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o teste mandar. */
+    private class StubAssistant(private val reply: () -> String) : Assistant {
+        var calls = 0
+
+        override fun chat(conversationId: String, userInput: String): String {
+            calls++
+            return reply()
+        }
+
+        override fun chatStream(conversationId: String, userInput: String): Flux<String> {
+            calls++
+            return Flux.just(reply())
+        }
+    }
+
+    private fun counter(outcome: String): Double =
+        registry.find("chat.requests").tag("outcome", outcome).counter()?.count() ?: 0.0
+
+    @Test
+    fun `corpo valido devolve a resposta do assistente e conta sucesso`() {
+        val assistant = StubAssistant { "Ola!" }
+
+        val result = ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
+
+        assertEquals("Ola!", result.response)
+        assertEquals(1.0, counter("success"))
+        assertEquals(1, registry.find("chat.request.duration").timer()!!.count())
+    }
+
+    @Test
+    fun `corpo em branco e recusado sem chamar o assistente`() {
+        val assistant = StubAssistant { "nao deveria" }
+
+        val error = assertFailsWith<InvalidChatRequestException> {
+            ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "   "))
+        }
+
+        assertEquals("campo body vazio", error.message)
+        assertEquals(0, assistant.calls)
+    }
+
+    @Test
+    fun `corpo nulo e recusado`() {
+        assertFailsWith<InvalidChatRequestException> {
+            ChatHandler(StubAssistant { "x" }, telemetry).handle(ChatCommand("conv-1", null))
+        }
+    }
+
+    @Test
+    fun `corpo acima de 8000 caracteres e recusado`() {
+        val error = assertFailsWith<InvalidChatRequestException> {
+            ChatHandler(StubAssistant { "x" }, telemetry).handle(ChatCommand("conv-1", "x".repeat(8001)))
+        }
+
+        assertEquals("campo body excede 8000 caracteres", error.message)
+    }
+
+    @Test
+    fun `timeout embrulhado vira UpstreamTimeoutException e conta falha`() {
+        val assistant = StubAssistant { throw RuntimeException(TimeoutException("demorou")) }
+
+        assertFailsWith<UpstreamTimeoutException> {
+            ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
+        }
+        assertEquals(1.0, counter("failure"))
+    }
+
+    @Test
+    fun `servidor MCP fora vira McpUpstreamException`() {
+        val assistant = StubAssistant {
+            throw RuntimeException(McpUnavailableException("tools-mcp", IllegalStateException("recusada")))
+        }
+
+        assertFailsWith<McpUpstreamException> {
+            ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
+        }
+    }
+
+    @Test
+    fun `qualquer outra falha vira UpstreamException`() {
+        val assistant = StubAssistant { throw IllegalStateException("500 do provedor") }
+
+        assertFailsWith<UpstreamException> {
+            ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
+        }
+    }
+
+    @Test
+    fun `stream emite os tokens e conta sucesso ao terminar`() {
+        val tokens = ChatStreamHandler(StubAssistant { "Ola!" }, telemetry)
+            .handle(ChatCommand("conv-1", "oi"))
+            .collectList()
+            .block()
+
+        assertEquals(listOf("Ola!"), tokens)
+        assertEquals(1.0, counter("success"))
+    }
+
+    @Test
+    fun `stream com corpo em branco falha antes de abrir o fluxo`() {
+        assertFailsWith<InvalidChatRequestException> {
+            ChatStreamHandler(StubAssistant { "x" }, telemetry).handle(ChatCommand("conv-1", ""))
+        }
+    }
+
+    @Test
+    fun `falha ao abrir o stream e classificada e conta falha`() {
+        val assistant = StubAssistant {
+            throw McpUnavailableException("tools-mcp", IllegalStateException("recusada"))
+        }
+
+        assertFailsWith<McpUpstreamException> {
+            ChatStreamHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
+        }
+        assertEquals(1.0, counter("failure"))
+    }
+}
