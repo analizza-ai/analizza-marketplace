@@ -23,7 +23,9 @@ export async function POST(request: Request) {
       headers,
       body: await request.text(),
       cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Os dois sinais juntos: sem o da requisicao, fechar a aba deixaria o
+      // agente inferindo ate o timeout, para uma resposta que ninguem le.
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(TIMEOUT_MS)]),
     });
   } catch (erro) {
     console.error("chat: falha ao chamar o agente", erro);

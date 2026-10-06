@@ -1,0 +1,44 @@
+package {base-package}.application.chat;
+
+import org.jspecify.annotations.Nullable;
+
+/**
+ * "Em branco" e "aparar" com a mesma definicao nos dois lados do projeto.
+ * String.isBlank() e strip() nao tratam o espaco sem quebra (U+00A0, U+2007,
+ * U+202F) como branco: um corpo so com eles passaria na validacao e chegaria
+ * ao LLM como mensagem vazia. Aqui vale o que Character chama de whitespace
+ * ou de separador de espaco.
+ */
+public final class Whitespace {
+
+    private Whitespace() {
+    }
+
+    public static boolean isBlank(@Nullable String text) {
+        if (text == null) {
+            return true;
+        }
+        for (int i = 0; i < text.length(); i++) {
+            if (!isWhitespace(text.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static String trim(String text) {
+        int start = 0;
+        int end = text.length();
+        while (start < end && isWhitespace(text.charAt(start))) {
+            start++;
+        }
+        while (end > start && isWhitespace(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(start, end);
+    }
+
+    private static boolean isWhitespace(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c);
+    }
+}

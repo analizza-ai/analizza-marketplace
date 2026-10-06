@@ -106,6 +106,14 @@ run-agent: ## Sobe o agente com as variáveis de local.env
 .PHONY: run-agent-ollama
 run-agent-ollama: ## Sobe o agente contra o Ollama local (local.env.ollama)
 	$(call run_agent_with,local.env.ollama)
+
+# Para um arquivo de variaveis avulso, que nao seja nenhum dos dois acima. E o
+# que o smoke da skill usa (local.env.smoke), para nunca escrever no
+# local.env.ollama de quem desenvolve.
+.PHONY: run-agent-with
+run-agent-with: ## Sobe o agente com outro arquivo de variáveis: make run-agent-with ENV_FILE=<arquivo>
+	@test -n "$(ENV_FILE)" || { echo "Erro: informe o arquivo. Uso: make run-agent-with ENV_FILE=<arquivo>"; exit 1; }
+	$(call run_agent_with,$(ENV_FILE))
 <!-- se web -->
 
 .PHONY: run-web

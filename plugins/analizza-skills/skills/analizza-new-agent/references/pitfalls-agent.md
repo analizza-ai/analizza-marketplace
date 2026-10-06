@@ -108,6 +108,15 @@ porta no host: a 5432 é do banco do projeto.
 `LANGCHAIN4J_TRACING_INCLUDE_PROMPT=false` no `local.env` desliga a captura
 mesmo no profile `dev`. Por isso essas linhas vêm comentadas no exemplo.
 
+### Sem `SPRING_PROFILES_ACTIVE` não há profile — e é de propósito
+
+O `application.yaml` não traz default em `spring.profiles.active`. Com um
+default `dev`, um deploy que esquecesse a variável exportaria prompt, resposta
+e resultado de tool nos traces, com amostragem de 100%. Quem ativa o `dev` são
+os `local.env*.example`. O sintoma de esquecer a variável **localmente** é o
+inverso, e inofensivo: o log da subida diz `No active profile set`, o trace
+vem sem o conteúdo da conversa e o log do pacote do agente fica em `INFO`.
+
 ### `Authorization` com espaço no arquivo de variáveis
 
 O `make run-agent` faz `source` do arquivo. `Bearer abc` sem aspas vira dois
@@ -162,15 +171,31 @@ As duas últimas só a pedido do usuário. `docker volume prune` e os alvos
 `db-down` / `db-reset` que o `Makefile` do projeto já tinha também não são do
 agente.
 
-### Matar quem segura a porta não encerra o `make run-agent`
+### Matar quem segura a porta mata o processo errado
 
-`make run-agent-ollama &` abre uma árvore: o `make`, o `bash` da receita, o
-cliente do `gradlew` e, fora dela, o daemon do Gradle, que é quem lança a JVM
-do agente. `lsof -ti tcp:<porta> | xargs kill` mata só a JVM; o resto pode
-ficar vivo, segurando o terminal e memória. O Passo 11 do `SKILL.md` encerra
-os três: a JVM pela porta, `pkill -f '[:]<módulo>:bootRun'` para o `bash` e o
-cliente, e `./gradlew --stop` para o daemon. O `[:]` no padrão é o que impede
-o `pkill -f` de casar com o próprio shell que o executa.
+`lsof -ti tcp:<porta> | xargs kill` tem dois defeitos. Mata **quem estiver**
+na porta: se outra aplicação já a ocupava, o `bootRun` do agente falhou, a
+checagem de saúde foi respondida por ela, e é ela que morre. E não encerra o
+que o `make run-agent… &` abriu: o `make`, o `bash` da receita e o cliente do
+`gradlew` ficam vivos.
+
+Por isso o smoke do Passo 11 do `SKILL.md` (i) aborta se a porta do agente ou
+a `11435` já tiver dono, (ii) grava o PID do `make` que ele mesmo lançou e, no
+fim, encerra **só essa árvore** — a JVM do agente não é filha dela (quem a
+lança é o daemon do Gradle), mas o daemon cancela o build e a encerra quando
+perde o cliente — e (iii) confere pelo log que foi este agente que subiu
+(`Started <classe de aplicação>`).
+
+`./gradlew --stop` fica de fora: derruba todo daemon daquela versão do Gradle
+na máquina, o de outro projeto com build em andamento inclusive. O daemon que
+sobra fica ocioso e sai sozinho.
+
+### O smoke não toca no `local.env.ollama`
+
+O arquivo é do usuário, é git-ignored — apagado ou sobrescrito, não volta — e
+pode guardar a credencial do servidor MCP. O smoke gera o próprio
+`local.env.smoke` (também ignorado pelo Git), sobe o agente com
+`make run-agent-with ENV_FILE=local.env.smoke` e apaga só esse arquivo.
 
 ## Web
 
@@ -232,7 +257,7 @@ todos, o Gradle não acha o que rodar e sai com `EXIT=0` — sem um XML sequer e
   `EXIT`.
 
 A `test` tem o mesmo cuidado no sentido inverso: descarta tags e padrões
-herdados e exclui `*IT`, e o Passo 10 exige a soma exata (36, ou 34 sem
+herdados e exclui `*IT`, e o Passo 10 exige a soma exata (39, ou 37 sem
 memória) e nenhum `*IT` entre os XML.
 
 O que o template **não** alcança: configuração que a raiz aplica **depois** da
@@ -242,6 +267,28 @@ trecho da raiz ao usuário e pergunte, sem editar o build dele por conta
 própria. Outro efeito herdado, inofensivo: se a raiz liga `jacocoTestReport`
 ao `test` de todo subprojeto, o `test` do agente passa a gerar relatório de
 cobertura onde ela mandar.
+
+### Um `check.dependsOn(integrationTest)` do hospedeiro leva os ITs para o `build`
+
+O build do módulo do agente deixa a `integrationTest` **fora** do `check`. Mas
+a raiz de um projeto existente pode ligar as duas para todo subprojeto
+(`subprojects { tasks.named('check') { dependsOn 'integrationTest' } }`, ou o
+equivalente em `.kts`). Aí `./gradlew :<módulo do agente>:build` passa a subir
+o Ollama: baixa ~2 GB na primeira vez e leva minutos de inferência em CPU, em
+todo build e no CI.
+
+Como notar: o `build` do Passo 11 demora minutos em vez de segundos e o log
+dele traz `> Task :<módulo do agente>:integrationTest`; ou, sem rodar nada,
+
+```bash
+./gradlew :<módulo do agente>:build --dry-run --console=plain | grep integrationTest
+```
+
+imprime uma linha (o esperado é nenhuma). O que fazer: mostre o trecho da raiz
+ao usuário e pergunte — a skill não edita o build do hospedeiro, e não desfaz
+a ligação por dentro do módulo sem ele saber. As saídas são dele: tirar o
+agente daquele bloco da raiz, ou aceitar os ITs no `build` e garantir Docker
+no CI. Diga no relatório qual ficou.
 
 ### `buildingBlocks` existe, mas o `ErrorMessage` é outro
 
@@ -256,6 +303,17 @@ HTTP do agente e o que os testes conferem. Por isso o Passo 1 confere as
 o agente declara o próprio `ErrorMessage`, e `ChatCommand` / `ChatHandler`
 não implementam os contratos do projeto. Não edite o `buildingBlocks` do
 hospedeiro para caber.
+
+### Em Java, `isBlank()` e `strip()` não tratam o espaço sem quebra como branco
+
+`"\u00A0".isBlank()` é `false` em Java; em Kotlin, `isBlank()` e `trim()`
+tratam U+00A0, U+2007 e U+202F como branco. Com `isBlank()`, o agente Java
+aceitaria um `body` só com esses caracteres e o mandaria ao LLM; o Kotlin
+devolveria `400`. Por isso o código Java usa `application/chat/Whitespace`
+(`isBlank` e `trim` com `Character.isWhitespace(c) || Character.isSpaceChar(c)`)
+em `ChatInput`, `ConversationIds` e `ConversationIdFilter`, e o
+`ChatHandlerTest` tem um caso com o corpo só de espaços sem quebra. Ao validar
+texto novo em Java, use a mesma classe.
 
 ### Primeiro IT lento não é IT travado
 

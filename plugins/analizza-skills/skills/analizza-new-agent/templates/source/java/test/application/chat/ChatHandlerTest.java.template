@@ -9,6 +9,8 @@ import {base-package}.infrastructure.observability.ChatTelemetry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.opentelemetry.api.OpenTelemetry;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
@@ -20,13 +22,29 @@ class ChatHandlerTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final ChatTelemetry telemetry = new ChatTelemetry(OpenTelemetry.noop().getTracer("test"), registry);
 
-    /** Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o teste mandar. */
+    /**
+     * Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o
+     * teste mandar. Criado com streaming(...), o chatStream devolve aquele
+     * fluxo em vez de um token so -- e o que deixa testar erro e cancelamento
+     * no meio.
+     */
     private static class StubAssistant implements Assistant {
         private final Supplier<String> reply;
+        private final Supplier<Flux<String>> stream;
         int calls = 0;
 
         StubAssistant(Supplier<String> reply) {
             this.reply = reply;
+            this.stream = () -> Flux.just(reply.get());
+        }
+
+        private StubAssistant(Supplier<String> reply, Supplier<Flux<String>> stream) {
+            this.reply = reply;
+            this.stream = stream;
+        }
+
+        static StubAssistant streaming(Supplier<Flux<String>> stream) {
+            return new StubAssistant(() -> "nao usado", stream);
         }
 
         @Override
@@ -38,7 +56,7 @@ class ChatHandlerTest {
         @Override
         public Flux<String> chatStream(String conversationId, String userInput) {
             calls++;
-            return Flux.just(reply.get());
+            return stream.get();
         }
     }
 
@@ -63,6 +81,17 @@ class ChatHandlerTest {
         StubAssistant assistant = new StubAssistant(() -> "nao deveria");
 
         assertThatThrownBy(() -> new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "   ")))
+                .isInstanceOf(InvalidChatRequestException.class)
+                .hasMessage("campo body vazio");
+        assertThat(assistant.calls).isEqualTo(0);
+    }
+
+    @Test
+    void corpoSoComEspacoSemQuebraERecusadoComoVazio() {
+        StubAssistant assistant = new StubAssistant(() -> "nao deveria");
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "\u00A0\u2007\u202F")))
                 .isInstanceOf(InvalidChatRequestException.class)
                 .hasMessage("campo body vazio");
         assertThat(assistant.calls).isEqualTo(0);
@@ -141,5 +170,39 @@ class ChatHandlerTest {
         assertThatThrownBy(() -> new ChatStreamHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi")))
                 .isInstanceOf(McpUpstreamException.class);
         assertThat(counter("failure")).isEqualTo(1.0);
+    }
+
+    @Test
+    void erroNoMeioDoStreamChegaClassificadoEContaFalha() {
+        StubAssistant assistant = StubAssistant.streaming(() -> Flux.concat(
+                Flux.just("Ol"),
+                Flux.error(new McpUnavailableException("tools-mcp", new IllegalStateException("caiu")))));
+        List<String> received = new ArrayList<>();
+
+        assertThatThrownBy(() -> new ChatStreamHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "oi"))
+                .doOnNext(received::add)
+                .blockLast(Duration.ofSeconds(5)))
+                .isInstanceOf(McpUpstreamException.class);
+
+        assertThat(received).containsExactly("Ol");
+        assertThat(counter("failure")).isEqualTo(1.0);
+        assertThat(counter("success")).isEqualTo(0.0);
+    }
+
+    @Test
+    void streamCanceladoPeloAssinanteContaFalhaENaoFicaPendurado() {
+        // Um fluxo que nunca termina: so o cancelamento do take(1) o encerra.
+        StubAssistant assistant = StubAssistant.streaming(() -> Flux.concat(Flux.just("Ol"), Flux.never()));
+
+        List<String> tokens = new ChatStreamHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "oi"))
+                .take(1)
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(tokens).containsExactly("Ol");
+        assertThat(counter("failure")).isEqualTo(1.0);
+        assertThat(counter("success")).isEqualTo(0.0);
     }
 }

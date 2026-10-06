@@ -2,6 +2,7 @@
 # --- Ambiente do agente (nunca versionar) ---
 local.env
 local.env.ollama
+local.env.smoke
 langwatch.env
 <!-- se web -->
 

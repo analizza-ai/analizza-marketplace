@@ -1,5 +1,6 @@
 package {base-package}.presenter.configuration;
 
+import {base-package}.application.chat.Whitespace;
 import {base-package}.presenter.routes.chat.ConversationIds;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -25,7 +26,7 @@ public class ConversationIdFilter implements Filter {
             throws IOException, ServletException {
         if (request instanceof HttpServletRequest httpRequest && response instanceof HttpServletResponse httpResponse) {
             String conversationId = httpRequest.getHeader(ConversationIds.HEADER);
-            if (conversationId != null && !conversationId.isBlank()) {
+            if (conversationId != null && !Whitespace.isBlank(conversationId)) {
                 httpResponse.setHeader(ConversationIds.HEADER, conversationId);
             }
         }

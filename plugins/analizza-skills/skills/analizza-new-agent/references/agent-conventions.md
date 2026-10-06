@@ -43,6 +43,7 @@ biblioteca de LLM é reescrever `impl/`.
 |---|---|
 | `make run-agent` | sobe o agente com as variáveis de `local.env` |
 | `make run-agent-ollama` | sobe o agente com `local.env.ollama`, contra um Ollama local |
+| `make run-agent-with ENV_FILE=<arquivo>` | sobe o agente com outro arquivo de variáveis |
 <!-- se do-zero -->
 <!-- se web -->
 | `make run` | sobe o agente (Ollama local) e o web juntos |
@@ -66,6 +67,12 @@ variável nova entra no `application.yaml`, na seção *Variáveis de ambiente* 
 `README.md` (só o nome, sem valor) e nos dois `.example`, no mesmo commit.
 
 #### Identidade vem da requisição, nunca do modelo
+
+**Hoje o endpoint não tem autenticação, e o id da conversa é escolhido pelo
+cliente.** Quem souber — ou adivinhar — um `X-Conversation-Id` continua aquela
+conversa e pode pedir ao agente o que foi dito nela: a memória é lida pelo id,
+e nada confere de quem ela é. Enquanto não houver autenticação, não ponha dado
+sensível em conversa de um agente exposto além de uma rede confiável.
 
 O identificador de quem está conversando — usuário, cliente, tenant — chega na
 requisição e é passado adiante **pelo código**. Ele nunca é lido da resposta do
@@ -202,9 +209,17 @@ agente.
   no trace com as flags `langchain4j.tracing.include-*`, **desligadas por
   padrão** e ligadas no profile `dev`. Em produção ficam desligadas: prompt e
   resposta carregam dado de usuário, e resultado de tool carrega dado de domínio.
-- **O profile padrão é `dev`.** Fora do desenvolvimento, defina
-  `SPRING_PROFILES_ACTIVE=prod` — senão o conteúdo das conversas vai para o
-  trace.
+- **Nenhum profile é ativo por padrão.** O `dev` só vale quando
+  `SPRING_PROFILES_ACTIVE=dev` é definido — e é o que o `local.env.example` e
+  o `local.env.ollama.example` fazem. Um deploy que não define a variável
+  sobe **sem** conteúdo de conversa nos traces. Fora do desenvolvimento,
+  defina `SPRING_PROFILES_ACTIVE=prod`, que ainda baixa a amostragem dos
+  traces para 10% e o log para `WARN`. Não ponha um default em
+  `spring.profiles.active`: é ele que faria um ambiente esquecido cair no `dev`.
+- **A exceção vai para o span, com as flags ligadas ou não.** Quando uma
+  conversa falha, o `ChatTelemetry.fail` grava no span o tipo e a mensagem da
+  exceção, com a cadeia de causas — o que o provedor de LLM ou o servidor MCP
+  respondeu no erro inclusive. As quatro flags de conteúdo não cobrem isso.
 - **Métricas** em `/actuator/prometheus`: `chat_requests_total`, com a tag
   `outcome` (`success` ou `failure`), e `chat_request_duration_seconds`.
 - **LangWatch local:** `cp langwatch.env.example langwatch.env`, troque os
@@ -232,7 +247,7 @@ coberto no unitário, com `FakeToolProvider`.
 <!-- se it-dedicado -->
 
 Os ITs moram no módulo `{project-name}-integration-tests` e rodam com
-`./gradlew integrationTest`. O LLM é ligado na base deles por
+`./gradlew :{project-name}-integration-tests:integrationTest`. O LLM é ligado na base deles por
 `OllamaTestContainer.registerLlm`.
 <!-- fim se it-dedicado -->
 <!-- se it-no-modulo -->

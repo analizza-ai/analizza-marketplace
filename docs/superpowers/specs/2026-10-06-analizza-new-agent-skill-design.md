@@ -169,7 +169,13 @@ encerramento da verificação derruba só o serviço do agente.
 `chat` por conversa com `conversationId`, `user_id` e `thread_id`;
 `GenAiSpanEnricher` com atributos `gen_ai.*` sempre e conteúdo sob quatro
 flags (`include-prompt`, `-completion`, `-tool-arguments`, `-tool-result`),
-todas `false` por padrão e `true` só no profile `dev`; métricas
+todas `false` por padrão e `true` só no profile `dev` — e **nenhum profile é
+ativo por padrão**: o `application.yaml` não traz default em
+`spring.profiles.active`, o `dev` vem de `SPRING_PROFILES_ACTIVE=dev` nos
+`local.env*.example`, e um deploy que não define a variável sobe sem conteúdo
+de conversa nos traces. O que as flags não cobrem: numa falha, o tipo e a
+mensagem da exceção (com a cadeia de causas) vão para o span de qualquer
+jeito. Métricas
 `chat.requests{outcome}` e `chat.request.duration` em Prometheus; push OTLP de
 métricas desligado. Ambiente: `docker-compose.langwatch.yml` isolado,
 `langwatch.env.example` e alvos `make langwatch-up/down`. Com o LangWatch fora
@@ -186,7 +192,9 @@ do ar o exporter OTLP loga falha periodicamente (esperado);
 
 Regra gravada nas convenções: com modelo pequeno, IT nunca compara o texto da
 resposta. Afirma status, forma do JSON, resposta não vazia, header ecoado,
-linha de memória no Postgres, span emitido. Resposta exata é unitário.
+linha de memória no Postgres, métrica `chat.requests` emitida. Os ITs
+desligam a exportação de traces (amostragem `0.0`), então não afirmam span —
+o trace é conferência manual, pelo runbook. Resposta exata é unitário.
 
 **D16 — Onde os ITs moram depende do modo.** Do zero: a `new-agent` invoca a
 `analizza-integration-test` com `layout=dedicado` e, depois dela, acrescenta
@@ -245,7 +253,7 @@ exigem Boot 4.
 ├── local.env.ollama.example
 ├── langwatch.env.example
 ├── Makefile
-├── .gitignore                        + local.env, local.env.ollama, langwatch.env
+├── .gitignore                        + local.env, local.env.ollama, local.env.smoke, langwatch.env
 └── <arquivo do SDD>                  camadas + seção "Agente"
 ```
 
@@ -257,11 +265,15 @@ Mais `{project-name}-integration-tests`, criado pela `analizza-integration-test`
 {base}/
 ├── settings.gradle{dsl-ext}          + include do {agent-module}
 ├── gradle.properties                 + langchain4jVersion
+├── build.gradle{dsl-ext}             só se faltar: + plugin com versão, `apply false` (mostrado ao usuário antes)
 ├── {agent-module}/                   pacote raiz {package}.agent
 ├── docker-compose.yml                + banco do agente [se postgres]
 ├── docker-compose.langwatch.yml      novo
 ├── local.env*.example, langwatch.env.example
-├── Makefile                          + run-agent (checa o env antes de subir o banco), run-agent-ollama, langwatch-up/down, test-agent-integration
+├── Makefile                          + run-agent (checa o env antes de subir o banco), run-agent-ollama, run-agent-with, langwatch-up/down, test-agent, test-agent-integration
+├── .gitignore                        + local.env, local.env.ollama, local.env.smoke, langwatch.env
+├── README.md                         + seção "Variáveis de ambiente" (criado se não houver)
+├── docs/checkpoints/agent-chat.md    novo: o runbook de conferência
 └── <arquivo do SDD>                  + seção "Agente" (acrescenta, nunca sobrescreve)
 ```
 
@@ -298,6 +310,8 @@ application/
                                 InvalidChatRequestException, UpstreamException,
                                 UpstreamTimeoutException, McpUpstreamException,
                                 McpUpstreamTimeoutException
+                                Só em Java: Whitespace (isBlank/trim que tratam o
+                                espaço sem quebra como o Kotlin trata)
 domain/                         .gitkeep em rules/, repositories/, services/
 infrastructure/
   data/anticorruptionLayer/llm/ Assistant; impl/LangChain4jAssistant, AssistantAiService
@@ -353,16 +367,27 @@ Cada passo fecha com verificação por código de saída, não por ausência de 
 5. Cliente MCP — o par ligado, ou `enabled=false`.
 6. Memória e banco, conforme as respostas.
 7. Observabilidade local — composes, env examples, alvos do Makefile.
-8. Web, se aceito — `git init` antes; checar `.git` aninhado.
+8. Web, se aceito — repositório Git antes (`git init` só se a pasta não
+   estiver em nenhum; dentro de outro repositório a skill para e pergunta);
+   checar `.git` aninhado.
 9. Convenções no arquivo do SDD e runbook `docs/checkpoints/agent-chat.md`.
 10. Testes — unitários; depois a `analizza-integration-test` (do zero) ou os
     ITs no módulo (existente); por fim a camada Ollama.
-11. Verificar — `make build`, `make test-integration`, e smoke real com
-    `local.env.ollama`: `curl` nos dois endpoints, `/actuator/health`,
-    `/actuator/prometheus` mostrando `chat_requests`.
+11. Verificar — `make build` (no existente, `./gradlew :{agent-module}:build`),
+    `./gradlew :{it-module}:integrationTest` — sempre com o prefixo do módulo,
+    nunca `make test-integration` nem `integrationTest` solto, que rodariam os
+    ITs do hospedeiro — e smoke real com um arquivo de variáveis só do smoke
+    (`local.env.smoke`, via `make run-agent-with`; o `local.env.ollama` do
+    usuário nunca é lido, escrito nem apagado): portas conferidas livres
+    antes, `curl` nos dois endpoints, `/actuator/health`,
+    `/actuator/prometheus` mostrando `chat_requests`, e encerramento só da
+    árvore de processos que o smoke abriu. O commit do scaffold só acontece
+    na raiz de um repositório próprio e com a auditoria do que foi
+    adicionado em zero.
 12. Relatar — versões lidas dos arquivos, códigos de saída, o que ficou
-    desligado, e que o primeiro `test-integration` baixa cerca de 2 GB de
-    modelo e roda inferência em CPU. Esse alvo fica fora do `make build`.
+    desligado, que o caminho feliz do MCP não foi exercitado pela skill, e
+    que a primeira execução dos ITs baixa cerca de 2 GB de modelo e roda
+    inferência em CPU. Os ITs ficam fora do `make build`.
 
 ## Arquivos da skill
 
@@ -421,18 +446,38 @@ Resultado observado:
 2. **Do zero, Java, mínimo** — `make build` `EXIT=0`; 36 unitários; 3 ITs;
    smoke 200; a segunda mensagem lembrou da primeira. Nenhuma alteração em
    código gerado. A skill apontou a redundância do nome (D6).
-3. **Existente, Java** — 36 unitários; 3 ITs; o `-api` do projeto segue
-   compilando e nenhum arquivo dos módulos existentes mudou. Com o MCP ligado
-   e o `-api` parado: health UP e a conversa devolve 502 `MCP_UNAVAILABLE`.
+3. **Existente, Java** — a primeira execução precisou de **duas edições à
+   mão em código gerado**. Os templates foram
+   corrigidos e reverificados **na mesma cópia** (36 unitários; 3 ITs), não
+   por um executor novo partindo só do `SKILL.md` — esta prova não demonstra
+   que a skill corrigida se aplica sozinha a um projeto Java existente. O
+   `-api` do projeto segue compilando e nenhum arquivo dos módulos existentes
+   mudou. Com o MCP ligado e o `-api` parado: health UP e a conversa devolve
+   502 `MCP_UNAVAILABLE`.
 4. **Existente, Kotlin** — 36 unitários; 3 ITs; smoke 200; `chat_memory`
    gravada no banco do agente (porta 5433) com o serviço `postgres` do projeto
    intacto. Nenhuma alteração em código gerado.
+
+As contagens acima são as das rodadas de prova. A revisão final do branch
+acrescentou depois três testes unitários ao `ChatHandlerTest` (erro no meio
+do stream, stream cancelado, corpo só com espaço sem quebra) e um ao
+`route.test.ts` (o sinal de cancelamento do navegador chega ao agente): a
+skill passa a exigir **39 unitários com memória, 37 sem** (13 + 11 + 4 + 5 +
+6, ou 4 no último) e **16 de web** (5 + 8 + 3), fora o `page.test.tsx`. Os
+totais novos foram conferidos renderizando os templates sobre as cópias de
+prova — Kotlin 39, Java 39, `ChatRouteIT` 3 sem profile ativo, web 17 com o
+`page.test.tsx` —, não por uma nova aplicação da skill do início.
 
 Não provado:
 
 - Trace chegando ao LangWatch local (exige criar a chave na interface).
 - Tool calling e reconexão contra um servidor MCP real com credencial: só o
-  502 com o servidor fora foi provado.
+  502 com o servidor fora foi provado. O relatório da skill (passo 12) diz
+  isso a quem a aplica, e o runbook tem as linhas para conferir.
+- O smoke novo de ponta a ponta numa aplicação da skill: a subida com
+  `run-agent-with`, o aborto por porta ocupada e o encerramento pela árvore
+  de processos foram exercitados numa cópia de prova, sem as conversas com o
+  LLM.
 - Texto chegando token a token na tela: as leituras pegaram "…" e depois a
   resposta completa.
 - O download de ~2 GB do modelo na primeira execução dos ITs (a imagem já

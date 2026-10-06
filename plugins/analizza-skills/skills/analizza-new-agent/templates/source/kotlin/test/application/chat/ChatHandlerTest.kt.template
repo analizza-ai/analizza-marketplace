@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.opentelemetry.api.OpenTelemetry
 import org.junit.jupiter.api.Test
 import reactor.core.publisher.Flux
+import java.time.Duration
 import java.util.concurrent.TimeoutException
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -16,8 +17,15 @@ class ChatHandlerTest {
     private val registry = SimpleMeterRegistry()
     private val telemetry = ChatTelemetry(OpenTelemetry.noop().getTracer("test"), registry)
 
-    /** Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o teste mandar. */
-    private class StubAssistant(private val reply: () -> String) : Assistant {
+    /**
+     * Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o
+     * teste mandar. Com `stream`, o chatStream devolve aquele fluxo em vez de
+     * um token so -- e o que deixa testar erro e cancelamento no meio.
+     */
+    private class StubAssistant(
+        private val stream: (() -> Flux<String>)? = null,
+        private val reply: () -> String = { "nao usado" },
+    ) : Assistant {
         var calls = 0
 
         override fun chat(conversationId: String, userInput: String): String {
@@ -27,7 +35,7 @@ class ChatHandlerTest {
 
         override fun chatStream(conversationId: String, userInput: String): Flux<String> {
             calls++
-            return Flux.just(reply())
+            return stream?.invoke() ?: Flux.just(reply())
         }
     }
 
@@ -51,6 +59,18 @@ class ChatHandlerTest {
 
         val error = assertFailsWith<InvalidChatRequestException> {
             ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "   "))
+        }
+
+        assertEquals("campo body vazio", error.message)
+        assertEquals(0, assistant.calls)
+    }
+
+    @Test
+    fun `corpo so com espaco sem quebra e recusado como vazio`() {
+        val assistant = StubAssistant { "nao deveria" }
+
+        val error = assertFailsWith<InvalidChatRequestException> {
+            ChatHandler(assistant, telemetry).handle(ChatCommand("conv-1", "\u00A0\u2007\u202F"))
         }
 
         assertEquals("campo body vazio", error.message)
@@ -131,5 +151,43 @@ class ChatHandlerTest {
             ChatStreamHandler(assistant, telemetry).handle(ChatCommand("conv-1", "oi"))
         }
         assertEquals(1.0, counter("failure"))
+    }
+
+    @Test
+    fun `erro no meio do stream chega classificado e conta falha`() {
+        val assistant = StubAssistant(stream = {
+            Flux.concat(
+                Flux.just("Ol"),
+                Flux.error(McpUnavailableException("tools-mcp", IllegalStateException("caiu"))),
+            )
+        })
+        val received = mutableListOf<String>()
+
+        assertFailsWith<McpUpstreamException> {
+            ChatStreamHandler(assistant, telemetry)
+                .handle(ChatCommand("conv-1", "oi"))
+                .doOnNext { received += it }
+                .blockLast(Duration.ofSeconds(5))
+        }
+
+        assertEquals(listOf("Ol"), received)
+        assertEquals(1.0, counter("failure"))
+        assertEquals(0.0, counter("success"))
+    }
+
+    @Test
+    fun `stream cancelado pelo assinante conta falha e nao fica pendurado`() {
+        // Um fluxo que nunca termina: so o cancelamento do take(1) o encerra.
+        val assistant = StubAssistant(stream = { Flux.concat(Flux.just("Ol"), Flux.never()) })
+
+        val tokens = ChatStreamHandler(assistant, telemetry)
+            .handle(ChatCommand("conv-1", "oi"))
+            .take(1)
+            .collectList()
+            .block(Duration.ofSeconds(5))
+
+        assertEquals(listOf("Ol"), tokens)
+        assertEquals(1.0, counter("failure"))
+        assertEquals(0.0, counter("success"))
     }
 }

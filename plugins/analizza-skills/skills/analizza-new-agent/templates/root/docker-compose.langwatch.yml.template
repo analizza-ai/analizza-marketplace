@@ -51,8 +51,10 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_PASSWORD: ${LANGWATCH_CLICKHOUSE_PASSWORD:-langwatch}
+    # Toda porta publicada fica so em 127.0.0.1: e um stack de desenvolvimento,
+    # com senha padrao, e nao deve ser alcancado pela rede.
     ports:
-      - "8123:8123"
+      - "127.0.0.1:8123:8123"
     volumes:
       - langwatch_clickhouse_data:/var/lib/clickhouse
     deploy:
@@ -69,7 +71,7 @@ services:
     image: langwatch/langwatch_nlp:latest
     restart: unless-stopped
     ports:
-      - "5561:5561"
+      - "127.0.0.1:5561:5561"
     environment:
       LANGWATCH_ENDPOINT: http://app:5560
 
@@ -77,13 +79,13 @@ services:
     image: langwatch/langevals:latest
     restart: unless-stopped
     ports:
-      - "5562:5562"
+      - "127.0.0.1:5562:5562"
 
   app:
     image: langwatch/langwatch:latest
     restart: unless-stopped
     ports:
-      - "5560:5560"
+      - "127.0.0.1:5560:5560"
     environment: &langwatch-app-env
       NODE_ENV: production
       DATABASE_URL: postgresql://langwatch:${LANGWATCH_POSTGRES_PASSWORD:-langwatch}@postgres:5432/langwatch

@@ -61,7 +61,7 @@ informado). É por ele que a base desliga o cliente MCP nos ITs.
 ## 4. Conferir
 
 ```bash
-./gradlew integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
+./gradlew :{project-name}-integration-tests:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
 ```
 
 `EXIT=0`, com `ChatRouteIT`, `ApplicationContextIT` e

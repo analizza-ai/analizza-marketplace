@@ -28,7 +28,7 @@ O `make` sobe o Postgres antes do agente; o Docker precisa estar rodando.
 |---|---|---|
 | Saúde | `curl -s localhost:{agent-port}/actuator/health` | `"status":"UP"`, mesmo com o servidor MCP fora |
 | Conversa | `curl -s -D - -X POST localhost:{agent-port}/api/v1/agent/http -H 'Content-Type: application/json' -H 'X-Conversation-Id: check-1' -d '{"body":"oi"}'` | `200`, header `X-Conversation-Id: check-1` ecoado, `{"response":"..."}` não vazio |
-| Fluxo | `curl -s -N -X POST localhost:{agent-port}/api/v1/agent/stream -H 'Content-Type: application/json' -d '{"body":"conte ate 5"}'` | linhas `data:` chegando aos poucos |
+| Fluxo | `curl -s -N -X POST localhost:{agent-port}/api/v1/agent/stream -H 'Content-Type: application/json' -d '{"body":"conte ate 5"}'` | mais de uma linha `data:`, e o `curl` termina sozinho |
 | Métrica | `curl -s localhost:{agent-port}/actuator/prometheus \| grep chat_requests_total` | `outcome="success"` com a contagem das chamadas acima |
 <!-- se memoria -->
 | Memória | duas chamadas com o mesmo `X-Conversation-Id`: "meu nome é Ana", depois "qual é o meu nome?" | a segunda resposta usa a primeira |
@@ -42,7 +42,7 @@ O `make` sobe o Postgres antes do agente; o Docker precisa estar rodando.
 <!-- fim se existente -->
 <!-- fim se memoria-jdbc -->
 <!-- se web -->
-| Tela | `make run-web`, abrir `http://localhost:3000`, mandar uma mensagem | o texto aparece aos poucos |
+| Tela | `make run-web`, abrir `http://localhost:3000`, mandar uma mensagem | a resposta aparece na tela e, quando ela termina, o campo de texto volta a aceitar digitação; na aba Rede do navegador, a resposta de `/api/chat` é `text/event-stream` com mais de uma linha `data:` (com modelo rápido o texto pode surgir de uma vez — o que se confere é o fluxo, não a animação) |
 <!-- se memoria -->
 | Tela, memória | na mesma página, dizer o nome e depois perguntar por ele | a segunda resposta lembra da primeira; recarregar a página começa outra conversa |
 <!-- fim se memoria -->
@@ -52,13 +52,32 @@ Trace: `cp langwatch.env.example langwatch.env`, troque os segredos,
 `make langwatch-up`, crie a chave em `http://localhost:5560`, ponha em
 `LANGWATCH_API_KEY` no `local.env.ollama`, reinicie o agente e converse. O
 trace `chat` precisa aparecer com `thread_id` igual ao `X-Conversation-Id` e,
-no profile `dev`, com o prompt e a resposta.
+no profile `dev` (o `local.env.ollama` define `SPRING_PROFILES_ACTIVE=dev`),
+com o prompt e a resposta.
+
+### Com o servidor MCP no ar
+
+**O scaffold não foi exercitado contra um servidor MCP de verdade pela skill
+que o gerou**: os testes automáticos cobrem o servidor fora do ar e o fluxo de
+tool com um provedor de mentira. As linhas abaixo são a primeira vez que esse
+caminho roda — faça-as assim que houver um servidor.
+
+Ponha `{mcp-env}_ENABLED=true` e `{mcp-env}_BASE_URL` no `local.env.ollama`,
+suba o servidor MCP e reinicie o agente.
+
+| Passo | Como | Esperado |
+|---|---|---|
+| Tool chamada | uma pergunta que só uma tool do servidor responde | `200`, e a resposta traz o dado que a tool devolve; o log do servidor MCP (ou o trace, em `dev`) mostra a chamada da tool |
+| `Authorization` aceito | servidor protegido, `{mcp-env}_AUTHORIZATION="Bearer <credencial válida>"`, reiniciar o agente e repetir a pergunta | `200` com o dado da tool; o servidor registra a chamada como autenticada |
+| `Authorization` errado | o mesmo, com a variável vazia ou com uma credencial inválida | `502` `MCP_UNAVAILABLE`, sem a credencial nem a resposta do servidor no corpo |
+| Reconexão | com o agente no ar, reiniciar o servidor MCP e fazer a pergunta de novo, duas vezes | no máximo a primeira devolve `502` `MCP_UNAVAILABLE`; a seguinte responde com o dado da tool, **sem reiniciar o agente** |
 
 ## 2. O que tentar para ver se quebra
 
 | Tentativa | Esperado |
 |---|---|
 | `{"body":"   "}` | `400`, `INVALID_REQUEST`, sem chamada ao LLM |
+| Subir sem `SPRING_PROFILES_ACTIVE` (comente a linha no arquivo de variáveis) e conversar | o log da subida diz `No active profile set`; o trace `chat` aparece **sem** prompt nem resposta |
 | corpo com mais de 8000 caracteres | `400`, `INVALID_REQUEST` |
 | JSON quebrado | `400`, `MALFORMED_JSON` |
 | `Content-Type: text/plain` | `415`, `UNSUPPORTED_MEDIA_TYPE` |

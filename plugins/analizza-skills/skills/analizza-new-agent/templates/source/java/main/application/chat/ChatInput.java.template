@@ -11,10 +11,11 @@ final class ChatInput {
     }
 
     static String validate(@Nullable String body) {
-        if (body == null || body.isBlank()) {
+        // Whitespace, e nao isBlank()/strip(): ver a classe.
+        if (body == null || Whitespace.isBlank(body)) {
             throw new InvalidChatRequestException("campo body vazio");
         }
-        if (body.strip().length() > MAX_BODY_LENGTH) {
+        if (Whitespace.trim(body).length() > MAX_BODY_LENGTH) {
             throw new InvalidChatRequestException("campo body excede " + MAX_BODY_LENGTH + " caracteres");
         }
         return body;

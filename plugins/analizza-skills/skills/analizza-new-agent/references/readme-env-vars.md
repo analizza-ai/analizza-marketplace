@@ -16,7 +16,7 @@ commit.
 | `LLM_API_TOKEN=` | sim | chave do provedor de LLM; no Ollama, qualquer texto |
 | `LLM_MODEL=` | sim | nome do modelo |
 | `LLM_TIMEOUT=` | não | tempo máximo de uma chamada ao LLM, como duração ISO-8601 |
-| `SPRING_PROFILES_ACTIVE=` | não | profile do Spring; fora do desenvolvimento defina `prod`, senão o conteúdo das conversas vai para os traces |
+| `SPRING_PROFILES_ACTIVE=` | não | profile do Spring (lida pelo próprio Spring; o `application.yaml` não lhe dá padrão); sem ela, nenhum profile fica ativo. `dev` grava o conteúdo das conversas nos traces (é o que os `local.env*.example` definem); fora do desenvolvimento use `prod` |
 | `PORT=` | não | porta HTTP do agente |
 | `LOG_LEVEL=` | não | nível de log do agente e do LangChain4j |
 | `TERMINATION_GRACE_PERIOD_SECONDS=` | não | segundos de espera pelas requisições em curso ao desligar |
@@ -29,8 +29,8 @@ commit.
 | `{mcp-env}_BASE_URL=` | não | URL do servidor MCP; precisa de valor quando o cliente está ligado |
 | `{mcp-env}_AUTHORIZATION=` | não | valor inteiro do header `Authorization` mandado ao servidor MCP; vazio, sem header |
 | `{mcp-env}_TIMEOUT=` | não | tempo máximo de uma chamada ao servidor MCP, como duração ISO-8601 |
-| `{mcp-env}_LOG_REQUESTS=` | não | loga o que o agente manda ao servidor MCP |
-| `{mcp-env}_LOG_RESPONSES=` | não | loga o que o servidor MCP devolve |
+| `{mcp-env}_LOG_REQUESTS=` | não | loga o que o agente manda ao servidor MCP; só para depuração local (ver abaixo) |
+| `{mcp-env}_LOG_RESPONSES=` | não | loga o que o servidor MCP devolve; só para depuração local (ver abaixo) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT=` | não | para onde os traces são exportados (OTLP/HTTP) |
 | `LANGWATCH_API_KEY=` | não | chave do LangWatch, mandada como `Bearer` na exportação dos traces |
 | `OTEL_TRACES_SAMPLER_RATIO=` | não | fração das requisições que vira trace, de `0.0` a `1.0` |
@@ -41,11 +41,18 @@ commit.
 | `LANGCHAIN4J_TRACING_INCLUDE_COMPLETION=` | não | grava a resposta do LLM no trace; carrega dado de usuário |
 | `LANGCHAIN4J_TRACING_INCLUDE_TOOL_ARGUMENTS=` | não | grava os argumentos das tool calls no trace |
 | `LANGCHAIN4J_TRACING_INCLUDE_TOOL_RESULT=` | não | grava o resultado das tools no trace; carrega dado de domínio |
-| `LANGCHAIN4J_LOG_REQUESTS=` | não | loga as requisições ao provedor de LLM |
-| `LANGCHAIN4J_LOG_RESPONSES=` | não | loga as respostas do provedor de LLM |
+| `LANGCHAIN4J_LOG_REQUESTS=` | não | loga as requisições ao provedor de LLM; só para depuração local (ver abaixo) |
+| `LANGCHAIN4J_LOG_RESPONSES=` | não | loga as respostas do provedor de LLM; só para depuração local (ver abaixo) |
 
 As quatro `LANGCHAIN4J_TRACING_INCLUDE_*` vencem o profile: definidas como
 `false`, desligam a captura também em `dev`.
+
+**As quatro `*_LOG_REQUESTS` / `*_LOG_RESPONSES` ficam desligadas fora da
+depuração local.** Ligadas, podem escrever no log o conteúdo das requisições
+e das respostas — a conversa do usuário, o resultado das tools — e os
+cabeçalhos, o `Authorization` (a chave do LLM, a credencial do servidor MCP)
+entre eles. Log costuma ir para mais gente, e ficar guardado por mais tempo,
+do que um trace.
 
 Fora do `application.yaml`:
 

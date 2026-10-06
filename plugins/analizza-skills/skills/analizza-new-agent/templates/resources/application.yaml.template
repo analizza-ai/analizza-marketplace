@@ -1,8 +1,9 @@
 spring:
   application:
     name: ${OTEL_SERVICE_NAME:{agent-module}}
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+  # Nenhum profile ativo por padrao, de proposito: um deploy que nao define
+  # SPRING_PROFILES_ACTIVE nao pode cair no dev, que grava o conteudo das
+  # conversas nos traces. Os local.env*.example definem dev.
   lifecycle:
     timeout-per-shutdown-phase: ${TERMINATION_GRACE_PERIOD_SECONDS:30}s
 <!-- se postgres -->
@@ -53,7 +54,8 @@ management:
 # local.env.ollama (make run-agent / make run-agent-ollama).
 langchain4j:
   # Conteudo de conversa nos traces: desligado por padrao, ligado so no
-  # profile dev. Prompt e resposta carregam dado de usuario.
+  # profile dev -- que so vale quando SPRING_PROFILES_ACTIVE=dev e definido.
+  # Prompt e resposta carregam dado de usuario.
   tracing:
     include-prompt: ${LANGCHAIN4J_TRACING_INCLUDE_PROMPT:false}
     include-completion: ${LANGCHAIN4J_TRACING_INCLUDE_COMPLETION:false}

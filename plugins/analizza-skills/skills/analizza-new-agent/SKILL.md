@@ -153,6 +153,29 @@ java -version; docker info > /dev/null 2>&1 && echo "docker OK"
 - **Não há** → modo **do zero**. Se a pasta não estiver vazia, mostre o
   conteúdo e confirme antes de escrever qualquer coisa.
 
+**De quem é o repositório Git** — só no modo do zero, antes de escrever (no
+existente a skill não roda `git init`, `git add` nem `git commit`):
+
+```bash
+raiz=$(git rev-parse --show-toplevel 2> /dev/null)
+if [ -z "$raiz" ]; then echo "SEM REPOSITORIO"
+elif [ "$(cd "$raiz" && pwd -P)" = "$(pwd -P)" ]; then echo "REPOSITORIO PROPRIO"
+else echo "DENTRO DE OUTRO REPOSITORIO: $raiz"
+fi
+```
+
+`git rev-parse --is-inside-work-tree` **não serve** para essa pergunta: responde
+`true` também numa pasta vazia que está dentro do repositório de outra coisa.
+Só `REPOSITORIO PROPRIO` — a raiz do repositório é esta pasta — quer dizer que
+o repositório é do projeto.
+
+`DENTRO DE OUTRO REPOSITORIO`: **pare e pergunte**, mostrando o caminho que
+saiu. Não rode `git init` (criaria um repositório aninhado em silêncio) e não
+decida sozinho. Se o usuário confirmar que o projeto mora mesmo dentro daquele
+repositório, siga sem `git init` e **sem commit** — o Passo 11 trata como pasta
+que já tinha arquivos: um `git add -A` aqui levaria junto as mudanças que o
+repositório de fora tem em andamento.
+
 Sem Docker a skill ainda gera o projeto, mas não verifica: os ITs e o banco
 dependem dele. Avise antes de seguir.
 
@@ -234,10 +257,18 @@ só vale se os contratos têm a **forma** que os templates usam. Confira os trê
 ```bash
 grep -E "include.*buildingBlocks" settings.gradle*
 bb=buildingBlocks/src/main
-grep -rnE "interface ResultCommand<" $bb
-grep -nE "interface ResultCommandHandler<|handle\(" $(find $bb -name 'ResultCommandHandler.*')
-grep -rnE "ErrorMessage\((val code: String, val message: String|String code, String message\))" $bb
+grep -rnE "interface ResultCommand<" "$bb"
+grep -rnE "interface ResultCommandHandler<|handle\(" --include='ResultCommandHandler.*' "$bb"
+grep -rnE "ErrorMessage\((val code: String, val message: String|String code, String message\))" "$bb"
 ```
+
+Os três `grep` levam o diretório como argumento, de propósito: um `grep` que
+recebe a lista de arquivos de um `$(find …)` fica **sem argumento** quando o
+`find` não acha nada, e passa a esperar a entrada padrão — a skill trava ali.
+Nesta forma, arquivo ausente é só um `grep` sem saída. **`grep` sem saída, ou
+`No such file or directory` porque o módulo não existe, quer dizer
+`sem-buildingBlocks`** (para o terceiro, depois de abrir o arquivo, como dito
+abaixo).
 
 | Contrato | O que o código gerado faz com ele | Precisa ser |
 |---|---|---|
@@ -311,7 +342,10 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
   `{agent-module}/src/main/resources/` (`rmdir`, que só remove se estiver
   vazio). Ficando, o `find -empty` do Passo 4 os conservaria com `.gitkeep` —
   e um `templates/` na raiz do classpath é o que as convenções mandam evitar.
-- `git init` agora, se ainda não for repositório — os Passos 7 e 8 dependem disso.
+- `git init` agora, **só** se o Passo 0 respondeu `SEM REPOSITORIO` — os
+  Passos 7 e 8 dependem de haver um. Com `REPOSITORIO PROPRIO` ele já existe;
+  com `DENTRO DE OUTRO REPOSITORIO` vale o que o usuário respondeu lá, e nunca
+  um `git init`.
 
 **Existente.** Crie `{agent-module}/` com o `build.gradle{dsl-ext}` do template
 da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` (depois dos
@@ -445,13 +479,17 @@ O que os alvos fazem, para não descrever errado ao usuário:
   ficar saudável — `docker compose up -d --wait` do zero,
   `docker compose up -d --wait postgres-agent` no existente — e por fim rodam
   o `bootRun`. Nenhum dos dois depende do alvo `db-up`.
-- Do zero: `build`, `build-backend`, `test-backend`, `clean`, `help`,
-  `langwatch-up`, `langwatch-down`, `langwatch-logs`; com `postgres`, `db-up`,
-  `db-down`, `db-reset`; com `web`, `install`, `build-web`, `test-web`,
+- `run-agent-with ENV_FILE=<arquivo>` é a mesma receita com um arquivo de
+  variáveis avulso. É o que o smoke do Passo 11 usa, com `local.env.smoke`,
+  para nunca escrever no `local.env.ollama` do usuário.
+- Do zero: `run-agent`, `run-agent-ollama`, `run-agent-with`, `build`,
+  `build-backend`, `test-backend`, `clean`, `help`, `langwatch-up`,
+  `langwatch-down`, `langwatch-logs`; com `postgres`, `db-up`, `db-down`,
+  `db-reset`; com `web`, `install`, `build-web`, `test-web`,
   `run-web` e `run` (agente contra o Ollama local + web); com `it-no-modulo`,
   `test-integration`. Em `it-dedicado` quem acrescenta o `test-integration` é
   a `analizza-integration-test`, no Passo 10.
-- Existente: `run-agent`, `run-agent-ollama`, `test-agent`,
+- Existente: `run-agent`, `run-agent-ollama`, `run-agent-with`, `test-agent`,
   `test-agent-integration`, `langwatch-up`, `langwatch-down`, `langwatch-logs`.
 
 No modo existente, se o `Makefile` já tiver um alvo com o mesmo nome, **não
@@ -463,19 +501,21 @@ só com o trecho. Se o compose do projeto não for o arquivo padrão do
 # no existente so o trecho acrescentado conta: as receitas que ja eram do projeto nao provam nada
 inicio=$([ "{mode}" = existente ] && echo '/^##@ Agente/' || echo 1)
 [ "$(sed -n "$inicio,\$p" Makefile | grep -c $'^\t')" -ge 10 ] && echo "TAB OK" || echo "TAB FALHOU"
-for f in local.env local.env.ollama langwatch.env; do git check-ignore -q "$f" || echo "NAO IGNORADO: $f"; done
+for f in local.env local.env.ollama local.env.smoke langwatch.env; do git check-ignore -q "$f" || echo "NAO IGNORADO: $f"; done
 ```
 
 `TAB OK` e nenhuma linha `NAO IGNORADO`.
 
 ### Passo 8 — Web (só `web`)
 
-A raiz precisa ser repositório Git **antes** — senão o `create-next-app` cria
-um `.git` aninhado e o módulo entra como gitlink (ver
+A pasta precisa estar num repositório Git **antes** — senão o
+`create-next-app` cria um `.git` aninhado e o módulo entra como gitlink (ver
 [armadilhas da new-project](../analizza-new-project/references/pitfalls.md)).
+O `git init` é o do Passo 2, decidido pelo Passo 0; a primeira linha abaixo só
+confere, e não cria nada:
 
 ```bash
-git rev-parse --is-inside-work-tree > /dev/null 2>&1 || git init
+git rev-parse --show-toplevel > /dev/null 2>&1 || echo "SEM REPOSITORIO: volte ao Passo 0"
 npx --yes create-next-app@latest {project-name}-web \
   --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --yes
 [ -d {project-name}-web/.git ] && echo "ATENÇÃO: .git aninhado"
@@ -554,7 +594,7 @@ gravou, não só sobre eles:
 
 ```bash
 nomes='project-name|base|agent-module|app-class|package|base-package|bb-package|package-path|group|java-version|mode|language|src-dir|dsl-ext|boot-version|dependency-management-version|kotlin-version|agent-port|mcp-name|mcp-class|mcp-env|mcp-url|mcp-enabled|db-name|db-port|langchain4j-version|it-module'
-grep -rnE "<!-- (se|fim se|arquivo se) |(^|[^\$\{])\{($nomes)\}" \
+grep -rnE "<!-- (se|fim se|arquivo se) |(^|[^\$\{]|\$\{)\{($nomes)\}" \
   --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.next \
   --exclude-dir=.git --exclude-dir=.gradle <onde>
 ```
@@ -562,11 +602,15 @@ grep -rnE "<!-- (se|fim se|arquivo se) |(^|[^\$\{])\{($nomes)\}" \
 `<onde>` é `.` do zero; no modo existente, só o que a skill escreveu:
 `{agent-module} <arquivo do SDD> docs/checkpoints/agent-chat.md README.md
 Makefile local.env.example local.env.ollama.example langwatch.env.example
-docker-compose.langwatch.yml` — ali, linha em trecho que já era do projeto
-hospedeiro não é sobra. Nenhuma linha. A lista em `nomes` é a tabela
+docker-compose.langwatch.yml gradle.properties .gitignore` e, com `postgres`,
+o compose do projeto (`docker-compose.yml`) — ali, linha em trecho que já era
+do projeto hospedeiro não é sobra. Nenhuma linha. A lista em `nomes` é a tabela
 do Vocabulário, nome a nome, e fica **sem** substituição: é ela que deixa
 passar as chaves legítimas (JSX, `${VAR}`, `{{userInput}}`, o `{}` de log) e
-ainda pega placeholder de uma palavra só, como `{package}` ou `{group}`.
+ainda pega placeholder de uma palavra só, como `{package}` ou `{group}`. A
+alternativa `\$\{` do padrão existe para o placeholder **dentro** de um
+`${…}` do Spring: sem ela, um `${{mcp-env}_ENABLED:…}` que sobrasse no
+`application.yaml` passaria despercebido.
 
 ### Passo 10 — Testes
 
@@ -580,8 +624,8 @@ ls {agent-module}/build/test-results/test/ | grep -c 'IT\.xml$'
 ```
 
 Exija `EXIT=0` e leia a contagem no XML, não no `BUILD SUCCESSFUL`: cinco
-suítes, `failures="0" errors="0"`, somando **36 testes com memória, 34 sem**
-(`ChatHandlerTest` 10, `ChatRouteTest` 11, `ConversationIdsTest` 4,
+suítes, `failures="0" errors="0"`, somando **39 testes com memória, 37 sem**
+(`ChatHandlerTest` 13, `ChatRouteTest` 11, `ConversationIdsTest` 4,
 `LazyMcpToolProviderTest` 5, `AssistantAiServiceTest` 6 — ou 4 em
 `sem-memoria`), e `0` suítes `*IT`. **`EXIT=0` com soma diferente é falha**:
 menos testes (ou nenhum XML) é filtro herdado do projeto hospedeiro
@@ -651,7 +695,7 @@ e rode:
 cd {project-name}-web && npx vitest run; echo "EXIT=$?"
 ```
 
-`EXIT=0`, com **15 testes** nesses três arquivos (4, 8 e 3), mais o
+`EXIT=0`, com **16 testes** nesses três arquivos (5, 8 e 3), mais o
 `page.test.tsx` que ela gerou. Se o `npm install` do Vitest falhar com
 `ERESOLVE`, veja [armadilhas](./references/pitfalls-agent.md) — nunca
 `--legacy-peer-deps`.
@@ -717,17 +761,50 @@ siga para o smoke nem relate verde.
 Avise o usuário **antes** de rodar os ITs, se ainda não avisou: a primeira
 execução baixa cerca de 2 GB e a inferência em CPU leva minutos.
 
-Smoke com LLM de verdade. Se o usuário já tem um `local.env.ollama`, use o
-dele e pule as duas primeiras linhas. Senão, suba a imagem que os ITs acabaram
-de gravar e gere um arquivo de variáveis apontando para ela, com o servidor
-MCP desligado — ele é outro sistema e pode não estar no ar:
+Smoke com LLM de verdade. O smoke **nunca lê, escreve nem apaga
+`local.env.ollama`**: o arquivo é do usuário, é git-ignored (apagado, não
+volta) e pode guardar a credencial de `{mcp-env}_AUTHORIZATION`. Ele usa um
+arquivo só dele, `local.env.smoke` — gerado do `.example`, apontando para a
+imagem que os ITs acabaram de gravar e com o servidor MCP desligado (é outro
+sistema e pode não estar no ar) — e o alvo `run-agent-with`.
+
+Antes de subir, as portas precisam estar **livres**. Com outra aplicação na
+`{agent-port}`, o `bootRun` falharia e o `curl` de saúde seria respondido por
+ela: o smoke passaria a medir, e depois a encerrar, o processo errado.
 
 ```bash
-docker run -d --rm --name agent-smoke-ollama -p 11435:11434 tc-ollama-qwen2.5-3b
-sed -e 's#localhost:11434#localhost:11435#' -e 's#qwen2.5:7b#qwen2.5:3b#' \
-    -e 's#^{mcp-env}_ENABLED=.*#{mcp-env}_ENABLED=false#' local.env.ollama.example > local.env.ollama
-make run-agent-ollama > /tmp/agent-run.log 2>&1 &
-for i in $(seq 90); do curl -sf http://localhost:{agent-port}/actuator/health > /dev/null 2>&1 && break; sleep 2; done
+rm -f /tmp/agent-smoke.pid
+ocupadas=""
+for p in {agent-port} 11435; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN > /dev/null 2>&1 && ocupadas="$ocupadas $p"
+done
+if [ -n "$ocupadas" ]; then
+  echo "SMOKE ABORTADO: porta em uso:$ocupadas"
+else
+  docker run -d --rm --name agent-smoke-ollama -p 127.0.0.1:11435:11434 tc-ollama-qwen2.5-3b
+  sed -e 's#localhost:11434#localhost:11435#' -e 's#qwen2.5:7b#qwen2.5:3b#' \
+      -e 's#^{mcp-env}_ENABLED=.*#{mcp-env}_ENABLED=false#' local.env.ollama.example > local.env.smoke
+  make run-agent-with ENV_FILE=local.env.smoke > /tmp/agent-run.log 2>&1 &
+  echo $! > /tmp/agent-smoke.pid
+  for i in $(seq 90); do curl -sf http://localhost:{agent-port}/actuator/health > /dev/null 2>&1 && break; sleep 2; done
+  if kill -0 "$(cat /tmp/agent-smoke.pid)" 2> /dev/null && grep -q 'Started {app-class}' /tmp/agent-run.log; then
+    echo "SMOKE PRONTO"
+  else
+    echo "SMOKE FALHOU: leia /tmp/agent-run.log"
+  fi
+fi
+```
+
+- **`SMOKE ABORTADO`** — nada foi iniciado. Mostre ao usuário quem segura a
+  porta (`lsof -nP -iTCP:<porta> -sTCP:LISTEN`) e pergunte; **não mate** o
+  processo. O smoke fica por fazer e o relatório diz isso.
+- **`SMOKE FALHOU`** — o `make` morreu ou o log não traz a linha de subida
+  deste agente: leia `/tmp/agent-run.log`, rode o encerramento abaixo e
+  reporte. Não siga para as conversas.
+- **`SMOKE PRONTO`** — o `make` que o smoke abriu está vivo e foi **este**
+  agente que subiu. Só então converse:
+
+```bash
 curl -s -D - --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/http \
   -H 'Content-Type: application/json' -H 'X-Conversation-Id: smoke-1' -d '{"body":"Diga oi."}'
 curl -s -N --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/stream \
@@ -743,9 +820,12 @@ não manda, e a resposta dele vem sem `X-Conversation-Id`.
 **Não corte o SSE** (`| head`, Ctrl+C): fechar a conexão no meio do fluxo é
 contado como `outcome="failure"`, e a métrica passa a parecer defeito. Uma
 série `failure` aqui é isso ou uma conversa que falhou de verdade — nos dois
-casos, leia `/tmp/agent-run.log`. Se o loop estourar, leia o mesmo log e
-reporte — não siga adiante. Com `postgres`, o próprio `make run-agent-ollama`
-sobe o banco.
+casos, leia `/tmp/agent-run.log`. Com `postgres`, o próprio
+`make run-agent-with` sobe o banco.
+
+O `local.env.smoke` herda `SPRING_PROFILES_ACTIVE=dev` do `.example`: o smoke
+roda no profile `dev` porque o arquivo manda, não porque seja o padrão — sem a
+variável não há profile ativo (ver as convenções).
 
 Sem o LangWatch no ar, o log traz `ERROR … Failed to export spans` de tempos
 em tempos (o exporter OTLP não alcança `localhost:5560`). É esperado e não é
@@ -754,25 +834,41 @@ também são esperadas as linhas `WARNING: A restricted method in
 java.lang.System has been called`, do Netty (ver
 [armadilhas](./references/pitfalls-agent.md)).
 
-Encerre na ordem — a árvore inteira que o `make` em background abriu, não só
-quem segura a porta — e confirme que nada sobrou:
+Encerre **só o que o smoke abriu** — a árvore do `make` cujo PID ficou em
+`/tmp/agent-smoke.pid`, o container `agent-smoke-ollama` e o `local.env.smoke`
+— e confirme que nada sobrou. O bloco serve também depois de `SMOKE ABORTADO`
+ou `SMOKE FALHOU`: sem o arquivo de PID ele não mata nada.
 
 ```bash
-lsof -ti tcp:{agent-port} | xargs kill      # a JVM do agente
-pkill -f '[:]{agent-module}:bootRun'         # o bash da receita e o cliente do gradlew
-./gradlew --stop                             # o daemon do Gradle
+arvore() { for f in $(pgrep -P "$1"); do arvore "$f"; done; echo "$1"; }
+if [ -s /tmp/agent-smoke.pid ]; then
+  kill $(arvore "$(cat /tmp/agent-smoke.pid)") 2> /dev/null
+  rm -f /tmp/agent-smoke.pid
+fi
 docker stop agent-smoke-ollama
+rm -f local.env.smoke
 # so com postgres -- do zero: make db-down
 #                    existente: docker compose stop postgres-agent   (so o servico do agente)
-rm local.env.ollama        # so se foi o smoke que criou
-sleep 3
-pgrep -fl '[:]{agent-module}:bootRun'; lsof -ti tcp:{agent-port}; echo "encerrado se nada acima"
+for i in $(seq 15); do lsof -nP -iTCP:{agent-port} -sTCP:LISTEN > /dev/null 2>&1 || break; sleep 2; done
+lsof -nP -iTCP:{agent-port} -sTCP:LISTEN; pgrep -fl '[:]{agent-module}:bootRun'; echo "encerrado se nada acima"
 ```
 
-O `[:]` é de propósito: sem ele o `pkill -f` casa com o próprio shell que o
-executa. O `--stop` derruba todo daemon dessa versão do Gradle, inclusive o
-de outro projeto aberto na máquina. Com `postgres`, confira também a porta
-`{db-port}` (`lsof -nP -iTCP:{db-port} -sTCP:LISTEN`; uma porta por comando).
+A árvore é o `make`, o `bash` da receita e o cliente do `gradlew`. A JVM do
+agente não é filha deles — quem a lança é o daemon do Gradle —, mas morre
+junto: sem o cliente, o daemon cancela o build e encerra o que ele abriu. O
+laço espera isso (o desligamento é gracioso e leva alguns segundos).
+
+**Nunca `lsof -ti tcp:{agent-port} | xargs kill`, nem `pkill` por nome:**
+matam quem estiver na porta, seja ou não o que o smoke abriu. Se depois do
+laço ainda houver alguém escutando na `{agent-port}`, mostre a linha do `lsof`
+ao usuário e pergunte, em vez de matar.
+
+O daemon do Gradle continua vivo, ocioso, e sai sozinho depois de umas horas
+sem uso. `./gradlew --stop` o encerra, mas **não faz parte do encerramento**:
+derruba todo daemon dessa versão do Gradle na máquina, inclusive o de outro
+projeto que o usuário tenha aberto, com o build dele no meio. Só a pedido, e
+dizendo isso. Com `postgres`, confira também a porta `{db-port}`
+(`lsof -nP -iTCP:{db-port} -sTCP:LISTEN`; uma porta por comando).
 
 **No modo existente, só o que é do agente é encerrado — sempre pelo nome do
 serviço.** `docker compose stop postgres-agent` para o banco e conserva os
@@ -789,23 +885,45 @@ hospedeiro, o banco dele inclusive. Os alvos `db-down` e `db-reset` que o
 **Auditoria e commit.** Só com tudo acima verde. Repita antes a conferência
 de sobras do Passo 9: os testes entraram depois dela.
 
-*Do zero, em pasta que estava vazia* — audite o que vai entrar e faça **um**
-commit para o scaffold:
+*Do zero, em pasta que estava vazia e com `REPOSITORIO PROPRIO` no Passo 0* —
+audite o que vai entrar e faça **um** commit para o scaffold. São dois blocos,
+de propósito: o primeiro só mostra, o segundo só commita se a auditoria passar.
 
 ```bash
-git add -A
-git diff --cached --name-only | grep -cE '(^|/)(node_modules|\.next|build)/'
-git ls-files --stage | grep -c '^160000'
-git diff --cached --name-only | grep -cE '(^|/)(local\.env|local\.env\.ollama|langwatch\.env)$'
-git commit -q -m "Scaffold do agente {project-name}" && git log --oneline -1
+raiz=$(git rev-parse --show-toplevel 2> /dev/null)
+if [ -n "$raiz" ] && [ "$(cd "$raiz" && pwd -P)" = "$(pwd -P)" ]; then
+  git add -A
+  git diff --cached --name-only | grep -cE '(^|/)(node_modules|\.next|build)/'
+  git ls-files --stage | grep -c '^160000'
+  git diff --cached --name-only | grep -cE '(^|/)(local\.env|local\.env\.ollama|local\.env\.smoke|langwatch\.env)$'
+else
+  echo "NAO E A RAIZ DE UM REPOSITORIO PROPRIO: nada foi adicionado"
+fi
 ```
 
-Os três `grep` precisam devolver `0`, **antes** do commit. O segundo pega
-gitlink: se o `{project-name}-web` aparecer assim, o `.git` aninhado do
-Passo 8 passou — remova-o, rode `git rm -r --cached {project-name}-web` e
-`git add -A` de novo. O terceiro pega arquivo de ambiente com valor real.
+Os três `grep` precisam devolver `0`. O primeiro pega saída de build e
+dependência instalada. O segundo pega gitlink: se o `{project-name}-web`
+aparecer assim, o `.git` aninhado do Passo 8 passou — remova-o, rode
+`git rm -r --cached {project-name}-web` e o bloco de novo. O terceiro pega
+arquivo de ambiente com valor real. `NAO E A RAIZ…` é o caso do Passo 0 que
+não commita: pare aqui e siga pelo parágrafo seguinte.
 
-*Modo existente, ou do zero em pasta que já tinha arquivos* — antes, confirme
+O commit refaz a auditoria em vez de confiar na leitura acima — copiado
+sozinho, ou depois de um `grep` que não deu `0`, ele recusa:
+
+```bash
+raiz=$(git rev-parse --show-toplevel 2> /dev/null)
+sobras=$( { git diff --cached --name-only | grep -E '(^|/)(node_modules|\.next|build)/|(^|/)(local\.env|local\.env\.ollama|local\.env\.smoke|langwatch\.env)$'
+            git ls-files --stage | grep '^160000'; } | wc -l | tr -d ' ')
+if [ -n "$raiz" ] && [ "$(cd "$raiz" && pwd -P)" = "$(pwd -P)" ] && [ "$sobras" = 0 ]; then
+  git commit -q -m "Scaffold do agente {project-name}" && git log --oneline -1
+else
+  echo "COMMIT RECUSADO: auditoria com $sobras linha(s), ou a pasta nao e a raiz de um repositorio proprio"
+fi
+```
+
+*Modo existente, do zero em pasta que já tinha arquivos, ou do zero dentro de
+outro repositório (Passo 0)* — antes, confirme
 `grep -c '^## Variáveis de ambiente' README.md` (deve dar `1` ou mais). **Não commite**
 nem rode `git add`: mostre o `git status --short` ao usuário e deixe o commit
 com ele. O repositório é dele, e a skill não sabe o que mais está em
@@ -840,15 +958,26 @@ andamento ali.
   instalados, então o runbook `docs/checkpoints/agent-chat.md` ficou sem quem o
   conduza; o usuário instala com a skill `test-runbook`
 - Que o primeiro IT baixa ~2 GB e que os ITs ficam fora do `build`
-- Que o endpoint de chat nasce **sem autenticação** e que o profile padrão é
-  `dev`, com o conteúdo das conversas nos traces
+- Que o endpoint de chat nasce **sem autenticação** — e, com o id da conversa
+  escolhido pelo cliente, quem souber um id lê a memória daquela conversa
+- Que **nenhum profile é ativo por padrão**: o conteúdo das conversas só vai
+  para os traces com `SPRING_PROFILES_ACTIVE=dev`, que os `local.env*.example`
+  definem; um deploy que não define a variável sobe sem conteúdo nos traces,
+  e o `prod` ainda baixa a amostragem e o log
 - Onde as convenções e o runbook foram gravados, e que o `README.md` (no
   existente, o do hospedeiro) ganhou a seção `## Variáveis de ambiente`; o resto
   do README dele (como subir, tabela de testes) não cita o agente
 - O commit do scaffold (do zero) ou, no modo existente, que **nada foi
   commitado** e o `git status` ficou para o usuário
 - O que **não** foi conferido — a tela no navegador, o trace no LangWatch — em
-  vez de afirmar que funciona
+  vez de afirmar que funciona. Entre o que não foi conferido, sempre: **o
+  caminho feliz do MCP**. Este scaffold não foi exercitado contra um servidor
+  MCP de verdade pela própria skill — nem aqui (o smoke e os ITs rodam com o
+  servidor desligado), nem quando a skill foi escrita: o que tem teste é o
+  `502` com o servidor fora e o fluxo de tool com um provedor de mentira. Tool
+  chamada com o servidor no ar, o header `Authorization` aceito e a reconexão
+  depois de um restart ficam para o runbook (`docs/checkpoints/agent-chat.md`)
+- Se o smoke foi abortado por porta em uso: qual porta, e que ele ficou por fazer
 
 ## Fora de escopo
 

@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
 
-function requisicao(conversationId?: string) {
+function requisicao(conversationId?: string, signal?: AbortSignal) {
   return new Request("http://localhost:3000/api/chat", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(conversationId ? { "X-Conversation-Id": conversationId } : {}),
@@ -74,5 +75,17 @@ describe("POST /api/chat", () => {
 
     expect(resposta.status).toBe(502);
     expect(await resposta.json()).toEqual({ message: "O agente está indisponível. Tente de novo em instantes." });
+  });
+
+  it("aborta a chamada ao agente quando a requisição do navegador é abortada", async () => {
+    fetchMock.mockResolvedValue(new Response("data:oi\n\n"));
+    const navegador = new AbortController();
+
+    await POST(requisicao("conv-1", navegador.signal));
+
+    const sinal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    expect(sinal.aborted).toBe(false);
+    navegador.abort();
+    expect(sinal.aborted).toBe(true);
   });
 });

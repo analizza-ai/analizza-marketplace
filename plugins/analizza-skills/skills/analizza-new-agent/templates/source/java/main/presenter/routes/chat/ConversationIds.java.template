@@ -1,5 +1,6 @@
 package {base-package}.presenter.routes.chat;
 
+import {base-package}.application.chat.Whitespace;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
@@ -18,10 +19,10 @@ public final class ConversationIds {
 
     public static String resolve(@Nullable String header, @Nullable String from) {
         String candidate;
-        if (header != null && !header.isBlank()) {
-            candidate = header.strip();
-        } else if (from != null && !from.isBlank()) {
-            candidate = from.strip();
+        if (header != null && !Whitespace.isBlank(header)) {
+            candidate = Whitespace.trim(header);
+        } else if (from != null && !Whitespace.isBlank(from)) {
+            candidate = Whitespace.trim(from);
         } else {
             candidate = null;
         }
