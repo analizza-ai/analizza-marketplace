@@ -119,7 +119,7 @@ Os marcadores valem para tudo o que a skill grava no projeto: os arquivos de
 | `memoria` / `sem-memoria` | o usuário quis memória de conversa |
 | `memoria-jdbc` | `memoria` e `postgres` |
 | `memoria-processo` | `memoria` e `sem-postgres` |
-| `buildingBlocks` / `sem-buildingBlocks` | o projeto tem o módulo `buildingBlocks`. Do zero vale sempre; no existente, detecte (Passo 1) |
+| `buildingBlocks` / `sem-buildingBlocks` | o projeto tem o módulo `buildingBlocks` **com os contratos na forma que os templates usam**. Do zero vale sempre; no existente, confira módulo e assinaturas (Passo 1) |
 | `web` / `sem-web` | modo do zero com `-web` aceito. No existente vale sempre `sem-web` |
 | `it-dedicado` | do zero **com** banco: ITs em `{project-name}-integration-tests` |
 | `it-no-modulo` | existente, **ou** do zero sem banco: ITs dentro do `{agent-module}` |
@@ -159,12 +159,14 @@ dependem dele. Avise antes de seguir.
 **Existente** — confirme Spring Boot 4.x antes de seguir:
 
 ```bash
-grep -rhoE "org\.springframework\.boot[\"')]*[[:space:]]+version[[:space:]]+[\"'][0-9]+" --include='build.gradle*' . | sort -u
+grep -rhoE "org\.springframework\.boot[\"')]*[[:space:]]+version[[:space:]]+[\"'][0-9][0-9A-Za-z.-]*" --include='build.gradle*' \
+  --exclude-dir=build --exclude-dir=.claude --exclude-dir=node_modules . | sort -u
 find . -name 'libs.versions.toml' -not -path '*/build/*' -exec grep -nE "spring-?boot|springBoot|^[[:space:]]*boot[[:space:]]*=" {} +
 ```
 
 Boot 3.x: **pare e diga** que os starters `langchain4j-*-spring-boot4-*`
 exigem Boot 4. Nada detectado: pergunte a versão e só siga com 4.x confirmado.
+Guarde a versão completa que saiu (`4.1.0`): o relatório do Passo 12 a cita.
 
 **Do zero** — o Initializr precisa responder, e o Node só se houver web:
 
@@ -183,7 +185,7 @@ de onde veio.
 | Entrada | Do zero | Existente |
 |---|---|---|
 | `language` | pergunta; padrão `kotlin` | detecta pelo fonte do módulo com `@SpringBootApplication` |
-| `group`, `package`, `java-version` | pergunta; `br.com.analizza`, `{group}.{project-name}`, `25` | lê do build e do pacote da aplicação |
+| `group`, `package`, `java-version` | pergunta; `br.com.analizza`, `{group}.{project-name}`, `25` | lê do build e do pacote do módulo com `@SpringBootApplication` (o `-api`); a raiz pode não declarar `group` |
 | `agent-module` | pergunta; padrão `{project-name}-agent` | pergunta; padrão `{base}-agent` |
 | `web` | pergunta; padrão sim | não oferece |
 | `postgres` | pergunta; padrão sim | pergunta; padrão não |
@@ -195,7 +197,8 @@ Pacote não aceita `-`: se `{project-name}` tiver hífen, o padrão
 
 **Nome do módulo.** Se `{project-name}` já termina em `-agent`, diga que o
 padrão ficaria redundante (`x-agent-agent`) e ofereça
-`{project-name}-assistant` — sem decidir sozinho.
+`{project-name}-assistant` — sem decidir sozinho. O `agent` que sobra nesse
+nome é o do próprio projeto; diga que o usuário pode digitar qualquer outro.
 
 **Java tem piso de versão: 17.** Os templates usam `record` e pattern matching.
 
@@ -203,24 +206,50 @@ padrão ficaria redundante (`x-agent-agent`) e ofereça
 
 ```bash
 grep -E "include.*-mcp" settings.gradle*
-grep -rhE "server\.port|^\s*port:" --include='application*.properties' --include='application*.y*ml' . | head
+grep -rnE "server\.port|^[[:space:]]*port:" --include='application*.properties' --include='application*.y*ml' \
+  --exclude-dir=.claude --exclude-dir=.git --exclude-dir=.gradle --exclude-dir=build \
+  --exclude-dir=node_modules --exclude-dir=worktrees --exclude-dir=.worktrees . | head
 ```
+
+Cada linha traz o arquivo de onde veio: só vale a que está em
+`src/main/resources` do `-api`; mostre-a ao usuário. As pastas excluídas
+guardam cópias do projeto (worktrees, saída de build) e dariam porta de outro
+lugar. **Nenhuma linha quer dizer `8080`**, o padrão do Spring Boot — então
+`{agent-port}` é `8081`.
 
 Um servidor criado pela `analizza-add-mcp-module` é protegido: avise que o
 agente vai precisar de uma credencial em `{mcp-env}_AUTHORIZATION` e que, sem
 ela, as conversas devolvem `502`.
 
-**`buildingBlocks` no modo existente.** A condição vale se o módulo existe com
-este nome exato e traz os dois contratos que os templates importam:
+**`buildingBlocks` no modo existente.** Existir o módulo não basta: a condição
+só vale se os contratos têm a **forma** que os templates usam. Confira os três:
 
 ```bash
 grep -E "include.*buildingBlocks" settings.gradle*
-find buildingBlocks/src/main \( -name 'ResultCommandHandler.*' -o -name 'ErrorMessage.*' \)
+bb=buildingBlocks/src/main
+grep -rnE "interface ResultCommand<" $bb
+grep -nE "interface ResultCommandHandler<|handle\(" $(find $bb -name 'ResultCommandHandler.*')
+grep -rnE "ErrorMessage\((val code: String, val message: String|String code, String message\))" $bb
 ```
 
-`{bb-package}` é o pacote desses arquivos **sem** o sufixo `.application` /
-`.presenter.exception`. Faltando o módulo ou um dos dois, vale
-`sem-buildingBlocks` — a skill não cria `buildingBlocks` em projeto existente.
+| Contrato | O que o código gerado faz com ele | Precisa ser |
+|---|---|---|
+| `ResultCommand` | `ChatCommand implements ResultCommand<ChatResult>` | interface com **um** parâmetro de tipo, em `<pacote>.application` — `interface ResultCommand<R>` (Java), `interface ResultCommand<out R>` (Kotlin) |
+| `ResultCommandHandler` | `ChatHandler implements ResultCommandHandler<ChatCommand, ChatResult>` e sobrescreve `handle` | interface com dois parâmetros de tipo, comando primeiro, e um método `handle` que recebe o comando e devolve o resultado — `R handle(C command)` / `fun handle(command: C): R` |
+| `ErrorMessage` | `new ErrorMessage("CODE", "mensagem")`, serializado como `code` + `message` | em `<pacote>.presenter.exception`, com construtor `(String code, String message)` e esses dois nomes — em Java, record de dois componentes ou com esse construtor a mais; em Kotlin, `data class ErrorMessage(val code: String, val message: String, …)` com o resto opcional |
+
+O terceiro `grep` só casa com declaração numa linha: sem resultado, abra o
+arquivo antes de concluir. `{bb-package}` é o pacote desses arquivos **sem** o
+sufixo `.application` / `.presenter.exception`.
+
+Faltando o módulo, um contrato ou uma assinatura — um `ErrorMessage(int
+status, String message)`, por exemplo —, vale **`sem-buildingBlocks`**, para os
+três de uma vez: não há meio-termo. Diga ao usuário qual contrato divergiu e o
+que isso significa: o agente declara o próprio `ErrorMessage` (`code` +
+`message`), o `ChatCommand` e o `ChatHandler` **não implementam** os contratos
+do projeto, e o módulo não depende de `buildingBlocks`. A skill não cria nem
+altera `buildingBlocks` em projeto existente
+(ver [armadilhas](./references/pitfalls-agent.md)).
 
 **DSL do Gradle.** Do zero segue a linguagem (Kotlin → `.kts`, Java → Groovy).
 No existente vale a do `settings.gradle*` que já existe.
@@ -276,7 +305,8 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
 - `git init` agora, se ainda não for repositório — os Passos 7 e 8 dependem disso.
 
 **Existente.** Crie `{agent-module}/` com o `build.gradle{dsl-ext}` do template
-da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` e
+da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` (na
+ordem que o arquivo já segue) e
 confira que a raiz declara, com versão, todo plugin que o módulo aplica sem
 versão (`org.springframework.boot`, `io.spring.dependency-management` e, em
 Kotlin, `kotlin("jvm")` e `kotlin("plugin.spring")`). Se faltar algum, acrescente
@@ -286,6 +316,12 @@ projeto gerencia as versões de plugin de um jeito que a skill não sabe seguir
 (catálogo de versões, `pluginManagement`), pare e pergunte. A classe de aplicação vem
 de `templates/source/{language}/main/__app-class__.*`, copiada no Passo 4 — o
 arquivo só existe neste modo (`<!-- arquivo se existente -->`).
+
+A raiz do projeto pode já configurar `test` e registrar `integrationTest` em
+todo subprojeto (`subprojects {}`, `allprojects {}`). O template conta com
+isso — reaproveita a tarefa e descarta os filtros herdados — e **não deve ser
+editado para contornar**; o que ainda escapa está nas
+[armadilhas](./references/pitfalls-agent.md).
 
 Nos dois modos, acrescente a `gradle.properties` da raiz (criando o arquivo se
 faltar):
@@ -342,7 +378,8 @@ grep -c ":{agent-module}:$compile NO-SOURCE" /tmp/agent-compile.log
 ```
 
 `EXIT=0` e `0`. Outras linhas `NO-SOURCE` no log são normais (por exemplo
-`:buildingBlocks:compileJava` num projeto Kotlin).
+`:buildingBlocks:compileJava` num projeto Kotlin). O `grep -c` que conta `0`
+sai com status 1: não o encadeie com `&&`.
 
 ### Passo 5 — O servidor MCP
 
@@ -363,8 +400,9 @@ com o LLM e como ligar depois (`{mcp-env}_ENABLED=true` e `{mcp-env}_BASE_URL`).
   [docker-compose.agent-postgres.template](./templates/root/docker-compose.agent-postgres.template):
   o serviço `postgres-agent` sob `services:` e o volume `postgres-agent-data`
   sob `volumes:` (a linha `# sob volumes:` do template é só a indicação e não
-  é copiada). Sem compose no projeto, crie `docker-compose.yml` com as duas
-  chaves. O banco é **do agente** (`{db-name}`, porta `{db-port}`), nunca o
+  é copiada). É inserção de texto, na indentação do arquivo, sem reordenar
+  o que já está lá; confira com `docker compose config -q`. Sem compose no
+  projeto, crie `docker-compose.yml` com as duas chaves. O banco é **do agente** (`{db-name}`, porta `{db-port}`), nunca o
   do `-core`. Não renomeie o serviço: o `make run-agent` o sobe pelo nome.
 - **`memoria-jdbc`:** a migration `V1__chat_memory.sql` e o `ChatMemoryConfig`
   já vieram no Passo 4. Não mude nome nem tipo de coluna: é o schema que o
@@ -413,7 +451,9 @@ só com o trecho. Se o compose do projeto não for o arquivo padrão do
 `docker compose`, acrescente o `-f <arquivo>` à linha do `postgres-agent`.
 
 ```bash
-[ "$(grep -c $'^\t' Makefile)" -ge 10 ] && echo "TAB OK" || echo "TAB FALHOU"
+# no existente so o trecho acrescentado conta: as receitas que ja eram do projeto nao provam nada
+inicio=$([ "{mode}" = existente ] && echo '/^##@ Agente/' || echo 1)
+[ "$(sed -n "$inicio,\$p" Makefile | grep -c $'^\t')" -ge 10 ] && echo "TAB OK" || echo "TAB FALHOU"
 for f in local.env local.env.ollama langwatch.env; do git check-ignore -q "$f" || echo "NAO IGNORADO: $f"; done
 ```
 
@@ -460,11 +500,12 @@ resumo de `context:` que ela mostra para o OpenSpec descreve o monorepo da
   [architecture-conventions.md.template](./templates/architecture-conventions.md.template)
   — que abre com `## Arquitetura` — e, logo depois, a seção de
   [agent-conventions.md](./references/agent-conventions.md), que abre com
-  `### Agente` e fica dentro dela. Sem framework detectado e sem preferência
-  do usuário, o destino é `docs/INSTRUCTIONS.md`, criado com o título
-  `# Instruções do projeto`.
-- **Existente:** acrescente só a seção de `agent-conventions.md`, dentro de
-  `## Arquitetura` se ela existir, senão no fim do arquivo. **Nunca
+  `### Agente` e fica dentro dela. Sem framework detectado, **pergunte** o
+  destino, como a referência manda, sugerindo `docs/INSTRUCTIONS.md`; aceito
+  o sugerido, crie-o com o título `# Instruções do projeto`.
+- **Existente:** acrescente só a seção de `agent-conventions.md`, no **fim**
+  de `## Arquitetura` se ela existir — imediatamente antes da próxima `##`,
+  ou no fim do arquivo se não houver outra —, senão no fim do arquivo. **Nunca
   sobrescreva** o que o arquivo já tem; se já houver um `### Agente`, é
   segunda execução: substitua só essa seção.
 
@@ -523,13 +564,17 @@ ainda pega placeholder de uma palavra só, como `{package}` ou `{group}`.
 ```bash
 ./gradlew :{agent-module}:test --console=plain > /tmp/agent-test.log 2>&1; echo "EXIT=$?"
 grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' {agent-module}/build/test-results/test/*.xml
+grep -ho '<testsuite [^>]*' {agent-module}/build/test-results/test/*.xml | grep -oE ' tests="[0-9]+"' | grep -oE '[0-9]+' | paste -sd+ - | bc
+ls {agent-module}/build/test-results/test/ | grep -c 'IT\.xml$'
 ```
 
 Exija `EXIT=0` e leia a contagem no XML, não no `BUILD SUCCESSFUL`: cinco
 suítes, `failures="0" errors="0"`, somando **36 testes com memória, 34 sem**
 (`ChatHandlerTest` 10, `ChatRouteTest` 11, `ConversationIdsTest` 4,
 `LazyMcpToolProviderTest` 5, `AssistantAiServiceTest` 6 — ou 4 em
-`sem-memoria`).
+`sem-memoria`), e `0` suítes `*IT`. **`EXIT=0` com soma diferente é falha**:
+menos testes (ou nenhum XML) é filtro herdado do projeto hospedeiro
+escondendo classes; um `*IT` aqui é o `test` subindo container.
 
 **Integração, `it-dedicado`.** Avise o usuário antes: a primeira execução dos
 ITs baixa cerca de 2 GB (imagem do Ollama e modelo) e a inferência em CPU leva
@@ -572,7 +617,8 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
    irmã, não deste scaffold — ver [armadilhas](./references/pitfalls-agent.md).
 
 **Integração, `it-no-modulo`.** Copie `templates/source/{language}/it/` para
-dentro do `{agent-module}` — os três arquivos. A `analizza-integration-test`
+dentro do `{agent-module}` — os três arquivos (`ChatRouteIT`,
+`support/BaseIntegrationTest`, `support/OllamaTestContainer`). A `analizza-integration-test`
 **não** é invocada para o backend: a base de teste dela exige um container de
 banco (não serve a um módulo sem Postgres) e, no modo existente, invocá-la
 reescreveria a configuração de teste do projeto hospedeiro, que esta skill não
@@ -632,6 +678,7 @@ fi
 ./gradlew :{it-module}:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
 grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' \
   {it-module}/build/test-results/integrationTest/*.xml
+find {it-module}/build/test-results/integrationTest -name '*.xml' 2>/dev/null | wc -l
 # unitários (já lidos no Passo 10): {agent-module}/build/test-results/test/*.xml
 ```
 
@@ -643,6 +690,12 @@ O `build` não precisa de banco, de LLM nem de Docker: os unitários usam LLM
 roteirizado e os ITs ficam fora dele. Nos ITs, exija `EXIT=0`,
 `failures="0" errors="0"` e o `ChatRouteIT` com `tests="3"`; em `it-dedicado`,
 também `ApplicationContextIT` e `EntrypointHasIntegrationTestIT`.
+
+**Zero testes de integração executados é FALHA, mesmo com `EXIT=0`.** Sem a
+linha do `ChatRouteIT` com `tests="3"` — nenhum XML, o `wc -l` em `0`, a tarefa
+terminando em segundos — nada foi testado: alguma configuração herdada
+filtrou as classes (ver [armadilhas](./references/pitfalls-agent.md)). Não
+siga para o smoke nem relate verde.
 
 Avise o usuário **antes** de rodar os ITs, se ainda não avisou: a primeira
 execução baixa cerca de 2 GB e a inferência em CPU leva minutos.
@@ -668,6 +721,8 @@ curl -s http://localhost:{agent-port}/actuator/prometheus | grep '^chat_requests
 Precisa vir `200` com o header `X-Conversation-Id: smoke-1` ecoado e
 `response` não vazio, linhas `data:` até o fluxo acabar sozinho, e
 `chat_requests_total{outcome="success"}` valendo `2.0` — as duas conversas.
+O header só é ecoado quando o cliente o manda: o `curl` do `/stream` acima
+não manda, e a resposta dele vem sem `X-Conversation-Id`.
 **Não corte o SSE** (`| head`, Ctrl+C): fechar a conexão no meio do fluxo é
 contado como `outcome="failure"`, e a métrica passa a parecer defeito. Uma
 série `failure` aqui é isso ou uma conversa que falhou de verdade — nos dois
@@ -677,7 +732,9 @@ sobe o banco.
 
 Sem o LangWatch no ar, o log traz `ERROR … Failed to export spans` de tempos
 em tempos (o exporter OTLP não alcança `localhost:5560`). É esperado e não é
-falha do agente: ao procurar erro no log, desconte essas linhas (ver
+falha do agente: ao procurar erro no log, desconte essas linhas. Em Java 24+
+também são esperadas as linhas `WARNING: A restricted method in
+java.lang.System has been called`, do Netty (ver
 [armadilhas](./references/pitfalls-agent.md)).
 
 Encerre na ordem — a árvore inteira que o `make` em background abriu, não só
@@ -688,7 +745,8 @@ lsof -ti tcp:{agent-port} | xargs kill      # a JVM do agente
 pkill -f '[:]{agent-module}:bootRun'         # o bash da receita e o cliente do gradlew
 ./gradlew --stop                             # o daemon do Gradle
 docker stop agent-smoke-ollama
-# so com postgres -- do zero: make db-down      existente: docker compose stop postgres-agent
+# so com postgres -- do zero: make db-down
+#                    existente: docker compose stop postgres-agent   (so o servico do agente)
 rm local.env.ollama        # so se foi o smoke que criou
 sleep 3
 pgrep -fl '[:]{agent-module}:bootRun'; lsof -ti tcp:{agent-port}; echo "encerrado se nada acima"
@@ -698,6 +756,17 @@ O `[:]` é de propósito: sem ele o `pkill -f` casa com o próprio shell que o
 executa. O `--stop` derruba todo daemon dessa versão do Gradle, inclusive o
 de outro projeto aberto na máquina. Com `postgres`, confira também a porta
 `{db-port}`.
+
+**No modo existente, só o que é do agente é encerrado — sempre pelo nome do
+serviço.** `docker compose stop postgres-agent` para o banco e conserva os
+dados; para apagar também o container e o volume **do agente**, só se o
+usuário pedir: `docker compose rm -f -v postgres-agent` e
+`docker volume rm <projeto>_postgres-agent-data` (o nome exato sai de
+`docker volume ls | grep postgres-agent-data`). **Nunca** rode nem sugira
+`docker compose down`, `down -v`, `stop` ou `rm` sem o nome do serviço, nem
+`docker volume prune`: derrubam os containers e apagam os volumes do projeto
+hospedeiro, banco do `-core` inclusive. Os alvos `db-down` e `db-reset` que o
+`Makefile` do projeto já tinha são dele, não do agente.
 
 **Auditoria e commit.** Só com tudo acima verde. Repita antes a conferência
 de sobras do Passo 9: os testes entraram depois dela.
@@ -726,7 +795,10 @@ andamento ali.
 ### Passo 12 — Relatar
 
 - O modo detectado, a linguagem, o conjunto de condições, e as versões reais
-  (Boot, Java, LangChain4j, Next) — **lidas dos arquivos**
+  (Boot, Java, LangChain4j e, com `web`, Next) — **lidas dos arquivos**
+- No modo existente com `sem-buildingBlocks`: o motivo (módulo ausente ou
+  qual contrato divergiu) e que o agente tem o próprio `ErrorMessage` e não
+  implementa os contratos do projeto
 - Os `EXIT=` e as contagens de teste observados, unitários e de integração
 - Quando a `analizza-integration-test` rodou: o que ela criou (módulo de
   ITs, `CLAUDE.md`, `README.md`, `docs/checkpoints/README.md`,

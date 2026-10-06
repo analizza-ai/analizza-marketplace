@@ -118,8 +118,8 @@ O corpo de erro é sempre `code` + `message`, com mensagem fixa: nunca
 stacktrace, token, URL nem o que o LLM ou o servidor MCP respondeu. O detalhe
 vai para o log.
 <!-- se buildingBlocks -->
-O tipo é o `ErrorMessage` do `buildingBlocks`, que serializa também
-`"details": null`.
+O tipo é o `ErrorMessage` do `buildingBlocks`; se ele tiver campos além
+desses dois (`details`, por exemplo), eles saem como `null`.
 <!-- fim se buildingBlocks -->
 
 | Situação | Status | `code` |

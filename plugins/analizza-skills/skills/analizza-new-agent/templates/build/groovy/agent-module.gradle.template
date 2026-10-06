@@ -95,11 +95,18 @@ kotlin {
 }
 <!-- fim se kotlin -->
 
-// Unitarios: nunca sobem container nem falam com LLM.
-tasks.named('test') {
-    useJUnitPlatform()
+// Unitarios: nunca sobem container nem falam com LLM. Num projeto existente a
+// raiz pode ja ter configurado a `test` de todo subprojeto (filtro de tag, de
+// nome): o que veio de la e descartado aqui, para que a tarefa rode sempre as
+// mesmas classes -- todas as de teste, menos as *IT.
+tasks.named('test', Test) {
+    useJUnitPlatform {
+        includeTags = [] as Set
+        excludeTags = [] as Set
+    }
     filter {
-        excludeTestsMatching '*IT'
+        setIncludePatterns()
+        setExcludePatterns('*IT')
         failOnNoMatchingTests = false
     }
 }
@@ -107,15 +114,31 @@ tasks.named('test') {
 
 // Fora do `build` de proposito: sobe o Ollama em container e roda inferencia
 // em CPU, o que leva minutos.
-tasks.register('integrationTest', Test) {
+// A raiz de um projeto existente pode ja registrar `integrationTest` em todo
+// subprojeto; registrar de novo quebraria a configuracao do build inteiro.
+// Entao a tarefa e reaproveitada se existir e criada se nao -- e configurada
+// do mesmo jeito nos dois casos.
+def integrationTest = tasks.names.contains('integrationTest')
+        ? tasks.named('integrationTest', Test)
+        : tasks.register('integrationTest', Test)
+
+integrationTest.configure {
     description = 'Testes de integracao (classes *IT) com LLM real em Testcontainers.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform()
+    // Os *IT deste modulo nao levam @Tag. Um `includeTags` herdado da raiz
+    // filtraria todos e a tarefa sairia verde com zero testes: os filtros de
+    // tag e de nome herdados sao descartados, e a selecao e so pelo sufixo.
+    useJUnitPlatform {
+        includeTags = [] as Set
+        excludeTags = [] as Set
+    }
     filter {
-        includeTestsMatching '*IT'
-        failOnNoMatchingTests = false
+        setIncludePatterns('*IT')
+        setExcludePatterns()
+        // Nenhuma classe *IT encontrada e erro, nao sucesso.
+        failOnNoMatchingTests = true
     }
     shouldRunAfter tasks.named('test')
     testLogging {

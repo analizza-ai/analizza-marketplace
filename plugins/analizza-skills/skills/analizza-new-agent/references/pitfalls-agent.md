@@ -115,6 +115,35 @@ erro no log. Para calar em desenvolvimento, sem subir o LangWatch, ponha
 amostrada, então não há o que exportar. Tire a linha antes de querer ver um
 trace.
 
+### `WARNING: A restricted method in java.lang.System has been called`
+
+Em Java 24 ou mais novo, a subida do agente (`bootRun`) imprime um grupo de
+linhas `WARNING: A restricted method in java.lang.System has been called …
+io.netty … NativeLibraryUtil`, seguido da sugestão de
+`--enable-native-access=ALL-UNNAMED`. É o Netty — que vem com o `webflux` —
+carregando a biblioteca nativa dele, e a JVM avisando que um dia vai exigir
+permissão explícita. Não é erro nem falha do smoke: desconte essas linhas,
+como as de `Failed to export spans`, ao filtrar o log por `WARN`.
+
+### `docker compose down` num projeto existente derruba o que não é do agente
+
+O banco do agente entra no compose **do projeto hospedeiro**, ao lado do banco
+do `-core`. Ali, `docker compose down` para e remove todos os containers do
+projeto, e `down -v` apaga também os volumes — os dados do banco de quem já
+estava lá. Regra: no modo existente, todo comando de compose que a skill roda
+ou sugere leva o **nome do serviço**.
+
+```bash
+docker compose stop postgres-agent            # para; os dados ficam
+docker compose rm -f -v postgres-agent        # remove o container do agente
+docker volume ls | grep postgres-agent-data   # o nome exato do volume do agente
+docker volume rm <nome que saiu acima>        # apaga os dados do agente, e so eles
+```
+
+As duas últimas só a pedido do usuário. `docker volume prune` e os alvos
+`db-down` / `db-reset` que o `Makefile` do projeto já tinha também não são do
+agente.
+
 ### Matar quem segura a porta não encerra o `make run-agent`
 
 `make run-agent-ollama &` abre uma árvore: o `make`, o `bash` da receita, o
@@ -156,6 +185,59 @@ Abrir o servidor de desenvolvimento pelo IP da rede, em `http`, deixa
 que funciona nos dois casos. Não troque por `randomUUID` direto.
 
 ## Testes
+
+### A raiz do projeto existente já registra `integrationTest`
+
+Projetos multi-módulo costumam configurar os testes de todos os subprojetos
+na raiz (`subprojects { tasks.register('integrationTest', Test) { … } }`).
+Um segundo `tasks.register` com o mesmo nome não falha só no módulo: quebra a
+**configuração do build inteiro**, até `./gradlew projects`, com `Cannot add
+task 'integrationTest' as a task with that name already exists`. Por isso o
+build do módulo pergunta `tasks.names` antes — reaproveita a tarefa se ela
+existe, cria se não — e a configura do mesmo jeito nos dois casos. Não troque
+por `tasks.register` nem por `tasks.named` direto: cada um quebra num dos dois
+modos.
+
+### `integrationTest` verde em dois segundos, com zero testes
+
+A tarefa herdada costuma filtrar por tag (`useJUnitPlatform { includeTags
+'integration' }`). Os `*IT` do agente não levam `@Tag`: o filtro descarta
+todos, o Gradle não acha o que rodar e sai com `EXIT=0` — sem um XML sequer em
+`build/test-results/integrationTest/`. Três defesas, e as três ficam:
+
+- o build do módulo **zera** `includeTags` e `excludeTags` e **substitui** os
+  padrões de nome (`setIncludePatterns('*IT')`, `setExcludePatterns()`) em vez
+  de somar aos herdados, e redefine `testClassesDirs` e `classpath`;
+- na `integrationTest`, `failOnNoMatchingTests = true`: sem nenhum teste a
+  tarefa falha com `No tests found for given includes: [*IT]`;
+- o Passo 11 confere a contagem no XML (`ChatRouteIT` com `tests="3"`), não o
+  `EXIT`.
+
+A `test` tem o mesmo cuidado no sentido inverso: descarta tags e padrões
+herdados e exclui `*IT`, e o Passo 10 exige a soma exata (36, ou 34 sem
+memória) e nenhum `*IT` entre os XML.
+
+O que o template **não** alcança: configuração que a raiz aplica **depois** da
+do módulo — `afterEvaluate`, ou `gradle.projectsEvaluated` — roda por último e
+repõe o filtro. O sintoma é a contagem errada nos Passos 10 ou 11; aí mostre o
+trecho da raiz ao usuário e pergunte, sem editar o build dele por conta
+própria. Outro efeito herdado, inofensivo: se a raiz liga `jacocoTestReport`
+ao `test` de todo subprojeto, o `test` do agente passa a gerar relatório de
+cobertura onde ela mandar.
+
+### `buildingBlocks` existe, mas o `ErrorMessage` é outro
+
+Um projeto pode ter o módulo `buildingBlocks`, com `ResultCommandHandler` e
+`ErrorMessage` nos pacotes esperados, e ainda assim não servir: `record
+ErrorMessage(int status, String message)` não aceita `new
+ErrorMessage("CODE", "mensagem")`, e o `GlobalExceptionHandler` não compila
+"Arrumar" passando um número não é
+saída: o corpo de erro deixaria de ser `code` + `message`, que é o contrato
+HTTP do agente e o que os testes conferem. Por isso o Passo 1 confere as
+**assinaturas**, e qualquer divergência leva a `sem-buildingBlocks` inteiro:
+o agente declara o próprio `ErrorMessage`, e `ChatCommand` / `ChatHandler`
+não implementam os contratos do projeto. Não edite o `buildingBlocks` do
+hospedeiro para caber.
 
 ### Primeiro IT lento não é IT travado
 
