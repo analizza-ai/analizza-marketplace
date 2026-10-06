@@ -1,0 +1,53 @@
+const INDISPONIVEL = "O agente está indisponível. Tente de novo em instantes.";
+const REQUISICAO_INVALIDA = "Não foi possível enviar a mensagem.";
+
+// Cobre a inferência de um modelo local em CPU, que leva minutos.
+const TIMEOUT_MS = 300_000;
+
+/**
+ * BFF do chat: o navegador nunca fala direto com o agente. Assim o backend não
+ * precisa de CORS e a URL do agente fica fora do bundle.
+ */
+export async function POST(request: Request) {
+  const agentUrl = process.env.AGENT_URL ?? "http://localhost:{agent-port}";
+  const conversationId = request.headers.get("x-conversation-id");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (conversationId) {
+    headers["X-Conversation-Id"] = conversationId;
+  }
+
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${agentUrl}/api/v1/agent/stream`, {
+      method: "POST",
+      headers,
+      body: await request.text(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (erro) {
+    console.error("chat: falha ao chamar o agente", erro);
+    return Response.json({ message: INDISPONIVEL }, { status: 502 });
+  }
+
+  if (resposta.status === 400) {
+    return Response.json({ message: await motivo(resposta) }, { status: 400 });
+  }
+  if (!resposta.ok || !resposta.body) {
+    return Response.json({ message: INDISPONIVEL }, { status: 502 });
+  }
+
+  return new Response(resposta.body, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+  });
+}
+
+/** O agente explica um 400 em `message`; sem motivo legível, vai a mensagem genérica. */
+async function motivo(resposta: Response): Promise<string> {
+  try {
+    const corpo = (await resposta.json()) as { message?: unknown };
+    return typeof corpo.message === "string" && corpo.message.trim() ? corpo.message : REQUISICAO_INVALIDA;
+  } catch {
+    return REQUISICAO_INVALIDA;
+  }
+}

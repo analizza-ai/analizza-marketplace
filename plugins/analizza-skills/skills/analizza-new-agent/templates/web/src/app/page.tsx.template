@@ -1,0 +1,107 @@
+"use client";
+
+import { type FormEvent, useState } from "react";
+import { parseSse } from "@/lib/sse";
+
+type Mensagem = { autor: "usuario" | "agente"; texto: string };
+
+const FALHA = "Não foi possível falar com o agente.";
+
+export default function Home() {
+  const [mensagens, setMensagens] = useState<Mensagem[]>([]);
+  const [rascunho, setRascunho] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  // Uma conversa por carregamento da página: é a chave da memória no agente.
+  const [conversationId] = useState(() => crypto.randomUUID());
+
+  function acrescentarAoAgente(pedaco: string) {
+    setMensagens((atuais) => {
+      const ultima = atuais[atuais.length - 1];
+      return [...atuais.slice(0, -1), { ...ultima, texto: ultima.texto + pedaco }];
+    });
+  }
+
+  async function enviar(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault();
+    const texto = rascunho.trim();
+    if (!texto || enviando) return;
+
+    setRascunho("");
+    setErro(null);
+    setEnviando(true);
+    setMensagens((atuais) => [...atuais, { autor: "usuario", texto }, { autor: "agente", texto: "" }]);
+
+    try {
+      const resposta = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Conversation-Id": conversationId },
+        body: JSON.stringify({ body: texto }),
+      });
+      if (!resposta.ok || !resposta.body) {
+        const corpo = (await resposta.json().catch(() => ({}))) as { message?: string };
+        throw new Error(corpo.message ?? FALHA);
+      }
+
+      const leitor = resposta.body.getReader();
+      const decodificador = new TextDecoder();
+      let pendente = "";
+      for (;;) {
+        const { done, value } = await leitor.read();
+        if (done) break;
+        const { data, rest } = parseSse(pendente + decodificador.decode(value, { stream: true }));
+        pendente = rest;
+        if (data.length > 0) acrescentarAoAgente(data.join(""));
+      }
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : FALHA);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-4 p-6">
+      <h1 className="text-xl font-semibold">{project-name}</h1>
+
+      <ol className="flex flex-1 flex-col gap-3" aria-live="polite">
+        {mensagens.map((mensagem, indice) => (
+          <li
+            key={indice}
+            className={
+              mensagem.autor === "usuario"
+                ? "self-end rounded-lg bg-zinc-900 px-3 py-2 text-white"
+                : "self-start whitespace-pre-wrap rounded-lg bg-zinc-100 px-3 py-2 text-zinc-900"
+            }
+          >
+            {mensagem.texto || "…"}
+          </li>
+        ))}
+      </ol>
+
+      {erro && (
+        <p role="alert" className="text-sm text-red-700">
+          {erro}
+        </p>
+      )}
+
+      <form onSubmit={enviar} className="flex gap-2">
+        <input
+          className="flex-1 rounded border border-zinc-300 px-3 py-2"
+          value={rascunho}
+          onChange={(evento) => setRascunho(evento.target.value)}
+          placeholder="Escreva sua mensagem"
+          aria-label="Mensagem"
+          disabled={enviando}
+        />
+        <button
+          type="submit"
+          className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-50"
+          disabled={enviando || !rascunho.trim()}
+        >
+          Enviar
+        </button>
+      </form>
+    </main>
+  );
+}
