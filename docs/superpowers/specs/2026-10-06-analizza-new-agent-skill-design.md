@@ -76,7 +76,9 @@ implementando portas) vale por convenção de pacote, como no `eaf-agent`.
 
 **D4 — No projeto existente, o agente é um app Spring Boot próprio.** Tem
 `@SpringBootApplication` e porta próprias, processo separado do `-api`, e
-**não depende do `-core`**: fala com o domínio por MCP. Isso mantém
+**não depende do `-core`**: fala com o domínio por MCP. A skill não assume
+que o projeto tem módulos `-api` e `-core`: fala do "módulo que tem a
+`@SpringBootApplication`" e do "banco do projeto". Isso mantém
 LangChain4j, WebFlux e OTel fora do classpath do `-api`. Descartados: módulo
 de biblioteca no processo do `-api` (o `-api` herdaria todas as dependências
 de LLM) e app próprio com `implementation(project(":-core"))` (exigiria
@@ -86,12 +88,14 @@ datasource e Flyway do core também no agente).
 modo do zero é `{package}`. O sufixo evita que, em qualquer classpath onde os
 dois apps coexistam, o component scan do `-api` (raiz `{package}`) e o do
 agente se misturem por acidente — e dá ao agente uma raiz de scan que não
-alcança o resto do projeto.
+alcança o resto do projeto. Se `{package}` já termina em `.agent`, a skill
+aponta a redundância (`….agent.agent`) e oferece outro sufixo, sem decidir
+sozinha; `{base-package}` continua diferente de `{package}`.
 
 **D6 — O nome do módulo é pergunta, com padrão `{project-name}-agent`.**
 Quando o nome do projeto já termina em `-agent`, a skill aponta a redundância
 (`eaf-agent-agent`) e sugere `{project-name}-assistant` como alternativa, sem
-decidir sozinha.
+decidir sozinha (na prova 2 virou `suporte-agent-assistant`).
 
 **D7 — Kotlin e Java.** Mesmo contrato das irmãs: a DSL do Gradle segue a
 linguagem no modo do zero (Kotlin → `.kts`, Java → Groovy); no modo existente,
@@ -102,7 +106,11 @@ de produção — é provado pela aplicação nº 2 (ver *Prova*).
 **D8 — A skill entrega uma fatia vertical funcionando.** Uma conversa, de
 ponta a ponta. É a diferença deliberada em relação à `new-project`: um agente
 sem endpoint, LLM e trace não prova nada. A única proibição que sobra é a de
-código de domínio.
+código de domínio. O handler só implementa os contratos do `buildingBlocks`
+quando eles existem **na forma que os templates usam** (`ResultCommand`,
+`ResultCommandHandler.handle`, `ErrorMessage(String code, String message)`):
+do zero vale sempre; no existente a skill confere módulo e assinaturas, e se
+algo diverge o agente nasce sem depender dele, com o próprio `ErrorMessage`.
 
 **D9 — O LLM fica atrás de uma interface em `anticorruptionLayer/llm/`.**
 `Assistant` (interface) e `impl/` com o `@AiService` do LangChain4j. A
@@ -143,14 +151,19 @@ O schema que o store espera foi lido do jar
 (`langchain4j-community-sql-1.20.0-beta30`, `PostgreSQLDialect`):
 `chat_memory (memory_id VARCHAR(255) PRIMARY KEY, content TEXT NOT NULL DEFAULT '')`
 — uma linha por conversa, com a janela em JSON. A migration reproduz isso e o
-store é criado com `autoCreateTable(false)`.
+store é criado com `autoCreateTable(false)`. O construtor do store confere a
+tabela antes de o Flyway rodar, então ele é criado na primeira conversa, não
+na subida; por isso uma `chat_memory` ausente aparece como 502 na primeira
+conversa.
 
 **D13 — Banco é pergunta, e no modo existente é do agente.** Padrão *sim* do
 zero, *não* no existente. No existente, com `postgres=sim`, o agente ganha
 banco próprio (`{db-name}_agent`) no compose do projeto: dois Flyway na mesma
 `flyway_schema_history` se atropelam. Com banco o módulo leva
 `spring-boot-starter-jdbc` e Flyway — não `data-jpa`: ele nasce sem entidade
-nenhuma, e quem escrever a primeira troca o starter. Sem banco, nenhum dos dois.
+nenhuma, e quem escrever a primeira troca o starter. Sem banco, nenhum dos dois. O módulo
+não assume `-api`/`-core` do projeto: o banco é o "banco do projeto", e o
+encerramento da verificação derruba só o serviço do agente.
 
 **D14 — Observabilidade vem pronta e roda sem conta externa.** Código: span
 `chat` por conversa com `conversationId`, `user_id` e `thread_id`;
@@ -159,7 +172,9 @@ flags (`include-prompt`, `-completion`, `-tool-arguments`, `-tool-result`),
 todas `false` por padrão e `true` só no profile `dev`; métricas
 `chat.requests{outcome}` e `chat.request.duration` em Prometheus; push OTLP de
 métricas desligado. Ambiente: `docker-compose.langwatch.yml` isolado,
-`langwatch.env.example` e alvos `make langwatch-up/down`.
+`langwatch.env.example` e alvos `make langwatch-up/down`. Com o LangWatch fora
+do ar o exporter OTLP loga falha periodicamente (esperado);
+`OTEL_TRACES_SAMPLER_RATIO=0.0` silencia.
 
 **D15 — Três níveis de teste, com LLM real só na integração.**
 
@@ -178,8 +193,16 @@ linha de memória no Postgres, span emitido. Resposta exata é unitário.
 `OllamaTestContainer`, as propriedades de LLM no `BaseIntegrationTest` e o
 `ChatRouteIT` — assim a regra ArchUnit "todo entrypoint tem IT" já nasce
 satisfeita. Existente: ITs dentro do próprio `{agent-module}`, com
-`BaseIntegrationTest` e task `integrationTest` próprios; a skill não toca
-no `{base}-integration-tests`, que sobe a aplicação do `-api`.
+`BaseIntegrationTest` próprio; a skill não toca no `{base}-integration-tests`,
+que sobe a aplicação do `-api`. Se o build do projeto já define a tarefa
+`integrationTest`, o módulo a reaproveita, limpa filtros de tag herdados e
+trata zero testes como falha. Em `it-dedicado` a camada de LLM é aplicada
+**antes** da verificação da skill de testes de integração, porque a regra
+ArchUnit dela exige o `ChatRouteIT`; nenhum dublê é criado para
+`anticorruptionLayer/llm`. O módulo do agente leva
+`addJUnitPlatformLauncher = false` no bloco `pitest {}`: o template da skill
+irmã injeta um `junit-platform-launcher` desalinhado do JUnit do Boot 4 e
+quebra `./gradlew test` (débito dela, ver *Riscos*).
 
 Do zero **sem banco**, os ITs também ficam dentro do módulo: a
 `analizza-integration-test` só oferece Postgres, Oracle, MySQL ou "outro", e o
@@ -192,8 +215,9 @@ desligado — é outro sistema; o fluxo de tool é coberto no unitário.
 **D17 — O web é uma tela de chat, não um Next vazio.** Pergunta só no modo do
 zero, padrão *sim*. `create-next-app` mais `src/app/page.tsx` com a conversa
 e `src/app/api/chat/route.ts` repassando o stream para `AGENT_URL` — o
-backend não precisa de CORS — e mantendo o `X-Conversation-Id` da sessão. Sem
-biblioteca de UI. Cumpre o papel do `chat-simulator` estático do
+backend não precisa de CORS — e mantendo o `X-Conversation-Id` da sessão. O id
+nasce em `lib/conversation.ts` no primeiro envio, não na renderização (o Next
+16.4 com `cacheComponents` não admite gerá-lo ali). Sem biblioteca de UI. Cumpre o papel do `chat-simulator` estático do
 `agent-invest-sgap`.
 
 **D18 — Versões são lidas, não lembradas.** `langchain4jVersion` fica em
@@ -237,12 +261,13 @@ Mais `{project-name}-integration-tests`, criado pela `analizza-integration-test`
 ├── docker-compose.yml                + banco do agente [se postgres]
 ├── docker-compose.langwatch.yml      novo
 ├── local.env*.example, langwatch.env.example
-├── Makefile                          + run-agent, run-agent-ollama, langwatch-up/down, test-agent-integration
+├── Makefile                          + run-agent (checa o env antes de subir o banco), run-agent-ollama, langwatch-up/down, test-agent-integration
 └── <arquivo do SDD>                  + seção "Agente" (acrescenta, nunca sobrescreve)
 ```
 
-Não cria `buildingBlocks` — usa o do projeto se existir; se não, o agente
-nasce sem depender dele e o handler não implementa o contrato. Não cria web.
+Não cria `buildingBlocks` — usa o do projeto se existir com as assinaturas
+certas; se não, o agente nasce sem depender dele e o handler não
+implementa o contrato. Não cria web.
 Não toca no `-api` nem no `-core`.
 
 ### Entradas
@@ -260,7 +285,7 @@ Não toca no `-api` nem no `-core`.
 ### O módulo do agente
 
 ```
-{app-class}                     ponto de entrada; raiz do component scan
+__app-class__                   ponto de entrada ({app-class}); raiz do component scan
 presenter/
   routes/chat/                  ChatRoute (+ ChatRequest, ChatResponse), ConversationIds
   configuration/                ConversationIdFilter
@@ -348,13 +373,15 @@ plugins/analizza-skills/skills/analizza-new-agent/
 │   ├── agent-conventions.md       a seção "Agente" do arquivo do SDD (inclui MCP e observabilidade)
 │   ├── it-llm-layer.md            o que acrescentar ao módulo de IT dedicado
 │   ├── pitfalls-agent.md
+│   ├── readme-env-vars.md         a seção "Variáveis de ambiente" do README do projeto
 │   └── runbook-agent-chat.md
 └── templates/
     ├── architecture-conventions.md.template   camadas num módulo só
     ├── build/{groovy,kts}/        módulo do agente; raiz sem core
     ├── source/{java,kotlin}/      main, test e it, espelhando a árvore de pacotes
+    │                              (`__app-class__`, `__mcp-class__Config` no nome do arquivo)
     ├── resources/                 application.yaml, prompts, migration
-    ├── web/                       page.tsx, route.ts, parser de SSE, testes
+    ├── web/                       page.tsx, route.ts, lib/conversation.ts, parser de SSE, testes
     └── root/                      Makefile, composes, env examples
 ```
 
@@ -380,8 +407,39 @@ defeito da skill.
 
 As provas 3 e 4 rodam em cópias; os repositórios originais não são tocados.
 Cada uma precisa terminar com build e testes de integração em `EXIT=0` e o
-smoke do passo 11 respondendo. O que cada execução ensinar volta para a skill
-antes do PR; o que não der para provar fica escrito no PR como não provado.
+smoke do passo 11 respondendo. O que cada execução ensinou voltou para a
+skill antes do PR.
+
+Resultado observado:
+
+1. **Do zero, Kotlin, tudo ligado** — rodada final: `make build` `EXIT=0`; 36
+   unitários; 5 ITs (`ChatRouteIT` 3, `ApplicationContextIT` 1,
+   `EntrypointHasIntegrationTestIT` 1); web 16 (Vitest); Pitest 28/46
+   mutantes mortos; smoke 200 e SSE, com
+   `chat_requests_total{outcome="success"}`. Na tela: a resposta aparece, o
+   foco se mantém e a memória vale entre mensagens.
+2. **Do zero, Java, mínimo** — `make build` `EXIT=0`; 36 unitários; 3 ITs;
+   smoke 200; a segunda mensagem lembrou da primeira. Nenhuma alteração em
+   código gerado. A skill apontou a redundância do nome (D6).
+3. **Existente, Java** — 36 unitários; 3 ITs; o `-api` do projeto segue
+   compilando e nenhum arquivo dos módulos existentes mudou. Com o MCP ligado
+   e o `-api` parado: health UP e a conversa devolve 502 `MCP_UNAVAILABLE`.
+4. **Existente, Kotlin** — 36 unitários; 3 ITs; smoke 200; `chat_memory`
+   gravada no banco do agente (porta 5433) com o serviço `postgres` do projeto
+   intacto. Nenhuma alteração em código gerado.
+
+Não provado:
+
+- Trace chegando ao LangWatch local (exige criar a chave na interface).
+- Tool calling e reconexão contra um servidor MCP real com credencial: só o
+  502 com o servidor fora foi provado.
+- Texto chegando token a token na tela: as leituras pegaram "…" e depois a
+  resposta completa.
+- O download de ~2 GB do modelo na primeira execução dos ITs (a imagem já
+  estava em cache).
+- Tabela `chat_memory` ausente (502 na primeira conversa).
+- Projeto existente que já tem módulo de IT dedicado com ArchUnit próprio: a
+  regra do projeto não enxerga o agente.
 
 ## Riscos
 
@@ -389,5 +447,9 @@ antes do PR; o que não der para provar fica escrito no PR como não provado.
   MCP e de `@AiService` pode mudar entre versões; por isso D18.
 - **Modelo pequeno em CPU** — IT lento e ocasionalmente instável em tool
   calling; por isso a regra de asserção de D15 e o dublê de MCP.
+- **Débito da `analizza-integration-test`** — o template de Pitest injeta um
+  `junit-platform-launcher` desalinhado do JUnit do Boot 4 e quebra
+  `./gradlew test`, e ela não tem opção "sem banco" (D16). Esta skill contorna
+  os dois no módulo do agente; corrigir é trabalho da skill irmã.
 - **Acoplamento com a `new-project`** (D1) — uma mudança nos templates de
   `buildingBlocks` afeta as duas skills. Aceito; a alternativa é a duplicação.

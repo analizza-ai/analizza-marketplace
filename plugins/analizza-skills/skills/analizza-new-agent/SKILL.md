@@ -67,7 +67,7 @@ sabe por MCP.
 | Placeholder | Valor |
 |---|---|
 | `{project-name}` | nome da pasta raiz (do zero) ou `rootProject.name` (existente) |
-| `{base}` | só no modo existente: o prefixo comum dos módulos que já existem (`{base}-api`, `{base}-core`, quando seguem essa convenção), em geral o próprio `{project-name}`; sem prefixo comum (ex.: módulos `eaf-agent-assistant` e `buildingBlocks`), o `{project-name}` |
+| `{base}` | só no modo existente: o prefixo comum dos módulos que já existem (`{base}-api`, `{base}-core`, quando seguem essa convenção), em geral o próprio `{project-name}`; sem prefixo comum (ex.: módulos `demo-agent-assistant` e `buildingBlocks`), o `{project-name}` |
 | `{agent-module}` | módulo do agente — pergunta |
 | `{app-class}` | PascalCase de `{agent-module}` + `Application` (`demo-agent` → `DemoAgentApplication`) |
 | `{package}` | pacote base do projeto |
