@@ -1,4 +1,4 @@
-  # Banco do agente, separado do banco do -core: dois Flyway no mesmo schema
+  # Banco do agente, separado do banco do projeto: dois Flyway no mesmo schema
   # disputam a mesma flyway_schema_history.
   postgres-agent:
     image: postgres:17-alpine

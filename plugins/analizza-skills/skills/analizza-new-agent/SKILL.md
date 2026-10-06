@@ -41,8 +41,7 @@ Do zero
 
 Projeto existente
 {base}/
-├── {base}-api/                         intocado
-├── {base}-core/                        intocado
+├── <módulos do projeto>/               intocados
 ├── {base}-mcp/                         vira o servidor MCP padrão, se existir
 ├── {agent-module}/                     app próprio, porta própria
 ├── docker-compose.langwatch.yml
@@ -52,8 +51,9 @@ Projeto existente
 
 Do zero **não existe `-core`**: `presenter/`, `application/`, `domain/` e
 `infrastructure/` são pacotes do `{agent-module}`. No projeto existente o
-agente é uma aplicação Spring Boot própria, que **não depende do `-core` nem do
-`-api`**: o que ele sabe do domínio, sabe por MCP.
+agente é uma aplicação Spring Boot própria, que **não depende de nenhum módulo
+do projeto** (além do `buildingBlocks`, se houver): o que ele sabe do domínio,
+sabe por MCP.
 
 ## Quando usar
 
@@ -67,7 +67,7 @@ agente é uma aplicação Spring Boot própria, que **não depende do `-core` ne
 | Placeholder | Valor |
 |---|---|
 | `{project-name}` | nome da pasta raiz (do zero) ou `rootProject.name` (existente) |
-| `{base}` | só no modo existente: o prefixo dos módulos que já existem (`{base}-api`, `{base}-core`), em geral o próprio `{project-name}` |
+| `{base}` | só no modo existente: o prefixo comum dos módulos que já existem (`{base}-api`, `{base}-core`, quando seguem essa convenção), em geral o próprio `{project-name}`; sem prefixo comum (ex.: módulos `eaf-agent-assistant` e `buildingBlocks`), o `{project-name}` |
 | `{agent-module}` | módulo do agente — pergunta |
 | `{app-class}` | PascalCase de `{agent-module}` + `Application` (`demo-agent` → `DemoAgentApplication`) |
 | `{package}` | pacote base do projeto |
@@ -79,7 +79,7 @@ agente é uma aplicação Spring Boot própria, que **não depende do `-core` ne
 | `{language}`, `{src-dir}` | `kotlin` ou `java` — o mesmo valor nos dois |
 | `{dsl-ext}` | `.kts` ou vazio |
 | `{boot-version}`, `{dependency-management-version}`, `{kotlin-version}` | só do zero: lidas do `plugins {}` que o Initializr gerou (Passo 2). `{kotlin-version}` só em Kotlin |
-| `{agent-port}` | `8080` do zero; `8081` no existente, ou a seguinte se o `-api` já a usa |
+| `{agent-port}` | `8080` do zero; `8081` no existente, ou a seguinte se o módulo do host (o do `@SpringBootApplication`) já a usa |
 | `{mcp-name}` | nome kebab do servidor MCP; `tools-mcp` se nenhum foi informado |
 | `{mcp-class}`, `{mcp-env}` | `{mcp-name}` em PascalCase e em UPPER_SNAKE (`tools-mcp` → `ToolsMcp`, `TOOLS_MCP`) |
 | `{mcp-url}`, `{mcp-enabled}` | URL e `true`, ou vazio e `false` |
@@ -185,15 +185,22 @@ de onde veio.
 | Entrada | Do zero | Existente |
 |---|---|---|
 | `language` | pergunta; padrão `kotlin` | detecta pelo fonte do módulo com `@SpringBootApplication` |
-| `group`, `package`, `java-version` | pergunta; `br.com.analizza`, `{group}.{project-name}`, `25` | lê do build e do pacote do módulo com `@SpringBootApplication` (o `-api`); a raiz pode não declarar `group` |
+| `group`, `package`, `java-version` | pergunta; `br.com.analizza`, `{group}.{project-name}`, `25` | lê do build e do pacote do módulo do host com `@SpringBootApplication` (o `-api`, se houver; o único módulo com a anotação, ou pergunte qual se forem vários); a raiz pode não declarar `group` |
 | `agent-module` | pergunta; padrão `{project-name}-agent` | pergunta; padrão `{base}-agent` |
 | `web` | pergunta; padrão sim | não oferece |
 | `postgres` | pergunta; padrão sim | pergunta; padrão não |
 | `chat-memory` | pergunta; padrão sim | pergunta; padrão sim |
-| `mcp-name` e `mcp-url` | pergunta; pode ficar vazio | padrão: `{base}-mcp` e `http://localhost:<porta do -api>/mcp`, se o módulo existir |
+| `mcp-name` e `mcp-url` | pergunta; pode ficar vazio | padrão: `{base}-mcp` e `http://localhost:<porta do módulo do host>/mcp`, se o módulo existir |
 
 Pacote não aceita `-`: se `{project-name}` tiver hífen, o padrão
 `{group}.{project-name}` não serve — pergunte o pacote em vez de assumir.
+
+**Nomes redundantes (existente).** Se `{package}` já termina em `.agent`,
+`{base-package}` vira `….agent.agent` e `{db-name}` pode virar `…_agent_agent`:
+aponte isso e ofereça outro sufixo para o pacote (o nome do módulo sem o prefixo
+`{base}`, ex.: `.concierge`) e para o banco — sem decidir sozinho. Use o
+escolhido em todo lugar, e `{base-package}` continua **diferente** de
+`{package}`: é o que isola o component scan do host do pacote do agente.
 
 **Nome do módulo.** Se `{project-name}` já termina em `-agent`, diga que o
 padrão ficaria redundante (`x-agent-agent`) e ofereça
@@ -202,7 +209,7 @@ nome é o do próprio projeto; diga que o usuário pode digitar qualquer outro.
 
 **Java tem piso de versão: 17.** Os templates usam `record` e pattern matching.
 
-**Servidor MCP no modo existente.** Procure o módulo e a porta do `-api`:
+**Servidor MCP no modo existente.** Procure o módulo `-mcp` e a porta do módulo do host:
 
 ```bash
 grep -E "include.*-mcp" settings.gradle*
@@ -212,7 +219,7 @@ grep -rnE "server\.port|^[[:space:]]*port:" --include='application*.properties' 
 ```
 
 Cada linha traz o arquivo de onde veio: só vale a que está em
-`src/main/resources` do `-api`; mostre-a ao usuário. As pastas excluídas
+`src/main/resources` do módulo do host; mostre-a ao usuário. As pastas excluídas
 guardam cópias do projeto (worktrees, saída de build) e dariam porta de outro
 lugar. **Nenhuma linha quer dizer `8080`**, o padrão do Spring Boot — então
 `{agent-port}` é `8081`.
@@ -305,13 +312,13 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
 - `git init` agora, se ainda não for repositório — os Passos 7 e 8 dependem disso.
 
 **Existente.** Crie `{agent-module}/` com o `build.gradle{dsl-ext}` do template
-da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` (na
-ordem que o arquivo já segue) e
+da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` (depois dos
+`include` que já existem, na mesma sintaxe deles) e
 confira que a raiz declara, com versão, todo plugin que o módulo aplica sem
 versão (`org.springframework.boot`, `io.spring.dependency-management` e, em
 Kotlin, `kotlin("jvm")` e `kotlin("plugin.spring")`). Se faltar algum, acrescente
 a declaração (`apply false`, com versão) **só** ao build da raiz, depois de
-mostrar a mudança ao usuário; nunca edite o build do `-api` nem do `-core`. Se o
+mostrar a mudança ao usuário; nunca edite o build dos módulos do projeto. Se o
 projeto gerencia as versões de plugin de um jeito que a skill não sabe seguir
 (catálogo de versões, `pluginManagement`), pare e pergunte. A classe de aplicação vem
 de `templates/source/{language}/main/__app-class__.*`, copiada no Passo 4 — o
@@ -403,7 +410,7 @@ com o LLM e como ligar depois (`{mcp-env}_ENABLED=true` e `{mcp-env}_BASE_URL`).
   é copiada). É inserção de texto, na indentação do arquivo, sem reordenar
   o que já está lá; confira com `docker compose config -q`. Sem compose no
   projeto, crie `docker-compose.yml` com as duas chaves. O banco é **do agente** (`{db-name}`, porta `{db-port}`), nunca o
-  do `-core`. Não renomeie o serviço: o `make run-agent` o sobe pelo nome.
+  do projeto hospedeiro. Não renomeie o serviço: o `make run-agent` o sobe pelo nome.
 - **`memoria-jdbc`:** a migration `V1__chat_memory.sql` e o `ChatMemoryConfig`
   já vieram no Passo 4. Não mude nome nem tipo de coluna: é o schema que o
   store do LangChain4j espera. O store é criado na **primeira conversa**, não
@@ -424,7 +431,7 @@ De `templates/root/`, para a raiz do projeto:
 | `local.env.ollama.example.template` | `local.env.ollama.example` | sempre |
 | `langwatch.env.example.template` | `langwatch.env.example` | sempre |
 | `docker-compose.langwatch.yml.template` | `docker-compose.langwatch.yml` | sempre |
-| `gitignore-extra.template` | acrescentado ao fim do `.gitignore` | sempre |
+| `gitignore-extra.template` | acrescentado ao fim do `.gitignore` (no existente, pule as linhas que o arquivo já tem, como o bloco do macOS) | sempre |
 
 Receitas do `Makefile` são com **TAB**; copie sem converter em espaço.
 
@@ -525,7 +532,8 @@ com `## Variáveis de ambiente` — no `README.md` da raiz, criando-o com o
 título `# {project-name}` se não existir. Ela lista, **sem valor**, toda
 variável que o `application.yaml` lê. Nos dois modos e em todo layout: as
 regras de projeto que a `analizza-integration-test` grava exigem essa seção,
-e nem ela nem outra skill a escrevem. No modo existente, se o README já tiver
+e nem ela nem outra skill a escrevem. No modo existente a seção entra no README do
+hospedeiro (criada se não houver, e listada no Passo 12); se ele já tiver
 uma seção com esse título, não a substitua: a tabela entra dentro dela, sob
 um subtítulo `### {agent-module}`. Confira que nenhuma variável ficou de fora:
 
@@ -625,6 +633,12 @@ reescreveria a configuração de teste do projeto hospedeiro, que esta skill nã
 pode tocar. Consequência a relatar: sem regra ArchUnit,
 JaCoCo e Pitest para o agente. Havendo web, invoque-a com `escopo=frontend`.
 
+Se o host já tem módulo dedicado de ITs com regra ArchUnit própria ("todo
+entrypoint tem IT"), os ITs do agente ainda ficam no `{agent-module}`
+(`it-no-modulo`) e o módulo do host não é tocado: a regra dele não enxerga o
+agente (que não está no classpath daquele módulo), então nem falha nem protege.
+Relate isso no Passo 12.
+
 **Web (só `web`).** Depois que a `analizza-integration-test` instalar o Vitest
 no `{project-name}-web`, copie os três testes que ficaram de fora no Passo 8
 — `app/api/chat/route.test.ts`, `lib/sse.test.ts`, `lib/conversation.test.ts` —
@@ -682,8 +696,8 @@ find {it-module}/build/test-results/integrationTest -name '*.xml' 2>/dev/null | 
 # unitários (já lidos no Passo 10): {agent-module}/build/test-results/test/*.xml
 ```
 
-No modo existente o `make build` não serve (pode não existir ou construir `-api`,
-`-core` e web), por isso o bloco o evita. Nunca rode `integrationTest` sem o
+No modo existente o `make build` não serve (pode não existir ou construir os
+módulos do host e o web), por isso o bloco o evita. Nunca rode `integrationTest` sem o
 prefixo do módulo, que executaria também os ITs do projeto hospedeiro.
 
 O `build` não precisa de banco, de LLM nem de Docker: os unitários usam LLM
@@ -755,17 +769,18 @@ pgrep -fl '[:]{agent-module}:bootRun'; lsof -ti tcp:{agent-port}; echo "encerrad
 O `[:]` é de propósito: sem ele o `pkill -f` casa com o próprio shell que o
 executa. O `--stop` derruba todo daemon dessa versão do Gradle, inclusive o
 de outro projeto aberto na máquina. Com `postgres`, confira também a porta
-`{db-port}`.
+`{db-port}` (`lsof -nP -iTCP:{db-port} -sTCP:LISTEN`; uma porta por comando).
 
 **No modo existente, só o que é do agente é encerrado — sempre pelo nome do
 serviço.** `docker compose stop postgres-agent` para o banco e conserva os
-dados; para apagar também o container e o volume **do agente**, só se o
-usuário pedir: `docker compose rm -f -v postgres-agent` e
-`docker volume rm <projeto>_postgres-agent-data` (o nome exato sai de
-`docker volume ls | grep postgres-agent-data`). **Nunca** rode nem sugira
+dados: o container parado e o volume **ficam em disco por desenho**, e o
+relatório diz isso. Para apagar só eles, se o usuário pedir:
+`docker compose rm -sf postgres-agent` e `docker volume rm <projeto>_postgres-agent-data`
+(`<projeto>` é o nome do projeto do compose, em geral a pasta; o nome exato sai
+de `docker volume ls | grep postgres-agent-data`). **Nunca** rode nem sugira
 `docker compose down`, `down -v`, `stop` ou `rm` sem o nome do serviço, nem
 `docker volume prune`: derrubam os containers e apagam os volumes do projeto
-hospedeiro, banco do `-core` inclusive. Os alvos `db-down` e `db-reset` que o
+hospedeiro, o banco dele inclusive. Os alvos `db-down` e `db-reset` que o
 `Makefile` do projeto já tinha são dele, não do agente.
 
 **Auditoria e commit.** Só com tudo acima verde. Repita antes a conferência
@@ -787,7 +802,8 @@ gitlink: se o `{project-name}-web` aparecer assim, o `.git` aninhado do
 Passo 8 passou — remova-o, rode `git rm -r --cached {project-name}-web` e
 `git add -A` de novo. O terceiro pega arquivo de ambiente com valor real.
 
-*Modo existente, ou do zero em pasta que já tinha arquivos* — **não commite**
+*Modo existente, ou do zero em pasta que já tinha arquivos* — antes, confirme
+`grep -c '^## Variáveis de ambiente' README.md` (deve dar `1` ou mais). **Não commite**
 nem rode `git add`: mostre o `git status --short` ao usuário e deixe o commit
 com ele. O repositório é dele, e a skill não sabe o que mais está em
 andamento ali.
@@ -812,7 +828,9 @@ andamento ali.
   na primeira conversa, não na subida
 - No modo existente com `{base}-mcp`: que falta a credencial em
   `{mcp-env}_AUTHORIZATION`, se o servidor for protegido
-- Em `it-no-modulo`: que o agente ficou sem ArchUnit, JaCoCo e Pitest
+- Em `it-no-modulo`: que o agente ficou sem ArchUnit, JaCoCo e Pitest; no
+  existente com módulo de ITs próprio, que a regra ArchUnit do host não vê o agente
+- No modo existente: que o container e o volume do `postgres-agent` ficam em disco
 - Quando a `analizza-integration-test` não rodou para o backend (todo
   `it-no-modulo` sem web e todo o modo existente, salvo projeto que já os tenha):
   que `docs/checkpoints/README.md` e a skill `test-runbook` não foram
@@ -821,8 +839,9 @@ andamento ali.
 - Que o primeiro IT baixa ~2 GB e que os ITs ficam fora do `build`
 - Que o endpoint de chat nasce **sem autenticação** e que o profile padrão é
   `dev`, com o conteúdo das conversas nos traces
-- Onde as convenções e o runbook foram gravados, e que o `README.md` lista as
-  variáveis de ambiente
+- Onde as convenções e o runbook foram gravados, e que o `README.md` (no
+  existente, o do hospedeiro) ganhou a seção `## Variáveis de ambiente`; o resto
+  do README dele (como subir, tabela de testes) não cita o agente
 - O commit do scaffold (do zero) ou, no modo existente, que **nada foi
   commitado** e o `git status` ficou para o usuário
 - O que **não** foi conferido — a tela no navegador, o trace no LangWatch — em

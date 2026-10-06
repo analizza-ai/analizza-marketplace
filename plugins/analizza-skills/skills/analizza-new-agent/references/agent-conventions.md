@@ -7,7 +7,7 @@ SSE).
 <!-- se existente -->
 
 É uma aplicação Spring Boot própria, com processo e porta (`{agent-port}`)
-separados do `-api`, e **não depende do `-core`**: o que ele sabe do domínio,
+separados dos módulos do projeto, e **não depende de nenhum deles**: o que ele sabe do domínio,
 sabe pelas tools do servidor MCP. O pacote raiz é `{base-package}`, para o
 component scan dele não alcançar o resto do projeto. As quatro camadas —
 `presenter/`, `application/`, `domain/`, `infrastructure/` — são pacotes do
@@ -185,7 +185,7 @@ antes (`apply false`).
 <!-- se existente -->
 
 O banco do agente é `{db-name}`, na porta `{db-port}`, separado do banco do
-`-core`: dois Flyway no mesmo schema disputam a mesma `flyway_schema_history`.
+projeto hospedeiro: dois Flyway no mesmo schema disputam a mesma `flyway_schema_history`.
 É o serviço `postgres-agent` do compose; `make run-agent` e
 `make run-agent-ollama` o sobem e esperam ficar saudável antes de subir o
 agente.

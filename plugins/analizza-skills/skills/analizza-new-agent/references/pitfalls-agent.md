@@ -128,7 +128,7 @@ como as de `Failed to export spans`, ao filtrar o log por `WARN`.
 ### `docker compose down` num projeto existente derruba o que não é do agente
 
 O banco do agente entra no compose **do projeto hospedeiro**, ao lado do banco
-do `-core`. Ali, `docker compose down` para e remove todos os containers do
+do projeto. Ali, `docker compose down` para e remove todos os containers do
 projeto, e `down -v` apaga também os volumes — os dados do banco de quem já
 estava lá. Regra: no modo existente, todo comando de compose que a skill roda
 ou sugere leva o **nome do serviço**.
