@@ -1,0 +1,45 @@
+package {base-package}.application.chat
+
+<!-- se buildingBlocks -->
+import {bb-package}.application.ResultCommandHandler
+<!-- fim se buildingBlocks -->
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant
+import {base-package}.infrastructure.observability.ChatTelemetry
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+
+/** Uma rodada de conversa, sincrona: valida, chama o assistente, classifica a falha. */
+@Component
+class ChatHandler(
+    private val assistant: Assistant,
+    private val telemetry: ChatTelemetry,
+<!-- se buildingBlocks -->
+) : ResultCommandHandler<ChatCommand, ChatResult> {
+
+    override fun handle(command: ChatCommand): ChatResult {
+<!-- fim se buildingBlocks -->
+<!-- se sem-buildingBlocks -->
+) {
+
+    fun handle(command: ChatCommand): ChatResult {
+<!-- fim se sem-buildingBlocks -->
+        val body = ChatInput.validate(command.body)
+        return telemetry.observe("chat", command.conversationId) {
+            try {
+                ChatResult(assistant.chat(command.conversationId, body))
+            } catch (e: Exception) {
+                val failure = ChatFailures.classify(e)
+                log.warn(
+                    "conversa falhou conversationId={} tipo={}",
+                    command.conversationId,
+                    failure.javaClass.simpleName,
+                )
+                throw failure
+            }
+        }
+    }
+
+    private companion object {
+        val log = LoggerFactory.getLogger(ChatHandler::class.java)
+    }
+}

@@ -1,0 +1,83 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.mcp
+
+import dev.langchain4j.mcp.McpToolProvider
+import dev.langchain4j.mcp.client.McpClient
+import dev.langchain4j.service.tool.ToolProvider
+import dev.langchain4j.service.tool.ToolProviderRequest
+import dev.langchain4j.service.tool.ToolProviderResult
+import org.slf4j.LoggerFactory
+
+/**
+ * Tools de um servidor MCP, com conexao na primeira conversa.
+ *
+ * O DefaultMcpClient conecta no construtor: como bean comum, um servidor MCP
+ * fora do ar impediria o agente de subir. Aqui o cliente so nasce quando uma
+ * conversa pede as tools, e e descartado em qualquer falha -- a conversa
+ * seguinte reconecta, o que cobre o restart do servidor, que invalida a sessao.
+ *
+ * Falha vira McpUnavailableException em vez de "nenhuma tool": um agente que
+ * perde as ferramentas em silencio inventa a resposta.
+ */
+class LazyMcpToolProvider(
+    private val serverName: String,
+    private val clientFactory: () -> McpClient,
+    // Costura de teste: o padrao e o McpToolProvider de verdade.
+    private val toolProviderFactory: (McpClient) -> ToolProvider = ::strictMcpToolProvider,
+) : ToolProvider, AutoCloseable {
+
+    private val lock = Any()
+    private var client: McpClient? = null
+    private var delegate: ToolProvider? = null
+
+    override fun provideTools(request: ToolProviderRequest): ToolProviderResult {
+        val provider = connect()
+        try {
+            return provider.provideTools(request)
+        } catch (e: RuntimeException) {
+            discard()
+            throw McpUnavailableException(serverName, e)
+        }
+    }
+
+    private fun connect(): ToolProvider = synchronized(lock) {
+        delegate ?: try {
+            val created = clientFactory()
+            client = created
+            toolProviderFactory(created).also { delegate = it }
+        } catch (e: RuntimeException) {
+            throw McpUnavailableException(serverName, e)
+        }
+    }
+
+    private fun discard() {
+        val stale = synchronized(lock) {
+            val current = client
+            client = null
+            delegate = null
+            current
+        }
+        closeQuietly(stale)
+    }
+
+    override fun close() = discard()
+
+    private fun closeQuietly(target: McpClient?) {
+        try {
+            target?.close()
+        } catch (e: Exception) {
+            log.debug("falha ao fechar o cliente MCP '{}': {}", serverName, e.toString())
+        }
+    }
+
+    private companion object {
+        val log = LoggerFactory.getLogger(LazyMcpToolProvider::class.java)
+    }
+}
+
+// Sem failIfOneServerFails o provider registra um aviso e devolve zero tools
+// quando o servidor falha -- exatamente o silencio que nao queremos.
+private fun strictMcpToolProvider(client: McpClient): ToolProvider =
+    McpToolProvider.builder()
+        .mcpClients(client)
+        .failIfOneServerFails(true)
+        .build()

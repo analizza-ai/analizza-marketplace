@@ -1,0 +1,61 @@
+package {base-package}.infrastructure.observability
+
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
+import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.api.trace.Tracer
+import org.springframework.stereotype.Component
+
+/** Um span em andamento e o cronometro da mesma conversa. */
+class ChatSpan(val span: Span, internal val sample: Timer.Sample)
+
+/**
+ * Span e metricas de uma rodada de conversa. Os handlers chamam isto em vez
+ * de montar span na mao, para que o sincrono e o de stream emitam os mesmos
+ * atributos e as mesmas metricas.
+ *
+ * user_id e thread_id sao os atributos que o LangWatch usa para agrupar
+ * traces por usuario e por conversa.
+ */
+@Component
+class ChatTelemetry(
+    private val tracer: Tracer,
+    private val meterRegistry: MeterRegistry,
+) {
+
+    fun <T> observe(spanName: String, conversationId: String, block: () -> T): T {
+        val chatSpan = start(spanName, conversationId)
+        try {
+            val result = chatSpan.span.makeCurrent().use { block() }
+            succeed(chatSpan)
+            return result
+        } catch (e: Exception) {
+            fail(chatSpan, e)
+            throw e
+        }
+    }
+
+    fun start(spanName: String, conversationId: String): ChatSpan {
+        val span = tracer.spanBuilder(spanName).startSpan()
+        span.setAttribute("conversationId", conversationId)
+        span.setAttribute("user_id", conversationId)
+        span.setAttribute("thread_id", conversationId)
+        return ChatSpan(span, Timer.start(meterRegistry))
+    }
+
+    fun succeed(chatSpan: ChatSpan) = finish(chatSpan, "success")
+
+    fun fail(chatSpan: ChatSpan, error: Throwable) {
+        chatSpan.span.setStatus(StatusCode.ERROR, error.message ?: "erro desconhecido")
+        chatSpan.span.recordException(error)
+        finish(chatSpan, "failure")
+    }
+
+    private fun finish(chatSpan: ChatSpan, outcome: String) {
+        Counter.builder("chat.requests").tag("outcome", outcome).register(meterRegistry).increment()
+        chatSpan.sample.stop(Timer.builder("chat.request.duration").register(meterRegistry))
+        chatSpan.span.end()
+    }
+}

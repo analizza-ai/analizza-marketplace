@@ -1,0 +1,20 @@
+package {base-package}.application.chat
+
+// Moram em application/, e nao em presenter/, porque quem as lanca e o
+// handler: se morassem na entrada, o caso de uso importaria presenter.
+
+/** Corpo ausente, vazio ou longo demais. A mensagem vai para o cliente. */
+class InvalidChatRequestException(message: String) : RuntimeException(message)
+
+/** Falha de comunicacao com o provedor de LLM. */
+class UpstreamException(cause: Throwable) : RuntimeException("falha de comunicacao com o provedor", cause)
+
+/** Timeout na chamada ao provedor de LLM. */
+class UpstreamTimeoutException(cause: Throwable) : RuntimeException("tempo limite da requisicao excedido", cause)
+
+/** O servidor MCP nao respondeu ou recusou a conexao. */
+class McpUpstreamException(cause: Throwable) : RuntimeException("ferramenta externa indisponivel", cause)
+
+/** O servidor MCP nao respondeu a tempo durante uma tool call. */
+class McpUpstreamTimeoutException(cause: Throwable) :
+    RuntimeException("tempo limite ao consultar ferramenta externa", cause)

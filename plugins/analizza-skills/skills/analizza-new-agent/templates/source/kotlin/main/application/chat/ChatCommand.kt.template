@@ -1,0 +1,10 @@
+package {base-package}.application.chat
+
+<!-- se buildingBlocks -->
+import {bb-package}.application.ResultCommand
+
+data class ChatCommand(val conversationId: String, val body: String?) : ResultCommand<ChatResult>
+<!-- fim se buildingBlocks -->
+<!-- se sem-buildingBlocks -->
+data class ChatCommand(val conversationId: String, val body: String?)
+<!-- fim se sem-buildingBlocks -->

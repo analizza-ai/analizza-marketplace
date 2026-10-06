@@ -1,0 +1,63 @@
+<!-- arquivo se memoria -->
+package {base-package}.infrastructure.configuration
+
+<!-- se memoria-jdbc -->
+import dev.langchain4j.community.store.memory.chat.sql.PostgreSQLDialect
+import dev.langchain4j.community.store.memory.chat.sql.SQLChatMemoryStore
+<!-- fim se memoria-jdbc -->
+import dev.langchain4j.memory.chat.ChatMemoryProvider
+import dev.langchain4j.memory.chat.MessageWindowChatMemory
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+<!-- se memoria-jdbc -->
+import javax.sql.DataSource
+<!-- fim se memoria-jdbc -->
+
+/** Memoria de conversa: janela das ultimas mensagens, uma por conversationId. */
+@Configuration(proxyBeanMethods = false)
+class ChatMemoryConfig {
+
+<!-- se memoria-jdbc -->
+    // autoCreateTable(false): a tabela e da migration V1__chat_memory.sql. Com
+    // Flyway no projeto, schema criado por biblioteca em runtime e schema que
+    // ninguem versionou.
+    //
+    // O store e criado na primeira conversa (lazy), nao na subida: o construtor
+    // dele confere que a tabela existe, e o Flyway ainda nao rodou quando este
+    // bean e instanciado.
+    @Bean
+    fun chatMemoryProvider(dataSource: DataSource): ChatMemoryProvider {
+        val store by lazy {
+            SQLChatMemoryStore.builder()
+                .dataSource(dataSource)
+                .sqlDialect(PostgreSQLDialect())
+                .tableName("chat_memory")
+                .autoCreateTable(false)
+                .build()
+        }
+        return ChatMemoryProvider { memoryId ->
+            MessageWindowChatMemory.builder()
+                .id(memoryId)
+                .maxMessages(MAX_MESSAGES)
+                .chatMemoryStore(store)
+                .build()
+        }
+    }
+<!-- fim se memoria-jdbc -->
+<!-- se memoria-processo -->
+    // Memoria em processo: some a cada restart e nao e compartilhada entre
+    // replicas. Serve para desenvolvimento; em producao com mais de uma
+    // instancia, troque por um ChatMemoryStore persistente.
+    @Bean
+    fun chatMemoryProvider(): ChatMemoryProvider = ChatMemoryProvider { memoryId ->
+        MessageWindowChatMemory.builder()
+            .id(memoryId)
+            .maxMessages(MAX_MESSAGES)
+            .build()
+    }
+<!-- fim se memoria-processo -->
+
+    private companion object {
+        const val MAX_MESSAGES = 30
+    }
+}

@@ -1,0 +1,9 @@
+<!-- arquivo se memoria-jdbc -->
+-- Memoria de conversa do agente: uma linha por conversa, com a janela de
+-- mensagens serializada em JSON. O schema e o que o SQLChatMemoryStore do
+-- LangChain4j espera (PostgreSQLDialect); mudar nome ou tipo de coluna aqui
+-- exige mudar a configuracao do store em ChatMemoryConfig.
+CREATE TABLE chat_memory (
+    memory_id VARCHAR(255) PRIMARY KEY,
+    content   TEXT NOT NULL DEFAULT ''
+);

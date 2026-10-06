@@ -1,0 +1,197 @@
+package {base-package}.infrastructure.observability
+
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.ToolExecutionResultMessage
+import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.model.chat.listener.ChatModelErrorContext
+import dev.langchain4j.model.chat.listener.ChatModelListener
+import dev.langchain4j.model.chat.listener.ChatModelRequestContext
+import dev.langchain4j.model.chat.listener.ChatModelResponseContext
+import dev.langchain4j.model.chat.response.ChatResponse
+import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.api.common.Attributes
+import io.opentelemetry.api.trace.Span
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+
+/**
+ * Enriches OpenTelemetry spans with GenAI Semantic Convention attributes and content events.
+ *
+ * Captura:
+ * 1. Atributos semânticos GenAI (modelo, tokens, finish reason) — sempre ativos
+ * 2. Conteúdo do prompt (mensagens enviadas ao LLM) — controlado por `langchain4j.tracing.include-prompt`
+ * 3. Conteúdo da completion (resposta do LLM) — controlado por `langchain4j.tracing.include-completion`
+ * 4. Argumentos de tool calls — controlado por `langchain4j.tracing.include-tool-arguments`
+ * 5. Resultados de tool calls — controlado por `langchain4j.tracing.include-tool-result`
+ *
+ * Esses eventos e atributos são interpretados pelo LangWatch para exibir as conversas completas.
+ *
+ * @see <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/">GenAI Semantic Conventions</a>
+ */
+@Component
+class GenAiSpanEnricher(
+    private val tracingProperties: TracingProperties,
+) : ChatModelListener {
+
+    override fun onRequest(context: ChatModelRequestContext) {
+        try {
+            val currentSpan = Span.current()
+            context.attributes()[SPAN_CONTEXT_KEY] = currentSpan
+
+            if (!currentSpan.isRecording) {
+                return
+            }
+
+            val params = context.chatRequest().parameters()
+
+            currentSpan.setAttribute("gen_ai.request.model", params.modelName() ?: "unknown")
+            currentSpan.setAttribute("gen_ai.system", "openai")
+            currentSpan.setAttribute("gen_ai.operation.name", "chat")
+
+            // Captura do prompt (mensagens enviadas ao LLM)
+            if (tracingProperties.includePrompt) {
+                capturePromptContent(currentSpan, context.chatRequest().messages())
+            }
+        } catch (e: Exception) {
+            LOG.warn("Falha ao enriquecer span (request)", e)
+        }
+    }
+
+    override fun onResponse(context: ChatModelResponseContext) {
+        try {
+            val span = context.attributes()[SPAN_CONTEXT_KEY] as? Span ?: Span.current()
+
+            if (!span.isRecording) {
+                return
+            }
+
+            val response = context.chatResponse() ?: return
+
+            // Metadata do modelo
+            response.metadata()?.let { metadata ->
+                metadata.modelName()?.let { span.setAttribute("gen_ai.response.model", it) }
+                metadata.finishReason()?.let { span.setAttribute("gen_ai.response.finish_reasons", it.toString()) }
+                metadata.id()?.let { span.setAttribute("gen_ai.response.id", it) }
+            }
+
+            // Token usage — essencial para cálculo de custos no LangWatch
+            response.tokenUsage()?.let { usage ->
+                usage.inputTokenCount()?.let { span.setAttribute("gen_ai.usage.input_tokens", it.toLong()) }
+                usage.outputTokenCount()?.let { span.setAttribute("gen_ai.usage.output_tokens", it.toLong()) }
+                usage.totalTokenCount()?.let { span.setAttribute("gen_ai.usage.total_tokens", it.toLong()) }
+            }
+
+            // Captura da completion (resposta do LLM)
+            if (tracingProperties.includeCompletion) {
+                captureCompletionContent(span, response)
+            }
+        } catch (e: Exception) {
+            LOG.warn("Falha ao enriquecer span (response)", e)
+        }
+    }
+
+    override fun onError(context: ChatModelErrorContext) {
+        // O erro e registrado no span da conversa por ChatTelemetry.fail().
+    }
+
+    /**
+     * Registra cada mensagem do prompt como um span event seguindo as GenAI Semantic Conventions.
+     * O LangWatch interpreta estes eventos para reconstruir a conversa.
+     */
+    private fun capturePromptContent(span: Span, messages: List<ChatMessage>?) {
+        if (messages.isNullOrEmpty()) {
+            return
+        }
+
+        messages.forEachIndexed { i, message ->
+            val role = resolveRole(message)
+            val content = resolveContent(message)
+
+            if (!content.isNullOrEmpty()) {
+                span.addEvent(
+                    "gen_ai.content.prompt",
+                    Attributes.of(
+                        AttributeKey.longKey("gen_ai.prompt.sequence"), i.toLong(),
+                        AttributeKey.stringKey("gen_ai.prompt.role"), role,
+                        AttributeKey.stringKey("gen_ai.prompt.content"), content,
+                    ),
+                )
+            }
+
+            // Captura de tool call arguments em mensagens AI (assistente pedindo tool use)
+            if (tracingProperties.includeToolArguments && message is AiMessage) {
+                captureToolCalls(span, message, i)
+            }
+
+            // Captura de tool results em mensagens de resultado
+            if (tracingProperties.includeToolResult && message is ToolExecutionResultMessage) {
+                span.addEvent(
+                    "gen_ai.content.prompt",
+                    Attributes.of(
+                        AttributeKey.longKey("gen_ai.prompt.sequence"), i.toLong(),
+                        AttributeKey.stringKey("gen_ai.prompt.role"), "tool",
+                        AttributeKey.stringKey("gen_ai.prompt.content"), message.text() ?: "",
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Registra a resposta do LLM como um span event.
+     */
+    private fun captureCompletionContent(span: Span, response: ChatResponse) {
+        val aiMessage = response.aiMessage() ?: return
+
+        val content = aiMessage.text() ?: ""
+
+        span.addEvent(
+            "gen_ai.content.completion",
+            Attributes.of(
+                AttributeKey.stringKey("gen_ai.completion.role"), "assistant",
+                AttributeKey.stringKey("gen_ai.completion.content"), content,
+            ),
+        )
+
+        // Captura de tool calls na resposta
+        if (tracingProperties.includeToolArguments && aiMessage.toolExecutionRequests() != null) {
+            captureToolCalls(span, aiMessage, -1)
+        }
+    }
+
+    private fun captureToolCalls(span: Span, aiMessage: AiMessage, sequence: Int) {
+        val toolRequests = aiMessage.toolExecutionRequests() ?: return
+
+        for (toolReq in toolRequests) {
+            val attrsBuilder = Attributes.builder()
+            attrsBuilder.put("gen_ai.tool.name", toolReq.name() ?: "unknown")
+            toolReq.arguments()?.let { attrsBuilder.put("gen_ai.tool.arguments", it) }
+            toolReq.id()?.let { attrsBuilder.put("gen_ai.tool.call_id", it) }
+            span.addEvent("gen_ai.tool.call", attrsBuilder.build())
+        }
+    }
+
+    private fun resolveRole(message: ChatMessage): String = when (message) {
+        is SystemMessage -> "system"
+        is UserMessage -> "user"
+        is AiMessage -> "assistant"
+        is ToolExecutionResultMessage -> "tool"
+        else -> "unknown"
+    }
+
+    private fun resolveContent(message: ChatMessage): String? = when (message) {
+        is SystemMessage -> message.text()
+        is UserMessage -> message.singleText()
+        is AiMessage -> message.text()
+        is ToolExecutionResultMessage -> message.text()
+        else -> null
+    }
+
+    companion object {
+        private val LOG: Logger = LoggerFactory.getLogger(GenAiSpanEnricher::class.java)
+        private const val SPAN_CONTEXT_KEY = "otel.parent.span"
+    }
+}

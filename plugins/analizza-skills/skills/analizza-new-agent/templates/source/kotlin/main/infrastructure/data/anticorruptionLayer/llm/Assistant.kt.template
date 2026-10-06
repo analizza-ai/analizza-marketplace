@@ -1,0 +1,15 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm
+
+import reactor.core.publisher.Flux
+
+/**
+ * O provedor de LLM visto pelo caso de uso. Nenhum tipo do LangChain4j
+ * aparece aqui de proposito: trocar de biblioteca e reescrever o impl/, nao
+ * os handlers.
+ */
+interface Assistant {
+
+    fun chat(conversationId: String, userInput: String): String
+
+    fun chatStream(conversationId: String, userInput: String): Flux<String>
+}
