@@ -536,8 +536,11 @@ cd {project-name}-web && npx vitest run; echo "EXIT=$?"
 Obrigatório. Sem isso não há como afirmar que o agente funciona.
 
 ```bash
-build=$([ "{mode}" = existente ] && echo "./gradlew :{agent-module}:build --console=plain" || echo "make build")
-$build > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
+if [ "{mode}" = existente ]; then
+  ./gradlew :{agent-module}:build --console=plain > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
+else
+  make build > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
+fi
 # em todo layout (it-dedicado ou it-no-modulo), só o módulo dos ITs:
 ./gradlew :{it-module}:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
 grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' \
