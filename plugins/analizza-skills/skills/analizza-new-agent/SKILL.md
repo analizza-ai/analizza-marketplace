@@ -108,8 +108,8 @@ inteiro: se X não vale, o arquivo **não é criado**. **Nenhuma linha de marcad
 vai para o arquivo final**, e blocos de condição que não vale somem inteiros.
 
 Os marcadores valem para tudo o que a skill grava no projeto: os arquivos de
-`templates/` e também `references/agent-conventions.md` e
-`references/runbook-agent-chat.md`.
+`templates/` e também `references/agent-conventions.md`,
+`references/runbook-agent-chat.md` e `references/readme-env-vars.md`.
 
 | Condição | Vale quando |
 |---|---|
@@ -240,6 +240,9 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
   módulo, não do Initializr.
 - Promova o wrapper, o `settings.gradle{dsl-ext}`, o `.gitignore` e o
   `.gitattributes` à raiz; o resto fica em `{agent-module}/`.
+- Reescreva já o `settings.gradle{dsl-ext}`: `rootProject.name` =
+  `{project-name}` e os `include` de `buildingBlocks` e `{agent-module}` — não
+  há `-api` nem `-core`.
 - Leia do `plugins {}` de `{agent-module}/build.gradle{dsl-ext}` as versões
   que o Initializr resolveu — `{boot-version}`,
   `{dependency-management-version}` e, em Kotlin, `{kotlin-version}` — e grave
@@ -248,13 +251,15 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
   `build.gradle{dsl-ext}` da raiz.
 - Só depois **substitua** o `build.gradle{dsl-ext}` do módulo por
   [agent-module.gradle.kts.template](./templates/build/kts/agent-module.gradle.kts.template)
-  ou [agent-module.gradle.template](./templates/build/groovy/agent-module.gradle.template).
+  ou [agent-module.gradle.template](./templates/build/groovy/agent-module.gradle.template),
+  e grave o `gradle.properties` do fim deste passo: o build do módulo lê a
+  versão do LangChain4j de lá.
 - Gere o `buildingBlocks` exatamente como o Passo 5 da
   [analizza-new-project](../analizza-new-project/SKILL.md) (templates em
   `../analizza-new-project/templates/buildingBlocks/`), inclusive a
-  verificação dele.
-- `settings.gradle{dsl-ext}`: `rootProject.name` = `{project-name}` e os
-  `include` de `buildingBlocks` e `{agent-module}` — não há `-api` nem `-core`.
+  verificação dele. Ela vem depois dos quatro itens acima de propósito: o
+  Gradle configura todos os módulos, e sem o `settings`, o build da raiz, o
+  do módulo e o `gradle.properties` no lugar ela falha por outro motivo.
 - Confira que a classe de aplicação que o Initializr gerou se chama
   `{app-class}` e está em `{package}`; se o nome for outro, o `{app-class}` é
   o que está no disco.
@@ -263,6 +268,11 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
   Initializr. O `contextLoads` dele sobe a aplicação inteira e exigiria as
   variáveis do LLM em todo `build`; o teste de contexto volta como IT no
   Passo 10. E a configuração passa a ser o `application.yaml` do Passo 4.
+- Apague também o que o Initializr deixa e este projeto não usa:
+  `{agent-module}/HELP.md` e os diretórios vazios `static` e `templates` de
+  `{agent-module}/src/main/resources/` (`rmdir`, que só remove se estiver
+  vazio). Ficando, o `find -empty` do Passo 4 os conservaria com `.gitkeep` —
+  e um `templates/` na raiz do classpath é o que as convenções mandam evitar.
 - `git init` agora, se ainda não for repositório — os Passos 7 e 8 dependem disso.
 
 **Existente.** Crie `{agent-module}/` com o `build.gradle{dsl-ext}` do template
@@ -422,6 +432,9 @@ npx --yes create-next-app@latest {project-name}-web \
 [ -d {project-name}-web/.git ] && echo "ATENÇÃO: .git aninhado"
 ```
 
+O `create-next-app` atual gera também `AGENTS.md` e `CLAUDE.md` dentro de
+`{project-name}-web/`: são dele, valem só para aquela pasta e ficam como vieram.
+
 Copie `templates/web/src/` sobre `{project-name}-web/src/`, substituindo o
 `page.tsx` — **menos os três `*.test.ts`**, que entram no Passo 10. Eles
 importam `vitest`, que ainda não está instalado, e o `next build` checa os
@@ -436,7 +449,7 @@ São quatro arquivos neste passo: `app/page.tsx`, `app/api/chat/route.ts`,
 cd {project-name}-web && npm run lint && npm run build; echo "EXIT=$?"
 ```
 
-### Passo 9 — Convenções e runbook
+### Passo 9 — Convenções, runbook e README
 
 Detecte o framework de SDD e o arquivo de destino por
 [sdd-frameworks.md](../analizza-new-project/references/sdd-frameworks.md). O
@@ -447,24 +460,61 @@ resumo de `context:` que ela mostra para o OpenSpec descreve o monorepo da
   [architecture-conventions.md.template](./templates/architecture-conventions.md.template)
   — que abre com `## Arquitetura` — e, logo depois, a seção de
   [agent-conventions.md](./references/agent-conventions.md), que abre com
-  `### Agente` e fica dentro dela.
+  `### Agente` e fica dentro dela. Sem framework detectado e sem preferência
+  do usuário, o destino é `docs/INSTRUCTIONS.md`, criado com o título
+  `# Instruções do projeto`.
 - **Existente:** acrescente só a seção de `agent-conventions.md`, dentro de
   `## Arquitetura` se ela existir, senão no fim do arquivo. **Nunca
   sobrescreva** o que o arquivo já tem; se já houver um `### Agente`, é
   segunda execução: substitua só essa seção.
 
+**`### Agente` é sempre a última seção de `## Arquitetura`.** Toda seção
+`###` que entrar depois dela no tempo — as três que a
+`analizza-integration-test` acrescenta no Passo 10 (`### Variáveis de
+ambiente`, `### Checkpoints de conferência`, `### Débitos técnicos`) — é
+inserida imediatamente **antes** de `### Agente`, nunca no fim do arquivo,
+onde ficaria pendurada depois das subseções `####` do agente.
+
 Grave [runbook-agent-chat.md](./references/runbook-agent-chat.md) como
 `docs/checkpoints/agent-chat.md`. Depois de tirar os marcadores, a primeira
 linha do arquivo é o `---` do frontmatter.
 
-Os dois arquivos de `references/` levam placeholders e marcadores, como
-qualquer template. Confira que nada sobrou:
+Grave a seção de [readme-env-vars.md](./references/readme-env-vars.md) — abre
+com `## Variáveis de ambiente` — no `README.md` da raiz, criando-o com o
+título `# {project-name}` se não existir. Ela lista, **sem valor**, toda
+variável que o `application.yaml` lê. Nos dois modos e em todo layout: as
+regras de projeto que a `analizza-integration-test` grava exigem essa seção,
+e nem ela nem outra skill a escrevem. No modo existente, se o README já tiver
+uma seção com esse título, não a substitua: a tabela entra dentro dela, sob
+um subtítulo `### {agent-module}`. Confira que nenhuma variável ficou de fora:
 
 ```bash
-grep -nE '<!-- (se|fim se|arquivo se) |\{(agent-module|project-name|base-package|mcp-name|mcp-class|mcp-env|agent-port|db-name|db-port|app-class|language|dsl-ext)\}' <arquivo do SDD> docs/checkpoints/agent-chat.md
+for v in $(grep -oE '\$\{[A-Z][A-Z0-9_]*' {agent-module}/src/main/resources/application.yaml | tr -d '${' | sort -u); do
+  grep -q "\`$v=\`" README.md || echo "FALTA NO README: $v"
+done
 ```
 
-Nenhuma linha.
+Nenhuma linha `FALTA NO README`.
+
+Os três arquivos de `references/` levam placeholders e marcadores, como
+qualquer template. **Conferência de sobras** — sobre tudo o que a skill
+gravou, não só sobre eles:
+
+```bash
+nomes='project-name|base|agent-module|app-class|package|base-package|bb-package|package-path|group|java-version|mode|language|src-dir|dsl-ext|boot-version|dependency-management-version|kotlin-version|agent-port|mcp-name|mcp-class|mcp-env|mcp-url|mcp-enabled|db-name|db-port|langchain4j-version|it-module'
+grep -rnE "<!-- (se|fim se|arquivo se) |(^|[^\$\{])\{($nomes)\}" \
+  --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.next \
+  --exclude-dir=.git --exclude-dir=.gradle <onde>
+```
+
+`<onde>` é `.` do zero; no modo existente, só o que a skill escreveu:
+`{agent-module} <arquivo do SDD> docs/checkpoints/agent-chat.md README.md
+Makefile local.env.example local.env.ollama.example langwatch.env.example
+docker-compose.langwatch.yml` — ali, linha em trecho que já era do projeto
+hospedeiro não é sobra. Nenhuma linha. A lista em `nomes` é a tabela
+do Vocabulário, nome a nome, e fica **sem** substituição: é ela que deixa
+passar as chaves legítimas (JSX, `${VAR}`, `{{userInput}}`, o `{}` de log) e
+ainda pega placeholder de uma palavra só, como `{package}` ou `{group}`.
 
 ### Passo 10 — Testes
 
@@ -490,7 +540,7 @@ minutos. Então invoque a skill
 escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
 ```
 
-`ambos` se houver web. Três coisas mudam em relação ao que ela faria sozinha:
+`ambos` se houver web. Quatro coisas mudam em relação ao que ela faria sozinha:
 
 1. **Não crie dublê para nada sob `anticorruptionLayer/llm`** (`Assistant` e
    `llm/impl/AssistantAiService`) quando ela chegar ao `TestConfig`: o
@@ -508,6 +558,18 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
 3. Do `templates/source/{language}/it/` só entram `support/OllamaTestContainer`
    e `presenter/routes/chat/ChatRouteIT`; a base é a que ela gerou (o
    `BaseIntegrationTest` do template é `<!-- arquivo se it-no-modulo -->`).
+4. **O Pitest dela precisa de uma linha a mais.** Ela instala o Pitest no
+   módulo de produção que tem a lógica — o `{mutation-module}` dela, que aqui
+   é o `{agent-module}`: sem `-core`, é o único com `application/` e
+   `domain/`. Em Boot 4 o plugin injeta um `junit-platform-launcher` mais
+   velho que o JUnit do BOM, e `./gradlew :{agent-module}:test` passa a
+   falhar com `OutputDirectoryCreator not available; probably due to
+   unaligned versions`. Logo depois de ela mesclar o bloco `pitest {}` no
+   build do `{agent-module}`, acrescente dentro dele
+   `addJUnitPlatformLauncher = false` (a linha é a mesma em `.kts` e em
+   Groovy; o módulo já declara o launcher como `testRuntimeOnly`) e rode de
+   novo os unitários acima, **antes** da verificação dela. É débito da skill
+   irmã, não deste scaffold — ver [armadilhas](./references/pitfalls-agent.md).
 
 **Integração, `it-no-modulo`.** Copie `templates/source/{language}/it/` para
 dentro do `{agent-module}` — os três arquivos. A `analizza-integration-test`
@@ -530,6 +592,31 @@ cd {project-name}-web && npx vitest run; echo "EXIT=$?"
 `page.test.tsx` que ela gerou. Se o `npm install` do Vitest falhar com
 `ERESOLVE`, veja [armadilhas](./references/pitfalls-agent.md) — nunca
 `--legacy-peer-deps`.
+
+**O que a `analizza-integration-test` grava além dos testes.** Toda invocação
+dela, inclusive a de `escopo=frontend`, também mexe na raiz. É esperado —
+aceite, com estas regras:
+
+- **`Makefile`.** Os alvos dela substituem os nossos de mesmo nome
+  (`test-backend`; `test-web`, que deixa de ser só lint e passa a rodar lint,
+  typecheck e Vitest) e entram `test`, `test-integration` e `test-mutation`.
+  Mantenha a nossa `GRADLEW := ./gradlew`, o nosso `WEB_DIR` e a nossa regra
+  `$(WEB_DIR)/node_modules` (a que depende do `package-lock.json`). Nada de
+  mobile: sem `MOBILE_DIR`, sem `test-mobile`, nem no `test`. O
+  `test-mutation` roda `$(GRADLEW) :{agent-module}:pitest`. Com
+  `escopo=frontend` os alvos de backend continuam os nossos: o
+  `test-integration` dela rodaria `integrationTest` sem o prefixo do módulo,
+  e não há Pitest para um `test-mutation`.
+- **`CLAUDE.md`** da raiz (o bloco *O que "pronto" inclui*), a seção *Testes*
+  do **`README.md`** — a *Variáveis de ambiente* do Passo 9 fica como está —,
+  **`docs/checkpoints/README.md`** e a skill local
+  **`.claude/skills/test-runbook/`**.
+- **Arquivo do SDD.** Com backend no escopo, ela troca o corpo de
+  `### Testes` pelo dela; o parágrafo final, que aponta para *Testes do
+  agente*, continua depois do corpo novo. Nada próprio de agente se perde: o
+  que é de agente mora em `### Agente`, que ela não toca. Em todo escopo ela
+  acrescenta as três seções de regras de projeto — **antes** de `### Agente`
+  (Passo 9).
 
 ### Passo 11 — Verificar
 
@@ -571,34 +658,82 @@ sed -e 's#localhost:11434#localhost:11435#' -e 's#qwen2.5:7b#qwen2.5:3b#' \
     -e 's#^{mcp-env}_ENABLED=.*#{mcp-env}_ENABLED=false#' local.env.ollama.example > local.env.ollama
 make run-agent-ollama > /tmp/agent-run.log 2>&1 &
 for i in $(seq 90); do curl -sf http://localhost:{agent-port}/actuator/health > /dev/null 2>&1 && break; sleep 2; done
-curl -s -D - -X POST http://localhost:{agent-port}/api/v1/agent/http \
+curl -s -D - --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/http \
   -H 'Content-Type: application/json' -H 'X-Conversation-Id: smoke-1' -d '{"body":"Diga oi."}'
-curl -s -N --max-time 240 -X POST http://localhost:{agent-port}/api/v1/agent/stream \
-  -H 'Content-Type: application/json' -d '{"body":"Diga tchau."}' | head -5
+curl -s -N --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/stream \
+  -H 'Content-Type: application/json' -d '{"body":"Diga tchau."}'
 curl -s http://localhost:{agent-port}/actuator/prometheus | grep '^chat_requests_total'
 ```
 
 Precisa vir `200` com o header `X-Conversation-Id: smoke-1` ecoado e
-`response` não vazio, linhas `data:`, e
-`chat_requests_total{outcome="success"}`. Se o loop estourar, leia
-`/tmp/agent-run.log` e reporte — não siga adiante. Com `postgres`, o próprio
-`make run-agent-ollama` sobe o banco.
+`response` não vazio, linhas `data:` até o fluxo acabar sozinho, e
+`chat_requests_total{outcome="success"}` valendo `2.0` — as duas conversas.
+**Não corte o SSE** (`| head`, Ctrl+C): fechar a conexão no meio do fluxo é
+contado como `outcome="failure"`, e a métrica passa a parecer defeito. Uma
+série `failure` aqui é isso ou uma conversa que falhou de verdade — nos dois
+casos, leia `/tmp/agent-run.log`. Se o loop estourar, leia o mesmo log e
+reporte — não siga adiante. Com `postgres`, o próprio `make run-agent-ollama`
+sobe o banco.
 
-Encerre na ordem, e confirme que as portas ficaram livres:
+Sem o LangWatch no ar, o log traz `ERROR … Failed to export spans` de tempos
+em tempos (o exporter OTLP não alcança `localhost:5560`). É esperado e não é
+falha do agente: ao procurar erro no log, desconte essas linhas (ver
+[armadilhas](./references/pitfalls-agent.md)).
+
+Encerre na ordem — a árvore inteira que o `make` em background abriu, não só
+quem segura a porta — e confirme que nada sobrou:
 
 ```bash
-lsof -ti tcp:{agent-port} | xargs kill
+lsof -ti tcp:{agent-port} | xargs kill      # a JVM do agente
+pkill -f '[:]{agent-module}:bootRun'         # o bash da receita e o cliente do gradlew
+./gradlew --stop                             # o daemon do Gradle
 docker stop agent-smoke-ollama
 # so com postgres -- do zero: make db-down      existente: docker compose stop postgres-agent
 rm local.env.ollama        # so se foi o smoke que criou
-lsof -ti tcp:{agent-port}; echo "porta livre se nada acima"
+sleep 3
+pgrep -fl '[:]{agent-module}:bootRun'; lsof -ti tcp:{agent-port}; echo "encerrado se nada acima"
 ```
+
+O `[:]` é de propósito: sem ele o `pkill -f` casa com o próprio shell que o
+executa. O `--stop` derruba todo daemon dessa versão do Gradle, inclusive o
+de outro projeto aberto na máquina. Com `postgres`, confira também a porta
+`{db-port}`.
+
+**Auditoria e commit.** Só com tudo acima verde. Repita antes a conferência
+de sobras do Passo 9: os testes entraram depois dela.
+
+*Do zero, em pasta que estava vazia* — audite o que vai entrar e faça **um**
+commit para o scaffold:
+
+```bash
+git add -A
+git diff --cached --name-only | grep -cE '(^|/)(node_modules|\.next|build)/'
+git ls-files --stage | grep -c '^160000'
+git diff --cached --name-only | grep -cE '(^|/)(local\.env|local\.env\.ollama|langwatch\.env)$'
+git commit -q -m "Scaffold do agente {project-name}" && git log --oneline -1
+```
+
+Os três `grep` precisam devolver `0`, **antes** do commit. O segundo pega
+gitlink: se o `{project-name}-web` aparecer assim, o `.git` aninhado do
+Passo 8 passou — remova-o, rode `git rm -r --cached {project-name}-web` e
+`git add -A` de novo. O terceiro pega arquivo de ambiente com valor real.
+
+*Modo existente, ou do zero em pasta que já tinha arquivos* — **não commite**
+nem rode `git add`: mostre o `git status --short` ao usuário e deixe o commit
+com ele. O repositório é dele, e a skill não sabe o que mais está em
+andamento ali.
 
 ### Passo 12 — Relatar
 
 - O modo detectado, a linguagem, o conjunto de condições, e as versões reais
   (Boot, Java, LangChain4j, Next) — **lidas dos arquivos**
 - Os `EXIT=` e as contagens de teste observados, unitários e de integração
+- Quando a `analizza-integration-test` rodou: o que ela criou (módulo de
+  ITs, `CLAUDE.md`, `README.md`, `docs/checkpoints/README.md`,
+  `.claude/skills/test-runbook/`, alvos do `Makefile`) e, com backend no
+  escopo, o mutation score do `{agent-module}` com as classes de mutantes
+  sobreviventes, e que foi preciso `addJUnitPlatformLauncher = false` no
+  bloco `pitest {}` — débito da skill irmã
 - O que ficou **desligado** e como ligar: servidor MCP, memória, web
 - Com `memoria-processo`: que a memória some a cada restart
 - Com `memoria-jdbc`: que uma tabela `chat_memory` ausente aparece como `502`
@@ -614,7 +749,10 @@ lsof -ti tcp:{agent-port}; echo "porta livre se nada acima"
 - Que o primeiro IT baixa ~2 GB e que os ITs ficam fora do `build`
 - Que o endpoint de chat nasce **sem autenticação** e que o profile padrão é
   `dev`, com o conteúdo das conversas nos traces
-- Onde as convenções e o runbook foram gravados
+- Onde as convenções e o runbook foram gravados, e que o `README.md` lista as
+  variáveis de ambiente
+- O commit do scaffold (do zero) ou, no modo existente, que **nada foi
+  commitado** e o `git status` ficou para o usuário
 - O que **não** foi conferido — a tela no navegador, o trace no LangWatch — em
   vez de afirmar que funciona
 

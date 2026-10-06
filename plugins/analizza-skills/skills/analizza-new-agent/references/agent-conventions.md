@@ -59,6 +59,12 @@ biblioteca de LLM é reescrever `impl/`.
 `local.env` e `local.env.ollama` nunca são versionados: copie do `.example` ao
 lado de cada um. Sem o arquivo, o `make` falha dizendo qual `cp` fazer.
 
+Esses dois, na raiz, **são os arquivos de ambiente deste projeto** — o
+equivalente, no backend, ao `.env.local` de um web. Onde uma regra do projeto
+falar no `.env.local` da raiz, leia `local.env` e `local.env.ollama`. Uma
+variável nova entra no `application.yaml`, na seção *Variáveis de ambiente* do
+`README.md` (só o nome, sem valor) e nos dois `.example`, no mesmo commit.
+
 #### Identidade vem da requisição, nunca do modelo
 
 O identificador de quem está conversando — usuário, cliente, tenant — chega na
@@ -212,6 +218,10 @@ agente.
 |---|---|---|
 | Unitário (`*Test`) | `ScriptedChatModel` — roteiro determinístico | texto exato, fluxo de tool, classificação de falha, contrato HTTP |
 | Integração (`*IT`) | Ollama em Testcontainers | a aplicação inteira responde de verdade |
+
+`*Test` é o que `./gradlew test` e o `build` rodam: sem container, sem LLM de
+verdade e sem rede — o contrato HTTP da rota é unitário de fatia web
+(`ChatRouteTest`). `*IT` fica **fora** do `build`.
 
 **Um IT nunca compara o texto da resposta.** Com modelo pequeno ele varia.
 Afirme status, forma do JSON, resposta não vazia, header ecoado, linha de

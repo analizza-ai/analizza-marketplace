@@ -64,6 +64,14 @@ Um token `" mundo"` chega como `data: mundo`. Um parser que tira o espaço
 depois dos dois-pontos — o que a especificação de SSE manda — cola as palavras.
 O `parseSse` do web guarda tudo depois de `data:`.
 
+### Cliente que fecha o SSE no meio conta como falha
+
+`chat_requests_total{outcome="failure"}` sobe quando o cliente fecha a
+conexão antes de o fluxo terminar: `curl -N … | head`, Ctrl+C, aba fechada. O
+agente não sabe distinguir isso de um fluxo que quebrou. Num smoke, deixe o
+`curl` ir até o fim (com `--max-time`); senão a métrica mostra uma falha que
+não é defeito.
+
 ### `{{userInput}}` não é placeholder da skill
 
 Em `prompts/user-prompt.prompt` as chaves duplas são a variável de template do
@@ -95,6 +103,27 @@ sobe o Postgres é a própria receita, depois da checagem. Ao mexer no
 `Makefile`, não transforme isso em pré-requisito do alvo — pré-requisito roda
 antes da receita, e o Docker voltaria a subir para depois falhar por falta do
 arquivo.
+
+### `Failed to export spans` sem o LangWatch no ar
+
+O exporter OTLP aponta, por padrão, para o LangWatch local
+(`localhost:5560`). Com ele parado, cada lote de spans vira uma linha
+`ERROR … HttpExporter : Failed to export spans` no log do agente, de tempos em
+tempos. Não é falha do agente nem do smoke: desconte essas linhas ao procurar
+erro no log. Para calar em desenvolvimento, sem subir o LangWatch, ponha
+`OTEL_TRACES_SAMPLER_RATIO=0.0` no `local.env` — nenhuma requisição é
+amostrada, então não há o que exportar. Tire a linha antes de querer ver um
+trace.
+
+### Matar quem segura a porta não encerra o `make run-agent`
+
+`make run-agent-ollama &` abre uma árvore: o `make`, o `bash` da receita, o
+cliente do `gradlew` e, fora dela, o daemon do Gradle, que é quem lança a JVM
+do agente. `lsof -ti tcp:<porta> | xargs kill` mata só a JVM; o resto pode
+ficar vivo, segurando o terminal e memória. O Passo 11 do `SKILL.md` encerra
+os três: a JVM pela porta, `pkill -f '[:]<módulo>:bootRun'` para o `bash` e o
+cliente, e `./gradlew --stop` para o daemon. O `[:]` no padrão é o que impede
+o `pkill -f` de casar com o próprio shell que o executa.
 
 ## Web
 
@@ -155,3 +184,34 @@ Ela cria dublê em memória para toda interface de
 nenhum dublê é criado ali e o `{doubles}` do `TestConfig` fica vazio neste
 módulo. Um dublê `@Primary` faria o `ChatRouteIT` passar sem nunca chamar um
 LLM; o IT existe para exercitar o LLM real no container.
+
+### O Pitest da `analizza-integration-test` quebra os unitários em Boot 4
+
+Débito da skill irmã, contornado aqui. O template de Pitest dela aplica o
+plugin `info.solidsoft.pitest` com `junit5PluginVersion`, e o plugin, por
+padrão, acrescenta ao classpath de teste do módulo um
+`junit-platform-launcher` da linha 1.x. O BOM do Spring Boot 4 traz o JUnit 6:
+engine e launcher ficam em versões diferentes, e todo
+`./gradlew :<módulo>:test` — portanto todo `build` — passa a falhar com:
+
+```
+OutputDirectoryCreator not available; probably due to unaligned versions of
+the junit-platform-engine and junit-platform-launcher jars on the classpath
+```
+
+`./gradlew :<módulo>:dependencyInsight --dependency junit-platform-launcher
+--configuration testRuntimeClasspath` mostra a versão forçada pelo plugin.
+
+A correção é uma linha dentro do bloco `pitest {}` do `{agent-module}`, a
+mesma em `.kts` e em Groovy:
+
+```kotlin
+    // O launcher ja vem do BOM do Boot; o que o plugin adicionaria desalinha do engine.
+    addJUnitPlatformLauncher = false
+```
+
+O build do módulo já declara
+`testRuntimeOnly("org.junit.platform:junit-platform-launcher")`, sem versão,
+então o launcher continua no classpath — na versão do BOM. O Pitest roda
+normalmente depois disso. Enquanto o template dela não trouxer a linha, quem
+aplica esta skill a acrescenta (Passo 10) e o diz no relatório.
