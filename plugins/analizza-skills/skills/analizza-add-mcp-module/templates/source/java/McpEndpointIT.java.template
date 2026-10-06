@@ -11,8 +11,14 @@ import {base-integration-test-fqn};
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -64,6 +70,34 @@ class {Tools-class}IT extends BaseIntegrationTest {
         } finally {
             cliente.closeGracefully();
         }
+    }
+
+    @Test
+    void tools_call_sem_initialize_nem_session_id_funciona_porque_o_servidor_nao_guarda_sessao() throws Exception {
+        // A definicao observavel de protocol=STATELESS: a requisicao se basta.
+        // Em STREAMABLE o servidor recusa ("Session ID missing") qualquer
+        // chamada sem o Mcp-Session-Id devolvido pelo initialize -- e por isso
+        // uma segunda replica, ou o mesmo pod depois de um deploy, derruba o
+        // cliente que ja estava conectado. HTTP cru de proposito: o cliente MCP
+        // sempre faz o initialize antes, e esconderia o que este teste ve.
+        String corpo = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"{tool-name}\",\"arguments\":{}}}";
+        HttpRequest requisicao = HttpRequest.newBuilder(URI.create("http://localhost:" + portaMcp + "/mcp"))
+                .header("Authorization", "Bearer " + {token-autenticado})
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(corpo))
+                .build();
+
+        HttpResponse<String> resposta =
+                HttpClient.newHttpClient().send(requisicao, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(200, resposta.statusCode(), "esperava a tool respondendo sem sessao, veio: " + resposta.body());
+        assertTrue(resposta.body().contains("\"result\""), "esperava um result JSON-RPC, veio: " + resposta.body());
+        assertFalse(resposta.body().contains("\"isError\":true"), "a tool devolveu erro: " + resposta.body());
+        assertTrue(
+                resposta.headers().firstValue("Mcp-Session-Id").isEmpty(),
+                "servidor sem sessao nao deveria devolver Mcp-Session-Id");
     }
 
     @Test

@@ -9,6 +9,13 @@ Quem chamou vem de `Authentication.getName()` e `getAuthorities()`, nunca do
 objeto do token: é o que mantém a tool funcionando se o mecanismo de
 autenticação mudar.
 
+`spring.ai.mcp.server.protocol=STATELESS`: o servidor não guarda sessão, então
+qualquer réplica atende qualquer chamada e um deploy não derruba o cliente
+conectado. Uma tool que precise de progresso, log ou elicitation pede
+`STREAMABLE` de volta — e, com ele, afinidade de sessão no ingress. O endpoint
+continua em `streamable-http.mcp-endpoint`: é a propriedade que o modo
+stateless lê.
+
 `spring.ai.mcp.server.type=SYNC` não é preferência. Em modo streaming o
 `ThreadLocal` do `SecurityContextHolder` não é garantido, e a tool perderia a
 identidade de quem chamou.

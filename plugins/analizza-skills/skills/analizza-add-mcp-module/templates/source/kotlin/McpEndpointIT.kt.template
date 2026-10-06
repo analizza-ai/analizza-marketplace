@@ -8,7 +8,12 @@ import io.modelcontextprotocol.spec.McpSchema
 // Ha projeto que a guarda em {base-package}.support e projeto que a guarda
 // direto em {base-package}: nao presuma subpacote.
 import {base-integration-test-fqn}
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.springframework.boot.test.web.server.LocalServerPort
 
@@ -61,6 +66,33 @@ class {Tools-class}IT : BaseIntegrationTest() {
         } finally {
             cliente.closeGracefully()
         }
+    }
+
+    @Test
+    fun `tools_call sem initialize nem Mcp-Session-Id funciona, porque o servidor nao guarda sessao`() {
+        // A definicao observavel de protocol=STATELESS: a requisicao se basta.
+        // Em STREAMABLE o servidor recusa ("Session ID missing") qualquer
+        // chamada sem o Mcp-Session-Id devolvido pelo initialize -- e por isso
+        // uma segunda replica, ou o mesmo pod depois de um deploy, derruba o
+        // cliente que ja estava conectado. HTTP cru de proposito: o cliente MCP
+        // sempre faz o initialize antes, e esconderia o que este teste ve.
+        val corpo = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"{tool-name}","arguments":{}}}"""
+        val requisicao = HttpRequest.newBuilder(URI.create("http://localhost:$portaMcp/mcp"))
+            .header("Authorization", "Bearer " + {token-autenticado})
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .POST(HttpRequest.BodyPublishers.ofString(corpo))
+            .build()
+
+        val resposta = HttpClient.newHttpClient().send(requisicao, HttpResponse.BodyHandlers.ofString())
+
+        assertEquals(200, resposta.statusCode(), "esperava a tool respondendo sem sessao, veio: ${resposta.body()}")
+        assertTrue(resposta.body().contains("\"result\""), "esperava um result JSON-RPC, veio: ${resposta.body()}")
+        assertTrue(!resposta.body().contains("\"isError\":true"), "a tool devolveu erro: ${resposta.body()}")
+        assertTrue(
+            resposta.headers().firstValue("Mcp-Session-Id").isEmpty,
+            "servidor sem sessao nao deveria devolver Mcp-Session-Id",
+        )
     }
 
     @Test
