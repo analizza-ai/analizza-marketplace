@@ -24,6 +24,11 @@ force a tool `{tool-name}`. Confira:
 - **Token errado.** Troque o token por qualquer string. Esperado: recusa de
   autenticação antes de a tool rodar — nunca stack trace, nunca dado.
 - **Sem o cabeçalho.** Remova o `Authorization`. Mesmo resultado.
+- **Reiniciar a aplicação no meio da conversa.** Com o cliente conectado e a
+  tool já chamada uma vez, derrube e suba a aplicação e, **sem reconectar o
+  cliente**, peça de novo. Esperado: a tool responde. O servidor não guarda
+  sessão (`protocol=STATELESS`); erro de sessão aqui ("Session ID missing",
+  "session not found") é sinal de que o protocolo voltou para `STREAMABLE`.
 - **Papel sem acesso** (se a tool exigir papel): token de alguém sem o papel.
   Esperado: a tool recusa com a mensagem de papel insuficiente, sem devolver
   dado nenhum.

@@ -3,9 +3,9 @@ name: analizza-add-mcp-module
 description: >-
   Acrescenta um servidor MCP a um projeto Spring Boot em camadas já existente
   (Java ou Kotlin, Gradle Groovy ou Kotlin DSL) como módulo de biblioteca
-  {base}-mcp, servido por Streamable HTTP em /mcp no mesmo processo do -api.
+  {base}-mcp, servido por HTTP sem sessão em /mcp no mesmo processo do -api.
   Detecta linguagem, DSL e pacote base, cria o módulo, liga a configuração
-  STREAMABLE/SYNC, gera a ponte de autenticação que lê Authentication em vez do
+  STATELESS/SYNC, gera a ponte de autenticação que lê Authentication em vez do
   token, uma tool de exemplo a partir de um caso de uso de leitura do projeto,
   um teste de integração com cliente MCP real e o runbook de conferência. Use
   quando o usuário pedir "servidor MCP", "add mcp", "expor as consultas para
@@ -237,16 +237,36 @@ No `application.properties` do `{api-module}`:
 
 ```properties
 # Servidor MCP servido no mesmo processo deste app.
+# STATELESS: o servidor nao guarda sessao (nao ha Mcp-Session-Id), entao cada
+# requisicao se basta -- qualquer replica atende, e um deploy nao derruba o
+# cliente que ja estava conectado. O preco e nao haver canal do servidor para
+# o cliente: tool com progresso, log ou elicitation pede STREAMABLE de volta.
 # SYNC nao e preferencia: e o que garante a tool rodar na mesma thread servlet
 # que autenticou a requisicao, deixando SecurityContextHolder legivel dentro
 # do @McpTool (CurrentMcpUser depende disso).
-spring.ai.mcp.server.protocol=STREAMABLE
+# O endpoint continua em streamable-http.*: e a propriedade que o modo
+# stateless le, apesar do nome.
+spring.ai.mcp.server.protocol=STATELESS
 spring.ai.mcp.server.type=SYNC
 spring.ai.mcp.server.name={base}-mcp
 spring.ai.mcp.server.streamable-http.mcp-endpoint=/mcp
 ```
 
 Em `.yml`, a mesma árvore aninhada.
+
+**`STATELESS` é o padrão desta skill, não uma opção a perguntar.** O MCP divide
+o pod com o `{api-module}`, que costuma rodar em mais de uma réplica e é
+reimplantado a cada entrega; a sessão do `STREAMABLE` mora na memória de um pod
+só, e sem afinidade de sessão no ingress a segunda chamada cai em outra réplica
+e é recusada. Sem sessão, esse problema não existe. Troque para `STREAMABLE` à
+mão **só** quando uma tool precisar falar com o cliente no meio da chamada —
+progresso, log, elicitation, sampling, `tools/list_changed` — e leve junto a
+afinidade de sessão.
+
+**Não renomeie `streamable-http.mcp-endpoint`.** Não existe
+`stateless.mcp-endpoint` no Spring AI {spring-ai-version}: a autoconfiguração do
+modo stateless lê a mesma classe de propriedades do streamable. Uma chave
+"corrigida" é ignorada em silêncio e o endpoint volta para o padrão.
 
 **O módulo de teste pode ter um `application.properties` que sombreia esse por
 completo.** Confira antes de seguir:
@@ -262,7 +282,7 @@ de teste vence, e o do `{api-module}` some inteiro da rodada de teste — não s
 as linhas conflitantes.
 
 O sintoma dessa falta **não parece configuração faltando**: o servidor MCP sobe
-sem `STREAMABLE`/`SYNC`, a chamada da tool estoura por dentro, o erro vira um
+sem `STATELESS`/`SYNC`, a chamada da tool estoura por dentro, o erro vira um
 forward para `/error` que a cadeia de segurança recusa, e o IT falha com
 **401 sobre um token genuinamente válido**. Erro de autenticação é o disfarce
 padrão dessa lacuna. Se o IT do Passo 5 recusar um token que você sabe que é
@@ -348,7 +368,7 @@ entrypoint chamado `{Tools-class}`. Substitua também:
 | `{token-autenticado}` | a expressão que o projeto já usa para emitir um token válido num IT (ex.: `tokenFor("alguem@exemplo.com")`). Sem helper assim, escreva um e diga no relatório. |
 | `{semeadura}` | as linhas que gravam **uma** linha pelo repositório do agregado, para a tool ter o que devolver. Sem repositório acessível no IT, deixe vazio e **relate** que o teste prova protocolo e autenticação, mas não que a tool devolve dado. |
 | `{assercao-dado}` | a asserção sobre o dado semeado (ex.: que o `structuredContent` contém o título gravado). Vazio se `{semeadura}` ficou vazio. Se a asserção pedir um helper que o template não importa (`assertEquals`, por exemplo), acrescente o import. |
-| `{teste-papel}` | com papéis (Passo 3), um terceiro teste: token **sem** o papel exigido chama a tool e o resultado vem com `isError` verdadeiro. Sem papéis, vazio. |
+| `{teste-papel}` | com papéis (Passo 3), mais um teste: token **sem** o papel exigido chama a tool e o resultado vem com `isError` verdadeiro. Sem papéis, vazio. |
 
 A porta vem de um `@LocalServerPort` **do próprio IT** (`portaMcp`), já no
 template: o campo `port` da `BaseIntegrationTest` é `private` e subclasse
