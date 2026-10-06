@@ -149,6 +149,9 @@ verificação dela.
 ### A `analizza-integration-test` oferece um dublê para `Assistant`
 
 Ela cria dublê em memória para toda interface de
-`infrastructure/data/anticorruptionLayer` que não tenha container. O
-`Assistant` **tem**: o Ollama. Um dublê `@Primary` dele faria o `ChatRouteIT`
-passar sem nunca chamar um LLM.
+`infrastructure/data/anticorruptionLayer` que não tenha container. O LLM
+**tem**: o Ollama. Isso vale para tudo sob `anticorruptionLayer/llm` — o
+`Assistant` e também `llm/impl/AssistantAiService`, que é interface —, então
+nenhum dublê é criado ali e o `{doubles}` do `TestConfig` fica vazio neste
+módulo. Um dublê `@Primary` faria o `ChatRouteIT` passar sem nunca chamar um
+LLM; o IT existe para exercitar o LLM real no container.

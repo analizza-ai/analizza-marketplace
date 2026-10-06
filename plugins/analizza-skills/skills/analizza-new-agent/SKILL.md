@@ -72,7 +72,7 @@ agente é uma aplicação Spring Boot própria, que **não depende do `-core` ne
 | `{app-class}` | PascalCase de `{agent-module}` + `Application` (`demo-agent` → `DemoAgentApplication`) |
 | `{package}` | pacote base do projeto |
 | `{base-package}` | pacote raiz do agente: `{package}` do zero, `{package}.agent` no existente |
-| `{bb-package}` | pacote do `buildingBlocks`: `{package}` |
+| `{bb-package}` | pacote do `buildingBlocks`: `{package}` do zero; no existente, **detectado** (o pacote onde o `buildingBlocks` do projeto declara, por exemplo, `ResultCommandHandler`, Passo 1) |
 | `{package-path}` | `{base-package}` com `.` trocado por `/` |
 | `{group}`, `{java-version}` | perguntados (do zero) ou lidos do build (existente) |
 | `{language}`, `{src-dir}` | `kotlin` ou `java` — o mesmo valor nos dois |
@@ -268,7 +268,11 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
 da DSL do projeto, acrescente o `include` ao `settings.gradle{dsl-ext}` e
 confira que a raiz declara, com versão, todo plugin que o módulo aplica sem
 versão (`org.springframework.boot`, `io.spring.dependency-management` e, em
-Kotlin, `kotlin("jvm")` e `kotlin("plugin.spring")`). A classe de aplicação vem
+Kotlin, `kotlin("jvm")` e `kotlin("plugin.spring")`). Se faltar algum, acrescente
+a declaração (`apply false`, com versão) **só** ao build da raiz, depois de
+mostrar a mudança ao usuário; nunca edite o build do `-api` nem do `-core`. Se o
+projeto gerencia as versões de plugin de um jeito que a skill não sabe seguir
+(catálogo de versões, `pluginManagement`), pare e pergunte. A classe de aplicação vem
 de `templates/source/{language}/main/__app-class__.*`, copiada no Passo 4 — o
 arquivo só existe neste modo (`<!-- arquivo se existente -->`).
 
@@ -487,9 +491,12 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
 
 `ambos` se houver web. Três coisas mudam em relação ao que ela faria sozinha:
 
-1. **Não crie dublê para `Assistant`** quando ela chegar ao `TestConfig`. Ela
-   cria dublê para interface de saída *sem container*, e o LLM tem: o Ollama.
-   Um dublê `@Primary` faria o `ChatRouteIT` passar sem chamar LLM nenhum.
+1. **Não crie dublê para nada sob `anticorruptionLayer/llm`** (`Assistant` e
+   `llm/impl/AssistantAiService`) quando ela chegar ao `TestConfig`: o
+   `{doubles}` dele fica vazio neste módulo. Ela cria dublê para interface de
+   saída *sem container*, e o LLM tem: o Ollama. O IT existe para exercitar o
+   LLM de verdade; um dublê `@Primary` faria o `ChatRouteIT` passar sem chamar
+   LLM nenhum.
 2. **Antes da verificação dela** (o passo "Verificar", que roda
    `./gradlew integrationTest`), aplique
    [it-llm-layer.md](./references/it-llm-layer.md), trocando `{mcp-name}` nos
@@ -503,8 +510,10 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
 
 **Integração, `it-no-modulo`.** Copie `templates/source/{language}/it/` para
 dentro do `{agent-module}` — os três arquivos. A `analizza-integration-test`
-**não** é invocada para o backend: ela exige um banco e um módulo dedicado
-cuja aplicação é a do `-api`. Consequência a relatar: sem regra ArchUnit,
+**não** é invocada para o backend: a base de teste dela exige um container de
+banco (não serve a um módulo sem Postgres) e, no modo existente, invocá-la
+reescreveria a configuração de teste do projeto hospedeiro, que esta skill não
+pode tocar. Consequência a relatar: sem regra ArchUnit,
 JaCoCo e Pitest para o agente. Havendo web, invoque-a com `escopo=frontend`.
 
 **Web (só `web`).** Depois que a `analizza-integration-test` instalar o Vitest
@@ -528,11 +537,17 @@ Obrigatório. Sem isso não há como afirmar que o agente funciona.
 ```bash
 # do zero: make build        existente: ./gradlew :{agent-module}:build --console=plain
 make build > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
-# it-dedicado: ./gradlew integrationTest      it-no-modulo: ./gradlew :{agent-module}:integrationTest
-./gradlew integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
-find . -path '*/build/test-results/integrationTest/*.xml' -not -path '*/node_modules/*' \
-  -exec grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' {} \;
+# em todo layout (it-dedicado ou it-no-modulo), só o módulo dos ITs:
+./gradlew :{it-module}:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
+grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' \
+  {it-module}/build/test-results/integrationTest/*.xml
+# unitários (já lidos no Passo 10): {agent-module}/build/test-results/test/*.xml
 ```
+
+No modo existente, escreva a linha do `build` como
+`./gradlew :{agent-module}:build --console=plain` (o `make build` pode não
+existir ou construir `-api`, `-core` e web) — e nunca rode `integrationTest` sem
+o prefixo do módulo, que executaria também os ITs do projeto hospedeiro.
 
 O `build` não precisa de banco, de LLM nem de Docker: os unitários usam LLM
 roteirizado e os ITs ficam fora dele. Nos ITs, exija `EXIT=0`,
@@ -588,6 +603,11 @@ lsof -ti tcp:{agent-port}; echo "porta livre se nada acima"
 - No modo existente com `{base}-mcp`: que falta a credencial em
   `{mcp-env}_AUTHORIZATION`, se o servidor for protegido
 - Em `it-no-modulo`: que o agente ficou sem ArchUnit, JaCoCo e Pitest
+- Quando a `analizza-integration-test` não rodou para o backend (todo
+  `it-no-modulo` sem web e todo o modo existente, salvo projeto que já os tenha):
+  que `docs/checkpoints/README.md` e a skill `test-runbook` não foram
+  instalados, então o runbook `docs/checkpoints/agent-chat.md` ficou sem quem o
+  conduza; o usuário instala com a skill `test-runbook`
 - Que o primeiro IT baixa ~2 GB e que os ITs ficam fora do `build`
 - Que o endpoint de chat nasce **sem autenticação** e que o profile padrão é
   `dev`, com o conteúdo das conversas nos traces

@@ -42,7 +42,7 @@ O `make` sobe o Postgres antes do agente; o Docker precisa estar rodando.
 <!-- fim se existente -->
 <!-- fim se memoria-jdbc -->
 <!-- se web -->
-| Tela | `make run`, abrir `http://localhost:3000`, mandar uma mensagem | o texto aparece aos poucos |
+| Tela | `make run-web`, abrir `http://localhost:3000`, mandar uma mensagem | o texto aparece aos poucos |
 <!-- se memoria -->
 | Tela, memória | na mesma página, dizer o nome e depois perguntar por ele | a segunda resposta lembra da primeira; recarregar a página começa outra conversa |
 <!-- fim se memoria -->

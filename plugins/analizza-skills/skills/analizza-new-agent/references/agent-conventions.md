@@ -165,6 +165,10 @@ nenhuma; quem escrever a primeira `@Entity` troca o starter por
 `spring-boot-starter-data-jpa`.
 <!-- se kotlin -->
 Com a troca, aplique também o `kotlin("plugin.jpa")` no módulo.
+<!-- se existente -->
+Se a raiz ainda não declara esse plugin com versão, declare-o no build da raiz
+antes (`apply false`).
+<!-- fim se existente -->
 <!-- fim se kotlin -->
 <!-- se do-zero -->
 
