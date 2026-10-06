@@ -1,0 +1,139 @@
+################################################################################
+# LangWatch — Stack de observabilidade auto-hospedada (uso local/dev)
+################################################################################
+#
+# Sobe o LangWatch (App + Workers in-process + NLP + LangEvals) com sua
+# própria infraestrutura (Postgres, Redis, ClickHouse), isolado do stack da
+# aplicação principal deste repositório.
+#
+# Uso:
+#   1. cp langwatch.env.example langwatch.env
+#   2. Gere os segredos indicados no arquivo (ex.: openssl rand -hex 32)
+#   3. make langwatch-up   (ou: docker compose -f docker-compose.langwatch.yml --env-file langwatch.env up -d)
+#   4. Acesse http://localhost:5560
+#
+# Referência: https://langwatch.ai/docs/self-hosting/deployment/docker-compose
+#
+################################################################################
+
+name: langwatch
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langwatch
+      POSTGRES_PASSWORD: ${LANGWATCH_POSTGRES_PASSWORD:-langwatch}
+      POSTGRES_DB: langwatch
+    # Sem porta publicada: 5432 no host e do banco do projeto.
+    volumes:
+      - langwatch_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langwatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - langwatch_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: langwatch/clickhouse-serverless:0.2.0
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_PASSWORD: ${LANGWATCH_CLICKHOUSE_PASSWORD:-langwatch}
+    ports:
+      - "8123:8123"
+    volumes:
+      - langwatch_clickhouse_data:/var/lib/clickhouse
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langwatch_nlp:
+    image: langwatch/langwatch_nlp:latest
+    restart: unless-stopped
+    ports:
+      - "5561:5561"
+    environment:
+      LANGWATCH_ENDPOINT: http://app:5560
+
+  langevals:
+    image: langwatch/langevals:latest
+    restart: unless-stopped
+    ports:
+      - "5562:5562"
+
+  app:
+    image: langwatch/langwatch:latest
+    restart: unless-stopped
+    ports:
+      - "5560:5560"
+    environment: &langwatch-app-env
+      NODE_ENV: production
+      DATABASE_URL: postgresql://langwatch:${LANGWATCH_POSTGRES_PASSWORD:-langwatch}@postgres:5432/langwatch
+      REDIS_URL: redis://redis:6379
+      CLICKHOUSE_URL: http://default:${LANGWATCH_CLICKHOUSE_PASSWORD:-langwatch}@clickhouse:8123/langwatch
+      BASE_HOST: http://localhost:5560
+      NEXTAUTH_URL: http://localhost:5560
+      # Endpoint que o próprio app usa para se referenciar (obrigatório na
+      # migração do ClickHouse e em callbacks internos, ex.: langwatch_nlp).
+      LANGWATCH_ENDPOINT: http://app:5560
+      API_TOKEN_JWT_SECRET: ${LANGWATCH_API_TOKEN_JWT_SECRET:?defina em langwatch.env}
+      CREDENTIALS_SECRET: ${LANGWATCH_CREDENTIALS_SECRET:?defina em langwatch.env}
+      NEXTAUTH_SECRET: ${LANGWATCH_NEXTAUTH_SECRET:?defina em langwatch.env}
+      CRON_API_KEY: ${LANGWATCH_CRON_API_KEY:?defina em langwatch.env}
+      LANGWATCH_NLP_SERVICE: http://langwatch_nlp:5561
+      LANGEVALS_ENDPOINT: http://langevals:5562
+      DISABLE_USAGE_STATS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  # Serviço separado dos workers (fila BullMQ/Redis) — a imagem de produção não
+  # empacota o binário `concurrently`, então START_WORKERS=true no serviço
+  # `app` quebra com "concurrently: command not found"; workers precisam rodar
+  # como processo/serviço próprio (mesma imagem, comando start:workers).
+  workers:
+    image: langwatch/langwatch:latest
+    restart: unless-stopped
+    # WORKDIR da imagem é /app; o CMD padrão faz "cd platform/app" antes de
+    # rodar o pnpm — precisamos replicar isso aqui já que sobrescrevemos o CMD.
+    command: ["/bin/bash", "-c", "cd platform/app && pnpm run start:workers"]
+    environment:
+      <<: *langwatch-app-env
+      # As migrações já rodam no start do serviço `app`; evita executá-las
+      # em duplicidade/concorrência aqui.
+      SKIP_PRISMA_MIGRATE: "true"
+      SKIP_CLICKHOUSE_MIGRATE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  langwatch_postgres_data:
+  langwatch_redis_data:
+  langwatch_clickhouse_data:

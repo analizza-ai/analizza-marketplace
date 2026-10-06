@@ -1,0 +1,37 @@
+
+##@ Agente
+
+AGENT_DIR  := {agent-module}
+AGENT_PORT ?= {agent-port}
+
+# Carrega um arquivo de variaveis e sobe o agente. O arquivo nunca e
+# versionado; o .example ao lado dele e.
+define run_agent_with
+	@test -f $(1) || { echo "Erro: $(1) nao existe. Copie com: cp $(1).example $(1)"; exit 1; }
+	set -a && . ./$(1) && set +a && ./gradlew :$(AGENT_DIR):bootRun --console=plain
+endef
+
+.PHONY: run-agent
+run-agent: ## Sobe o agente com as variáveis de local.env
+	$(call run_agent_with,local.env)
+
+.PHONY: run-agent-ollama
+run-agent-ollama: ## Sobe o agente contra o Ollama local (local.env.ollama)
+	$(call run_agent_with,local.env.ollama)
+
+.PHONY: test-agent
+test-agent: ## Testes unitários do agente (LLM roteirizado, sem rede)
+	./gradlew :$(AGENT_DIR):test
+
+.PHONY: test-agent-integration
+test-agent-integration: ## Testes de integração do agente com Ollama em Testcontainers; a 1ª execução baixa ~2 GB
+	./gradlew :$(AGENT_DIR):integrationTest
+
+.PHONY: langwatch-up
+langwatch-up: ## Sobe o LangWatch local em http://localhost:5560
+	@test -f langwatch.env || { echo "Erro: langwatch.env nao existe. Copie com: cp langwatch.env.example langwatch.env"; exit 1; }
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env up -d
+
+.PHONY: langwatch-down
+langwatch-down: ## Derruba o LangWatch local
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env down

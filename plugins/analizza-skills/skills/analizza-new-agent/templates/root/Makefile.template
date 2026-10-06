@@ -1,0 +1,153 @@
+AGENT_DIR := {agent-module}
+<!-- se web -->
+WEB_DIR   := {project-name}-web
+<!-- fim se web -->
+GRADLEW   := ./gradlew
+
+AGENT_PORT ?= {agent-port}
+<!-- se web -->
+WEB_PORT ?= 3000
+<!-- fim se web -->
+
+.DEFAULT_GOAL := help
+SHELL := /bin/bash
+
+# Carrega um arquivo de variaveis e sobe o agente. O arquivo nunca e
+# versionado; o .example ao lado dele e.
+define run_agent_with
+	@test -f $(1) || { echo "Erro: $(1) nao existe. Copie com: cp $(1).example $(1)"; exit 1; }
+	set -a && . ./$(1) && set +a && $(GRADLEW) :$(AGENT_DIR):bootRun --console=plain
+endef
+
+##@ Geral
+
+.PHONY: help
+help: ## Mostra esta ajuda
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUso:\n  make \033[36m<alvo>\033[0m\n"} \
+		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 } \
+		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+	@echo ""
+<!-- se web -->
+
+##@ Dependências
+
+$(WEB_DIR)/node_modules: $(WEB_DIR)/package-lock.json
+	cd $(WEB_DIR) && npm ci
+	@touch $@
+
+.PHONY: install
+install: $(WEB_DIR)/node_modules ## Instala dependências do web
+<!-- fim se web -->
+<!-- se postgres -->
+
+##@ Banco
+
+.PHONY: db-up
+db-up: ## Sobe o Postgres e espera ficar saudável
+	docker compose up -d --wait
+
+.PHONY: db-down
+db-down: ## Derruba o Postgres (mantém o volume)
+	docker compose down
+
+.PHONY: db-reset
+db-reset: ## Derruba o Postgres e apaga o volume de dados
+	docker compose down -v
+<!-- fim se postgres -->
+
+##@ Build
+
+.PHONY: build
+<!-- se web -->
+build: build-backend build-web ## Builda backend e web
+<!-- fim se web -->
+<!-- se sem-web -->
+build: build-backend ## Builda o backend
+<!-- fim se sem-web -->
+
+.PHONY: build-backend
+build-backend: ## Compila e roda os testes unitários (não precisa de banco nem de LLM)
+	$(GRADLEW) build
+<!-- se web -->
+
+.PHONY: build-web
+build-web: $(WEB_DIR)/node_modules ## Builda o web (produção)
+	cd $(WEB_DIR) && npm run build
+<!-- fim se web -->
+
+##@ Testes
+
+.PHONY: test-backend
+test-backend: ## Testes unitários do backend (LLM roteirizado, sem rede)
+	$(GRADLEW) test
+<!-- se it-no-modulo -->
+
+.PHONY: test-integration
+test-integration: ## Testes de integração (*IT) com Ollama em Testcontainers; a 1ª execução baixa ~2 GB
+	$(GRADLEW) :$(AGENT_DIR):integrationTest
+<!-- fim se it-no-modulo -->
+<!-- se web -->
+
+.PHONY: test-web
+test-web: $(WEB_DIR)/node_modules ## Lint do web
+	cd $(WEB_DIR) && npm run lint
+<!-- fim se web -->
+
+##@ Execução
+
+.PHONY: run-agent
+<!-- se postgres -->
+run-agent: db-up ## Sobe o agente com as variáveis de local.env
+<!-- fim se postgres -->
+<!-- se sem-postgres -->
+run-agent: ## Sobe o agente com as variáveis de local.env
+<!-- fim se sem-postgres -->
+	$(call run_agent_with,local.env)
+
+.PHONY: run-agent-ollama
+<!-- se postgres -->
+run-agent-ollama: db-up ## Sobe o agente contra o Ollama local (local.env.ollama)
+<!-- fim se postgres -->
+<!-- se sem-postgres -->
+run-agent-ollama: ## Sobe o agente contra o Ollama local (local.env.ollama)
+<!-- fim se sem-postgres -->
+	$(call run_agent_with,local.env.ollama)
+<!-- se web -->
+
+.PHONY: run-web
+run-web: $(WEB_DIR)/node_modules ## Roda o web (dev) em http://localhost:$(WEB_PORT)
+	cd $(WEB_DIR) && AGENT_URL=http://localhost:$(AGENT_PORT) npm run dev
+
+.PHONY: run
+run: $(WEB_DIR)/node_modules ## Sobe agente (Ollama local) e web juntos; Ctrl+C encerra os dois
+	@echo "agente -> http://localhost:$(AGENT_PORT)"
+	@echo "web    -> http://localhost:$(WEB_PORT)"
+	@trap 'kill 0' INT TERM; \
+		( $(MAKE) --no-print-directory run-agent-ollama 2>&1 | awk '{ print "[agente] " $$0; fflush() }' ) & \
+		( $(MAKE) --no-print-directory run-web 2>&1 | awk '{ print "[web] " $$0; fflush() }' ) & \
+		wait
+<!-- fim se web -->
+
+##@ Observabilidade
+
+.PHONY: langwatch-up
+langwatch-up: ## Sobe o LangWatch local em http://localhost:5560
+	@test -f langwatch.env || { echo "Erro: langwatch.env nao existe. Copie com: cp langwatch.env.example langwatch.env"; exit 1; }
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env up -d
+
+.PHONY: langwatch-down
+langwatch-down: ## Derruba o LangWatch local
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env down
+
+.PHONY: langwatch-logs
+langwatch-logs: ## Acompanha os logs do LangWatch local
+	docker compose -f docker-compose.langwatch.yml --env-file langwatch.env logs -f
+
+##@ Limpeza
+
+.PHONY: clean
+clean: ## Remove artefatos de build
+	$(GRADLEW) clean
+<!-- se web -->
+	rm -rf $(WEB_DIR)/.next
+<!-- fim se web -->
