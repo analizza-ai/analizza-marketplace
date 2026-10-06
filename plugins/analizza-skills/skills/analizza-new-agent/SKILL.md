@@ -78,7 +78,7 @@ sabe por MCP.
 | `{mode}` | `do-zero` ou `existente` — o modo detectado no Passo 0 |
 | `{language}`, `{src-dir}` | `kotlin` ou `java` — o mesmo valor nos dois |
 | `{dsl-ext}` | `.kts` ou vazio |
-| `{boot-version}`, `{dependency-management-version}`, `{kotlin-version}` | só do zero: lidas do `plugins {}` que o Initializr gerou (Passo 2). `{kotlin-version}` só em Kotlin |
+| `{boot-version}`, `{dependency-management-version}`, `{kotlin-version}` | só do zero: lidas do `plugins {}` do build baixado do Initializr (Passo 2), depois do download — o pedido usa o `default` do metadata. `{kotlin-version}` só em Kotlin |
 | `{agent-port}` | `8080` do zero; `8081` no existente, ou a seguinte se o módulo do host (o do `@SpringBootApplication`) já a usa |
 | `{mcp-name}` | nome kebab do servidor MCP; `tools-mcp` se nenhum foi informado |
 | `{mcp-class}`, `{mcp-env}` | `{mcp-name}` em PascalCase e em UPPER_SNAKE (`tools-mcp` → `ToolsMcp`, `TOOLS_MCP`) |
@@ -273,7 +273,9 @@ da `analizza-new-project`, lendo `{agent-module}` onde elas dizem
 
 - `artifactId` e `name` = `{agent-module}`; `packageName={package}`;
   `dependencies=web,actuator`. O resto das dependências vem do template do
-  módulo, não do Initializr.
+  módulo, não do Initializr. Para `bootVersion` peça o `default` do metadata
+  do Initializr (a referência acima descreve onde ele está); as versões que
+  entram nos templates só se leem depois, do arquivo baixado (abaixo).
 - Promova o wrapper, o `settings.gradle{dsl-ext}`, o `.gitignore` e o
   `.gitattributes` à raiz; o resto fica em `{agent-module}/`.
 - Reescreva já o `settings.gradle{dsl-ext}`: `rootProject.name` =
@@ -480,7 +482,8 @@ npx --yes create-next-app@latest {project-name}-web \
 ```
 
 O `create-next-app` atual gera também `AGENTS.md` e `CLAUDE.md` dentro de
-`{project-name}-web/`: são dele, valem só para aquela pasta e ficam como vieram.
+`{project-name}-web/` (em algumas versões só o `AGENTS.md`): são dele, valem só
+para aquela pasta e ficam como vieram.
 
 Copie `templates/web/src/` sobre `{project-name}-web/src/`, substituindo o
 `page.tsx` — **menos os três `*.test.ts`**, que entram no Passo 10. Eles

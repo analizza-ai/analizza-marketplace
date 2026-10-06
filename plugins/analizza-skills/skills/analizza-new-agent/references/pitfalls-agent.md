@@ -80,6 +80,24 @@ faz o modelo receber um prompt sem a mensagem do usuário.
 
 ## Ambiente
 
+### Id de conversa no render quebra o build do Next 16.4
+
+O `create-next-app` atual liga `cacheComponents: true`. Com ele, ler valor
+aleatório (`crypto.randomUUID`, `getRandomValues`) durante a renderização de um
+Client Component faz o `npm run build` falhar no prerender ("unstable value").
+Por isso o `page.tsx` cria o id de conversa no primeiro envio, dentro do
+handler, guardado num `useRef` — não em `useState(novaConversa)`. Não envolva a
+página em `<Suspense>` para contornar: o id no render continuaria impuro.
+
+### Volume e containers do Docker derivam do nome do projeto
+
+O projeto compose, os containers e o volume (`{project-name}_postgres-data`)
+saem da pasta / de `{project-name}`. Um segundo projeto com o mesmo nome na
+mesma máquina reaproveita o volume antigo: o Flyway já encontra schema e a
+`chat_memory` traz linhas de conversas passadas, o que contamina uma
+conferência por `X-Conversation-Id`. Antes do primeiro `make db-up`, confira
+com `docker volume ls`.
+
 ### O Postgres do LangWatch disputaria a 5432
 
 O compose do LangWatch traz o próprio Postgres. No template ele não publica

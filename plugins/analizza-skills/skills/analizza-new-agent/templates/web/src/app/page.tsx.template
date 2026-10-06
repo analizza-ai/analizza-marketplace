@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { novaConversa } from "@/lib/conversation";
 import { parseSse } from "@/lib/sse";
 
@@ -14,7 +14,9 @@ export default function Home() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   // Uma conversa por carregamento da página: é a chave da memória no agente.
-  const [conversationId] = useState(novaConversa);
+  // Nasce no primeiro envio, não na renderização: o Next 16 recusa valores
+  // aleatórios durante o prerender.
+  const conversa = useRef<string | null>(null);
 
   function acrescentarAoAgente(pedaco: string) {
     setMensagens((atuais) => {
@@ -28,6 +30,7 @@ export default function Home() {
     const texto = rascunho.trim();
     if (!texto || enviando) return;
 
+    conversa.current ??= novaConversa();
     setRascunho("");
     setErro(null);
     setEnviando(true);
@@ -36,7 +39,7 @@ export default function Home() {
     try {
       const resposta = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Conversation-Id": conversationId },
+        headers: { "Content-Type": "application/json", "X-Conversation-Id": conversa.current },
         body: JSON.stringify({ body: texto }),
       });
       if (!resposta.ok || !resposta.body) {
