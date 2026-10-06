@@ -75,6 +75,7 @@ agente é uma aplicação Spring Boot própria, que **não depende do `-core` ne
 | `{bb-package}` | pacote do `buildingBlocks`: `{package}` do zero; no existente, **detectado** (o pacote onde o `buildingBlocks` do projeto declara, por exemplo, `ResultCommandHandler`, Passo 1) |
 | `{package-path}` | `{base-package}` com `.` trocado por `/` |
 | `{group}`, `{java-version}` | perguntados (do zero) ou lidos do build (existente) |
+| `{mode}` | `do-zero` ou `existente` — o modo detectado no Passo 0 |
 | `{language}`, `{src-dir}` | `kotlin` ou `java` — o mesmo valor nos dois |
 | `{dsl-ext}` | `.kts` ou vazio |
 | `{boot-version}`, `{dependency-management-version}`, `{kotlin-version}` | só do zero: lidas do `plugins {}` que o Initializr gerou (Passo 2). `{kotlin-version}` só em Kotlin |
@@ -535,8 +536,8 @@ cd {project-name}-web && npx vitest run; echo "EXIT=$?"
 Obrigatório. Sem isso não há como afirmar que o agente funciona.
 
 ```bash
-# do zero: make build        existente: ./gradlew :{agent-module}:build --console=plain
-make build > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
+build=$([ "{mode}" = existente ] && echo "./gradlew :{agent-module}:build --console=plain" || echo "make build")
+$build > /tmp/agent-build.log 2>&1; echo "EXIT=$?"
 # em todo layout (it-dedicado ou it-no-modulo), só o módulo dos ITs:
 ./gradlew :{it-module}:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
 grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' \
@@ -544,10 +545,9 @@ grep -ho '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9
 # unitários (já lidos no Passo 10): {agent-module}/build/test-results/test/*.xml
 ```
 
-No modo existente, escreva a linha do `build` como
-`./gradlew :{agent-module}:build --console=plain` (o `make build` pode não
-existir ou construir `-api`, `-core` e web) — e nunca rode `integrationTest` sem
-o prefixo do módulo, que executaria também os ITs do projeto hospedeiro.
+No modo existente o `make build` não serve (pode não existir ou construir `-api`,
+`-core` e web), por isso o bloco o evita. Nunca rode `integrationTest` sem o
+prefixo do módulo, que executaria também os ITs do projeto hospedeiro.
 
 O `build` não precisa de banco, de LLM nem de Docker: os unitários usam LLM
 roteirizado e os ITs ficam fora dele. Nos ITs, exija `EXIT=0`,
