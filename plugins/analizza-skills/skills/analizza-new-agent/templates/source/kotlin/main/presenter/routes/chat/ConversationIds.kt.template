@@ -1,0 +1,23 @@
+package {base-package}.presenter.routes.chat
+
+import java.util.UUID
+
+/**
+ * Resolve o identificador da conversa. Precedencia: header, depois o campo
+ * `from` do corpo, depois um UUID novo. O limite de tamanho existe porque o
+ * valor vira chave de memoria e atributo de span.
+ */
+object ConversationIds {
+
+    const val HEADER = "X-Conversation-Id"
+    private const val MAX_LENGTH = 128
+
+    fun resolve(header: String?, from: String?): String {
+        val candidate = when {
+            !header.isNullOrBlank() -> header.trim()
+            !from.isNullOrBlank() -> from.trim()
+            else -> null
+        }
+        return candidate?.take(MAX_LENGTH) ?: UUID.randomUUID().toString()
+    }
+}

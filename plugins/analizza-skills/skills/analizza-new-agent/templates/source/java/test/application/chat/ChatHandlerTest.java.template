@@ -1,0 +1,208 @@
+package {base-package}.application.chat;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant;
+import {base-package}.infrastructure.data.anticorruptionLayer.mcp.McpUnavailableException;
+import {base-package}.infrastructure.observability.ChatTelemetry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.api.OpenTelemetry;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
+import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+
+class ChatHandlerTest {
+
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final ChatTelemetry telemetry = new ChatTelemetry(OpenTelemetry.noop().getTracer("test"), registry);
+
+    /**
+     * Assistente de mentira: conta as chamadas e devolve (ou lanca) o que o
+     * teste mandar. Criado com streaming(...), o chatStream devolve aquele
+     * fluxo em vez de um token so -- e o que deixa testar erro e cancelamento
+     * no meio.
+     */
+    private static class StubAssistant implements Assistant {
+        private final Supplier<String> reply;
+        private final Supplier<Flux<String>> stream;
+        int calls = 0;
+
+        StubAssistant(Supplier<String> reply) {
+            this.reply = reply;
+            this.stream = () -> Flux.just(reply.get());
+        }
+
+        private StubAssistant(Supplier<String> reply, Supplier<Flux<String>> stream) {
+            this.reply = reply;
+            this.stream = stream;
+        }
+
+        static StubAssistant streaming(Supplier<Flux<String>> stream) {
+            return new StubAssistant(() -> "nao usado", stream);
+        }
+
+        @Override
+        public String chat(String conversationId, String userInput) {
+            calls++;
+            return reply.get();
+        }
+
+        @Override
+        public Flux<String> chatStream(String conversationId, String userInput) {
+            calls++;
+            return stream.get();
+        }
+    }
+
+    private double counter(String outcome) {
+        Counter counter = registry.find("chat.requests").tag("outcome", outcome).counter();
+        return counter != null ? counter.count() : 0.0;
+    }
+
+    @Test
+    void corpoValidoDevolveARespostaDoAssistenteEContaSucesso() {
+        StubAssistant assistant = new StubAssistant(() -> "Ola!");
+
+        ChatResult result = new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi"));
+
+        assertThat(result.response()).isEqualTo("Ola!");
+        assertThat(counter("success")).isEqualTo(1.0);
+        assertThat(registry.find("chat.request.duration").timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void corpoEmBrancoERecusadoSemChamarOAssistente() {
+        StubAssistant assistant = new StubAssistant(() -> "nao deveria");
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "   ")))
+                .isInstanceOf(InvalidChatRequestException.class)
+                .hasMessage("campo body vazio");
+        assertThat(assistant.calls).isEqualTo(0);
+    }
+
+    @Test
+    void corpoSoComEspacoSemQuebraERecusadoComoVazio() {
+        StubAssistant assistant = new StubAssistant(() -> "nao deveria");
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "\u00A0\u2007\u202F")))
+                .isInstanceOf(InvalidChatRequestException.class)
+                .hasMessage("campo body vazio");
+        assertThat(assistant.calls).isEqualTo(0);
+    }
+
+    @Test
+    void corpoNuloERecusado() {
+        assertThatThrownBy(() -> new ChatHandler(new StubAssistant(() -> "x"), telemetry)
+                .handle(new ChatCommand("conv-1", null)))
+                .isInstanceOf(InvalidChatRequestException.class);
+    }
+
+    @Test
+    void corpoAcimaDe8000CaracteresERecusado() {
+        assertThatThrownBy(() -> new ChatHandler(new StubAssistant(() -> "x"), telemetry)
+                .handle(new ChatCommand("conv-1", "x".repeat(8001))))
+                .isInstanceOf(InvalidChatRequestException.class)
+                .hasMessage("campo body excede 8000 caracteres");
+    }
+
+    @Test
+    void timeoutEmbrulhadoViraUpstreamTimeoutExceptionEContaFalha() {
+        StubAssistant assistant = new StubAssistant(() -> {
+            throw new RuntimeException(new TimeoutException("demorou"));
+        });
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi")))
+                .isInstanceOf(UpstreamTimeoutException.class);
+        assertThat(counter("failure")).isEqualTo(1.0);
+    }
+
+    @Test
+    void servidorMcpForaViraMcpUpstreamException() {
+        StubAssistant assistant = new StubAssistant(() -> {
+            throw new RuntimeException(new McpUnavailableException("tools-mcp", new IllegalStateException("recusada")));
+        });
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi")))
+                .isInstanceOf(McpUpstreamException.class);
+    }
+
+    @Test
+    void qualquerOutraFalhaViraUpstreamException() {
+        StubAssistant assistant = new StubAssistant(() -> {
+            throw new IllegalStateException("500 do provedor");
+        });
+
+        assertThatThrownBy(() -> new ChatHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi")))
+                .isInstanceOf(UpstreamException.class);
+    }
+
+    @Test
+    void streamEmiteOsTokensEContaSucessoAoTerminar() {
+        List<String> tokens = new ChatStreamHandler(new StubAssistant(() -> "Ola!"), telemetry)
+                .handle(new ChatCommand("conv-1", "oi"))
+                .collectList()
+                .block();
+
+        assertThat(tokens).containsExactly("Ola!");
+        assertThat(counter("success")).isEqualTo(1.0);
+    }
+
+    @Test
+    void streamComCorpoEmBrancoFalhaAntesDeAbrirOFluxo() {
+        assertThatThrownBy(() -> new ChatStreamHandler(new StubAssistant(() -> "x"), telemetry)
+                .handle(new ChatCommand("conv-1", "")))
+                .isInstanceOf(InvalidChatRequestException.class);
+    }
+
+    @Test
+    void falhaAoAbrirOStreamEClassificadaEContaFalha() {
+        StubAssistant assistant = new StubAssistant(() -> {
+            throw new McpUnavailableException("tools-mcp", new IllegalStateException("recusada"));
+        });
+
+        assertThatThrownBy(() -> new ChatStreamHandler(assistant, telemetry).handle(new ChatCommand("conv-1", "oi")))
+                .isInstanceOf(McpUpstreamException.class);
+        assertThat(counter("failure")).isEqualTo(1.0);
+    }
+
+    @Test
+    void erroNoMeioDoStreamChegaClassificadoEContaFalha() {
+        StubAssistant assistant = StubAssistant.streaming(() -> Flux.concat(
+                Flux.just("Ol"),
+                Flux.error(new McpUnavailableException("tools-mcp", new IllegalStateException("caiu")))));
+        List<String> received = new ArrayList<>();
+
+        assertThatThrownBy(() -> new ChatStreamHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "oi"))
+                .doOnNext(received::add)
+                .blockLast(Duration.ofSeconds(5)))
+                .isInstanceOf(McpUpstreamException.class);
+
+        assertThat(received).containsExactly("Ol");
+        assertThat(counter("failure")).isEqualTo(1.0);
+        assertThat(counter("success")).isEqualTo(0.0);
+    }
+
+    @Test
+    void streamCanceladoPeloAssinanteContaFalhaENaoFicaPendurado() {
+        // Um fluxo que nunca termina: so o cancelamento do take(1) o encerra.
+        StubAssistant assistant = StubAssistant.streaming(() -> Flux.concat(Flux.just("Ol"), Flux.never()));
+
+        List<String> tokens = new ChatStreamHandler(assistant, telemetry)
+                .handle(new ChatCommand("conv-1", "oi"))
+                .take(1)
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(tokens).containsExactly("Ol");
+        assertThat(counter("failure")).isEqualTo(1.0);
+        assertThat(counter("success")).isEqualTo(0.0);
+    }
+}

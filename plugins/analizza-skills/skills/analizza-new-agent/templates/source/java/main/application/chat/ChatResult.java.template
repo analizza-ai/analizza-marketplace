@@ -1,0 +1,4 @@
+package {base-package}.application.chat;
+
+public record ChatResult(String response) {
+}

@@ -1,0 +1,3 @@
+package {base-package}.application.chat
+
+data class ChatResult(val response: String)

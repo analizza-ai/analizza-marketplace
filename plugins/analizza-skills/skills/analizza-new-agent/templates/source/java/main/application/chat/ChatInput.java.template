@@ -1,0 +1,23 @@
+package {base-package}.application.chat;
+
+import org.jspecify.annotations.Nullable;
+
+/** Validacao do corpo, compartilhada pelo handler sincrono e pelo de stream. */
+final class ChatInput {
+
+    static final int MAX_BODY_LENGTH = 8000;
+
+    private ChatInput() {
+    }
+
+    static String validate(@Nullable String body) {
+        // Whitespace, e nao isBlank()/strip(): ver a classe.
+        if (body == null || Whitespace.isBlank(body)) {
+            throw new InvalidChatRequestException("campo body vazio");
+        }
+        if (Whitespace.trim(body).length() > MAX_BODY_LENGTH) {
+            throw new InvalidChatRequestException("campo body excede " + MAX_BODY_LENGTH + " caracteres");
+        }
+        return body;
+    }
+}

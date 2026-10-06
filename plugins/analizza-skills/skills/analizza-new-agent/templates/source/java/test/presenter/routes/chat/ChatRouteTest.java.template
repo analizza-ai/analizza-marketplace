@@ -1,0 +1,178 @@
+package {base-package}.presenter.routes.chat;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import {base-package}.application.chat.ChatCommand;
+import {base-package}.application.chat.ChatHandler;
+import {base-package}.application.chat.ChatResult;
+import {base-package}.application.chat.ChatStreamHandler;
+import {base-package}.application.chat.InvalidChatRequestException;
+import {base-package}.application.chat.McpUpstreamException;
+import {base-package}.application.chat.UpstreamException;
+import {base-package}.application.chat.UpstreamTimeoutException;
+import {base-package}.presenter.configuration.ConversationIdFilter;
+import {base-package}.presenter.configuration.exception.GlobalExceptionHandler;
+import java.util.concurrent.TimeoutException;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+/**
+ * A rota com os handlers mockados: prova o contrato HTTP -- status, corpo de
+ * erro, resolucao da conversa. O fluxo SSE de verdade e do ChatRouteIT, que
+ * fala HTTP com a aplicacao inteira.
+ */
+@WebMvcTest(ChatRoute.class)
+@Import({GlobalExceptionHandler.class, ConversationIdFilter.class})
+class ChatRouteTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private ChatHandler chatHandler;
+
+    @MockitoBean
+    private ChatStreamHandler chatStreamHandler;
+
+    private ResultActions postChat(String json, String conversationId) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/agent/http")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json);
+        if (conversationId != null) {
+            request.header(ConversationIds.HEADER, conversationId);
+        }
+        return mockMvc.perform(request);
+    }
+
+    private ResultActions postChat(String json) throws Exception {
+        return postChat(json, null);
+    }
+
+    @Test
+    void devolve200ComARespostaDoHandler() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenReturn(new ChatResult("Ola! Como posso ajudar?"));
+
+        postChat("""
+                {"from":"u1","body":"oi"}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.response").value("Ola! Como posso ajudar?"));
+    }
+
+    @Test
+    void usaOHeaderComoConversaEOEcoaNaResposta() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenReturn(new ChatResult("ok"));
+
+        postChat("""
+                {"from":"u1","body":"oi"}""", "conv-9")
+                .andExpect(status().isOk())
+                .andExpect(header().string(ConversationIds.HEADER, "conv-9"));
+
+        ArgumentCaptor<ChatCommand> command = ArgumentCaptor.forClass(ChatCommand.class);
+        verify(chatHandler).handle(command.capture());
+        assertThat(command.getValue().conversationId()).isEqualTo("conv-9");
+        assertThat(command.getValue().body()).isEqualTo("oi");
+    }
+
+    @Test
+    void semHeaderUsaOCampoFromComoConversa() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenReturn(new ChatResult("ok"));
+
+        postChat("""
+                {"from":"u1","body":"oi"}""").andExpect(status().isOk());
+
+        ArgumentCaptor<ChatCommand> command = ArgumentCaptor.forClass(ChatCommand.class);
+        verify(chatHandler).handle(command.capture());
+        assertThat(command.getValue().conversationId()).isEqualTo("u1");
+    }
+
+    @Test
+    void campoDesconhecidoNoJsonEIgnorado() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenReturn(new ChatResult("ok"));
+
+        postChat("""
+                {"body":"oi","outro":"ignorado"}""").andExpect(status().isOk());
+    }
+
+    @Test
+    void corpoInvalidoDevolve400ComAMensagemDoCasoDeUso() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenThrow(new InvalidChatRequestException("campo body vazio"));
+
+        postChat("""
+                {"body":"  "}""")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("campo body vazio"));
+    }
+
+    @Test
+    void jsonMalformadoDevolve400() throws Exception {
+        postChat("""
+                {"body":""")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_JSON"));
+    }
+
+    @Test
+    void midiaErradaDevolve415() throws Exception {
+        mockMvc.perform(post("/api/v1/agent/http").contentType(MediaType.TEXT_PLAIN).content("oi"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+    }
+
+    @Test
+    void falhaDoProvedorDevolve502SemVazarACausa() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class)))
+                .thenThrow(new UpstreamException(new RuntimeException("sk-segredo no corpo")));
+
+        postChat("""
+                {"body":"oi"}""")
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_FAILURE"))
+                .andExpect(jsonPath("$.message").value("falha de comunicacao com o provedor"));
+    }
+
+    @Test
+    void timeoutDoProvedorDevolve504() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenThrow(new UpstreamTimeoutException(new TimeoutException()));
+
+        postChat("""
+                {"body":"oi"}""")
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_TIMEOUT"));
+    }
+
+    @Test
+    void servidorMcpForaDevolve502ComCodigoProprio() throws Exception {
+        when(chatHandler.handle(any(ChatCommand.class))).thenThrow(new McpUpstreamException(new RuntimeException("recusada")));
+
+        postChat("""
+                {"body":"oi"}""")
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("MCP_UNAVAILABLE"));
+    }
+
+    @Test
+    void streamComCorpoInvalidoDevolve400AntesDeAbrirOFluxo() throws Exception {
+        when(chatStreamHandler.handle(any(ChatCommand.class))).thenThrow(new InvalidChatRequestException("campo body vazio"));
+
+        mockMvc.perform(post("/api/v1/agent/stream").contentType(MediaType.APPLICATION_JSON).content("""
+                {"body":""}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+}

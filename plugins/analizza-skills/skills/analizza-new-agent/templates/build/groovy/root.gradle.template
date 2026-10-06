@@ -1,0 +1,12 @@
+// Versoes dos plugins declaradas uma vez so, na raiz. Um subprojeto so aplica
+// um plugin sem versao se ele ja estiver no classpath do buildscript herdado
+// da raiz.
+plugins {
+<!-- se kotlin -->
+    id 'org.jetbrains.kotlin.jvm' version '{kotlin-version}' apply false
+    id 'org.jetbrains.kotlin.plugin.spring' version '{kotlin-version}' apply false
+    id 'org.jetbrains.kotlin.plugin.jpa' version '{kotlin-version}' apply false
+<!-- fim se kotlin -->
+    id 'org.springframework.boot' version '{boot-version}' apply false
+    id 'io.spring.dependency-management' version '{dependency-management-version}' apply false
+}

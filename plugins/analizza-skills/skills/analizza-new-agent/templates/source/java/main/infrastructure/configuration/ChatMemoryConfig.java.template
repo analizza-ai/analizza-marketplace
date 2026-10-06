@@ -1,0 +1,81 @@
+<!-- arquivo se memoria -->
+package {base-package}.infrastructure.configuration;
+
+<!-- se memoria-jdbc -->
+import dev.langchain4j.community.store.memory.chat.sql.PostgreSQLDialect;
+import dev.langchain4j.community.store.memory.chat.sql.SQLChatMemoryStore;
+<!-- fim se memoria-jdbc -->
+import dev.langchain4j.memory.chat.ChatMemoryProvider;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+<!-- se memoria-jdbc -->
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import java.util.function.Supplier;
+import javax.sql.DataSource;
+<!-- fim se memoria-jdbc -->
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/** Memoria de conversa: janela das ultimas mensagens, uma por conversationId. */
+@Configuration(proxyBeanMethods = false)
+public class ChatMemoryConfig {
+
+    private static final int MAX_MESSAGES = 30;
+
+<!-- se memoria-jdbc -->
+    // autoCreateTable(false): a tabela e da migration V1__chat_memory.sql. Com
+    // Flyway no projeto, schema criado por biblioteca em runtime e schema que
+    // ninguem versionou.
+    //
+    // O store e criado na primeira conversa (lazy), nao na subida: o construtor
+    // dele confere que a tabela existe, e o Flyway ainda nao rodou quando este
+    // bean e instanciado.
+    @Bean
+    public ChatMemoryProvider chatMemoryProvider(DataSource dataSource) {
+        Supplier<ChatMemoryStore> store = lazy(() -> SQLChatMemoryStore.builder()
+                .dataSource(dataSource)
+                .sqlDialect(new PostgreSQLDialect())
+                .tableName("chat_memory")
+                .autoCreateTable(false)
+                .build());
+        return memoryId -> MessageWindowChatMemory.builder()
+                .id(memoryId)
+                .maxMessages(MAX_MESSAGES)
+                .chatMemoryStore(store.get())
+                .build();
+    }
+
+    /** Cria o valor na primeira chamada, uma vez so, mesmo com threads concorrentes. */
+    private static <T> Supplier<T> lazy(Supplier<T> factory) {
+        return new Supplier<>() {
+            private volatile T value;
+
+            @Override
+            public T get() {
+                T current = value;
+                if (current == null) {
+                    synchronized (this) {
+                        current = value;
+                        if (current == null) {
+                            current = factory.get();
+                            value = current;
+                        }
+                    }
+                }
+                return current;
+            }
+        };
+    }
+<!-- fim se memoria-jdbc -->
+<!-- se memoria-processo -->
+    // Memoria em processo: some a cada restart e nao e compartilhada entre
+    // replicas. Serve para desenvolvimento; em producao com mais de uma
+    // instancia, troque por um ChatMemoryStore persistente.
+    @Bean
+    public ChatMemoryProvider chatMemoryProvider() {
+        return memoryId -> MessageWindowChatMemory.builder()
+                .id(memoryId)
+                .maxMessages(MAX_MESSAGES)
+                .build();
+    }
+<!-- fim se memoria-processo -->
+}

@@ -1,0 +1,91 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { POST } from "./route";
+
+function requisicao(conversationId?: string, signal?: AbortSignal) {
+  return new Request("http://localhost:3000/api/chat", {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      ...(conversationId ? { "X-Conversation-Id": conversationId } : {}),
+    },
+    body: JSON.stringify({ body: "oi" }),
+  });
+}
+
+describe("POST /api/chat", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_URL", "http://agente:8080");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("repassa corpo e conversa para o stream do agente e devolve o fluxo", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("data:Ol\n\ndata:á\n\n", { headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    const resposta = await POST(requisicao("conv-1"));
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(await resposta.text()).toBe("data:Ol\n\ndata:á\n\n");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://agente:8080/api/v1/agent/stream");
+    expect(init.headers["X-Conversation-Id"]).toBe("conv-1");
+    expect(JSON.parse(init.body)).toEqual({ body: "oi" });
+  });
+
+  it("devolve 400 com a mensagem do agente quando o corpo é recusado", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ code: "INVALID_REQUEST", message: "campo body vazio" }, { status: 400 }),
+    );
+
+    const resposta = await POST(requisicao());
+
+    expect(resposta.status).toBe(400);
+    expect(await resposta.json()).toEqual({ message: "campo body vazio" });
+  });
+
+  it("devolve 502 com mensagem genérica quando o agente responde erro", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ code: "MCP_UNAVAILABLE", message: "ferramenta externa indisponivel" }, { status: 502 }),
+    );
+
+    const resposta = await POST(requisicao());
+
+    expect(resposta.status).toBe(502);
+    expect(await resposta.json()).toEqual({ message: "O agente está indisponível. Tente de novo em instantes." });
+  });
+
+  it("devolve 502 quando o agente está fora do ar", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+
+    const resposta = await POST(requisicao());
+
+    expect(resposta.status).toBe(502);
+    expect(await resposta.json()).toEqual({ message: "O agente está indisponível. Tente de novo em instantes." });
+  });
+
+  it("aborta a chamada ao agente quando a requisição do navegador é abortada", async () => {
+    fetchMock.mockResolvedValue(new Response("data:oi\n\n"));
+    const navegador = new AbortController();
+
+    await POST(requisicao("conv-1", navegador.signal));
+
+    const sinal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    expect(sinal.aborted).toBe(false);
+    navegador.abort();
+    expect(sinal.aborted).toBe(true);
+  });
+});

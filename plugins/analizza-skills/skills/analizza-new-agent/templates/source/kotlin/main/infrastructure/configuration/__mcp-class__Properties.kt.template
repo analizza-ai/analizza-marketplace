@@ -1,0 +1,19 @@
+package {base-package}.infrastructure.configuration
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.stereotype.Component
+import java.time.Duration
+
+/** Conexao com o servidor MCP `{mcp-name}`. */
+@Component
+@ConfigurationProperties(prefix = "{mcp-name}")
+class {mcp-class}Properties {
+    var enabled: Boolean = false
+    var baseUrl: String = ""
+
+    /** Valor inteiro do header Authorization. Vazio = nenhum header. */
+    var authorization: String = ""
+    var timeout: Duration = Duration.ofSeconds(10)
+    var logRequests: Boolean = false
+    var logResponses: Boolean = false
+}

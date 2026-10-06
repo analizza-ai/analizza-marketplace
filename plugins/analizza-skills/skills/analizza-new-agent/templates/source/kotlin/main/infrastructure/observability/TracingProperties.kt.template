@@ -1,0 +1,24 @@
+package {base-package}.infrastructure.observability
+
+import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.stereotype.Component
+
+/**
+ * Propriedades de configuração para controle do conteúdo capturado nos traces.
+ *
+ * Espelha as flags de tracing do LangChain4j:
+ * - include-prompt: captura as mensagens enviadas ao LLM
+ * - include-completion: captura a resposta do LLM
+ * - include-tool-arguments: captura argumentos de tool calls
+ * - include-tool-result: captura resultados de tool calls
+ *
+ * Todas desabilitadas por default para evitar vazamento de dados sensíveis.
+ */
+@Component
+@ConfigurationProperties(prefix = "langchain4j.tracing")
+class TracingProperties {
+    var includePrompt: Boolean = false
+    var includeCompletion: Boolean = false
+    var includeToolArguments: Boolean = false
+    var includeToolResult: Boolean = false
+}

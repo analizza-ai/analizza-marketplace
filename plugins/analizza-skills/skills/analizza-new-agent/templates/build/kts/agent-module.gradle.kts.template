@@ -1,0 +1,153 @@
+plugins {
+<!-- se kotlin -->
+    kotlin("jvm")
+    kotlin("plugin.spring")
+<!-- fim se kotlin -->
+<!-- se java -->
+    java
+<!-- fim se java -->
+    id("org.springframework.boot")
+    id("io.spring.dependency-management")
+}
+
+group = "{group}"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of({java-version})
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Uma versao so para toda a familia LangChain4j, em gradle.properties: os
+// starters e o cliente MCP ainda saem na linha beta, e versoes misturadas
+// quebram em runtime, nao na compilacao. Lida por providers.gradleProperty, e
+// nao por `by project`: o delegate esta depreciado desde o Gradle 9.6 e
+// avisaria em todo build.
+val langchain4jVersion: String = providers.gradleProperty("langchain4jVersion").get()
+
+dependencies {
+<!-- se buildingBlocks -->
+    implementation(project(":buildingBlocks"))
+<!-- fim se buildingBlocks -->
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // So pelo Flux do endpoint SSE. Com webmvc no classpath o Boot continua
+    // subindo servlet, nao Netty.
+    implementation("org.springframework.boot:spring-boot-starter-webflux")
+<!-- se kotlin -->
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("tools.jackson.module:jackson-module-kotlin")
+<!-- fim se kotlin -->
+
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    implementation("dev.langchain4j:langchain4j-open-ai-spring-boot4-starter:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-spring-boot4-starter:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-mcp:$langchain4jVersion")
+<!-- se memoria-jdbc -->
+    implementation("dev.langchain4j:langchain4j-community-sql:$langchain4jVersion")
+<!-- fim se memoria-jdbc -->
+<!-- se postgres -->
+
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+<!-- fim se postgres -->
+
+<!-- se kotlin -->
+    // MockK no lugar do Mockito: mock de classe final e de funcao de extensao
+    // sem configuracao extra.
+    testImplementation("org.springframework.boot:spring-boot-starter-test") {
+        exclude(group = "org.mockito")
+    }
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("com.ninja-squad:springmockk:5.0.1")
+<!-- fim se kotlin -->
+<!-- se java -->
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+<!-- fim se java -->
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
+<!-- se it-no-modulo -->
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-ollama")
+<!-- fim se it-no-modulo -->
+<!-- se it-no-modulo -->
+<!-- se postgres -->
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+<!-- fim se postgres -->
+<!-- fim se it-no-modulo -->
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+<!-- se kotlin -->
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll("-Xjsr305=strict", "-Xannotation-default-target=param-property")
+    }
+}
+<!-- fim se kotlin -->
+
+// Unitarios: nunca sobem container nem falam com LLM. Num projeto existente a
+// raiz pode ja ter configurado a `test` de todo subprojeto (filtro de tag, de
+// nome): o que veio de la e descartado aqui, para que a tarefa rode sempre as
+// mesmas classes -- todas as de teste, menos as *IT.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        includeTags = mutableSetOf()
+        excludeTags = mutableSetOf()
+    }
+    filter {
+        setIncludePatterns()
+        setExcludePatterns("*IT")
+        isFailOnNoMatchingTests = false
+    }
+}
+<!-- se it-no-modulo -->
+
+// Fora do `build` de proposito: sobe o Ollama em container e roda inferencia
+// em CPU, o que leva minutos.
+// A raiz de um projeto existente pode ja registrar `integrationTest` em todo
+// subprojeto; registrar de novo quebraria a configuracao do build inteiro.
+// Entao a tarefa e reaproveitada se existir e criada se nao -- e configurada
+// do mesmo jeito nos dois casos.
+val integrationTest = if ("integrationTest" in tasks.names) {
+    tasks.named<Test>("integrationTest")
+} else {
+    tasks.register<Test>("integrationTest")
+}
+
+integrationTest.configure {
+    description = "Testes de integracao (classes *IT) com LLM real em Testcontainers."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    // Os *IT deste modulo nao levam @Tag. Um `includeTags` herdado da raiz
+    // filtraria todos e a tarefa sairia verde com zero testes: os filtros de
+    // tag e de nome herdados sao descartados, e a selecao e so pelo sufixo.
+    useJUnitPlatform {
+        includeTags = mutableSetOf()
+        excludeTags = mutableSetOf()
+    }
+    filter {
+        setIncludePatterns("*IT")
+        setExcludePatterns()
+        // Nenhuma classe *IT encontrada e erro, nao sucesso.
+        isFailOnNoMatchingTests = true
+    }
+    shouldRunAfter(tasks.named("test"))
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+<!-- fim se it-no-modulo -->

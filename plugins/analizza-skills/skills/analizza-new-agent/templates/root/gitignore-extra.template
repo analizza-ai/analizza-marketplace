@@ -1,0 +1,20 @@
+
+# --- Ambiente do agente (nunca versionar) ---
+local.env
+local.env.ollama
+local.env.smoke
+langwatch.env
+<!-- se web -->
+
+# --- Frontend ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+<!-- fim se web -->
+
+# --- macOS ---
+.DS_Store

@@ -1,0 +1,33 @@
+package {base-package}.application.chat
+
+import {base-package}.infrastructure.data.anticorruptionLayer.mcp.McpUnavailableException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeoutException
+
+/**
+ * Traduz qualquer falha da conversa numa das excecoes do caso de uso. Olha a
+ * cadeia de causas inteira porque o LangChain4j embrulha a excecao original, e
+ * pelo nome da classe porque o timeout do cliente HTTP dele nao estende
+ * java.util.concurrent.TimeoutException.
+ */
+internal object ChatFailures {
+
+    private const val MAX_DEPTH = 20
+
+    fun classify(error: Throwable): RuntimeException {
+        if (error is InvalidChatRequestException) return error
+        val chain = generateSequence(error) { it.cause }.take(MAX_DEPTH).toList()
+        return when {
+            chain.any(::isMcpTimeout) -> McpUpstreamTimeoutException(error)
+            chain.any { it is McpUnavailableException } -> McpUpstreamException(error)
+            chain.any(::isTimeout) -> UpstreamTimeoutException(error)
+            else -> UpstreamException(error)
+        }
+    }
+
+    private fun isTimeout(e: Throwable): Boolean =
+        e is SocketTimeoutException || e is TimeoutException || e.javaClass.simpleName.endsWith("TimeoutException")
+
+    private fun isMcpTimeout(e: Throwable): Boolean =
+        isTimeout(e) && e.javaClass.name.startsWith("dev.langchain4j.mcp")
+}

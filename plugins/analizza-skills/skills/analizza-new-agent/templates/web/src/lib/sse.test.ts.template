@@ -1,0 +1,42 @@
+import { describe, expect, it } from "vitest";
+import { parseSse } from "./sse";
+
+describe("parseSse", () => {
+  it("extrai o dado de cada evento completo", () => {
+    expect(parseSse("data:Ol\n\ndata:á\n\n")).toEqual({ data: ["Ol", "á"], rest: "" });
+  });
+
+  it("devolve como resto o evento que ainda não terminou", () => {
+    expect(parseSse("data:Ol\n\ndata:á")).toEqual({ data: ["Ol"], rest: "data:á" });
+  });
+
+  it("preserva o espaço no início do token", () => {
+    // O Spring escreve "data:" + token, sem espaço separador. Um token " mundo"
+    // chega como "data: mundo"; tirar esse espaço cola as palavras.
+    expect(parseSse("data:Olá\n\ndata: mundo\n\n").data.join("")).toBe("Olá mundo");
+  });
+
+  it("junta com quebra de linha um evento de várias linhas data", () => {
+    expect(parseSse("data:linha 1\ndata:linha 2\n\n").data).toEqual(["linha 1\nlinha 2"]);
+  });
+
+  it("ignora linhas que não são data", () => {
+    expect(parseSse(":comentario\nevent:x\ndata:ok\n\n").data).toEqual(["ok"]);
+  });
+
+  it("aceita CRLF", () => {
+    expect(parseSse("data:ok\r\n\r\n").data).toEqual(["ok"]);
+  });
+
+  it("recupera o evento final sem linha em branco quando o chamador acrescenta o terminador", () => {
+    const { data, rest } = parseSse("data:Ol\n\ndata:fim");
+    expect(data).toEqual(["Ol"]);
+    expect(parseSse(rest + "\n\n")).toEqual({ data: ["fim"], rest: "" });
+  });
+
+  it("remonta um evento partido entre duas chamadas", () => {
+    const primeira = parseSse("data:Ol\n\ndata:me");
+    expect(primeira).toEqual({ data: ["Ol"], rest: "data:me" });
+    expect(parseSse(primeira.rest + "ia\n\n")).toEqual({ data: ["meia"], rest: "" });
+  });
+});

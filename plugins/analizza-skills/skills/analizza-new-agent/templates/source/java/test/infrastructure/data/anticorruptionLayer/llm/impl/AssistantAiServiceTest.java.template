@@ -1,0 +1,143 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.impl;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static {base-package}.support.ScriptedChatModel.answer;
+import static {base-package}.support.ScriptedChatModel.callTool;
+
+import {base-package}.infrastructure.observability.GenAiSpanEnricher;
+import {base-package}.infrastructure.observability.TracingProperties;
+import {base-package}.support.FakeToolProvider;
+import {base-package}.support.ScriptedChatModel;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+<!-- se memoria -->
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+<!-- fim se memoria -->
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.tool.ToolProvider;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.sdk.testing.junit5.OpenTelemetryExtension;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+
+/**
+ * O AI Service montado a mao, com modelo roteirizado e tool de mentira: prova
+ * que os prompts carregam do classpath, que a tool e chamada e o resultado
+ * volta ao modelo, e que o enricher anota o span. Nenhuma rede.
+ */
+class AssistantAiServiceTest {
+
+    @RegisterExtension
+    static final OpenTelemetryExtension otel = OpenTelemetryExtension.create();
+
+    private AssistantAiService assistant(ChatModel model, ToolProvider tools) {
+        return AiServices.builder(AssistantAiService.class)
+                .chatModel(model)
+                .toolProvider(tools)
+<!-- se memoria -->
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder().id(memoryId).maxMessages(10).build())
+<!-- fim se memoria -->
+                .build();
+    }
+
+    @Test
+    void chamaAToolEDevolveAoUsuarioARespostaFinalDoModelo() {
+        List<String> toolArguments = new ArrayList<>();
+        ScriptedChatModel model = new ScriptedChatModel(
+                List.of(callTool(FakeToolProvider.TOOL, "{\"id\":\"r-1\"}"), answer("Registro r-1 encontrado.")));
+        ToolProvider tools = FakeToolProvider.create(arguments -> {
+            toolArguments.add(arguments);
+            return "{\"status\":\"ATIVO\"}";
+        });
+
+        String response = assistant(model, tools).chat("conv-1", "cade o registro r-1?");
+
+        assertThat(response).isEqualTo("Registro r-1 encontrado.");
+        assertThat(toolArguments).hasSize(1);
+        assertThat(toolArguments.get(0)).contains("r-1");
+        assertThat(model.requests().get(1).messages()).anyMatch(message -> message instanceof ToolExecutionResultMessage);
+    }
+
+    @Test
+    void mandaOPromptDeSistemaCarregadoDoClasspath() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(answer("ok")));
+
+        assistant(model, FakeToolProvider.create(arguments -> "")).chat("conv-1", "oi");
+
+        List<SystemMessage> system = model.requests().get(0).messages().stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .toList();
+        assertThat(system).hasSize(1);
+        assertThat(system.get(0).text()).isNotBlank();
+    }
+<!-- se memoria -->
+
+    @Test
+    void aSegundaRodadaDaMesmaConversaLevaAPrimeiraJunto() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(answer("primeira"), answer("segunda")));
+        AssistantAiService service = assistant(model, FakeToolProvider.create(arguments -> ""));
+
+        service.chat("conv-1", "oi");
+        service.chat("conv-1", "e agora?");
+
+        assertThat(model.requests().get(1).messages().size())
+                .isGreaterThan(model.requests().get(0).messages().size());
+    }
+
+    @Test
+    void conversasDiferentesNaoCompartilhamMemoria() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(answer("primeira"), answer("segunda")));
+        AssistantAiService service = assistant(model, FakeToolProvider.create(arguments -> ""));
+
+        service.chat("conv-1", "oi");
+        service.chat("conv-2", "oi");
+
+        assertThat(model.requests().get(0).messages().size())
+                .isEqualTo(model.requests().get(1).messages().size());
+    }
+<!-- fim se memoria -->
+
+    @Test
+    void oEnricherAnotaOSpanCorrenteComAtributosEConteudoGenAi() {
+        TracingProperties properties = new TracingProperties();
+        properties.setIncludePrompt(true);
+        properties.setIncludeCompletion(true);
+        ScriptedChatModel model = new ScriptedChatModel(List.of(answer("ok")), List.of(new GenAiSpanEnricher(properties)));
+        Span span = otel.getOpenTelemetry().getTracer("test").spanBuilder("chat").startSpan();
+
+        try (Scope ignored = span.makeCurrent()) {
+            assistant(model, FakeToolProvider.create(arguments -> "")).chat("conv-1", "oi");
+        }
+        span.end();
+
+        List<SpanData> spans = otel.getSpans();
+        assertThat(spans).hasSize(1);
+        SpanData recorded = spans.get(0);
+        assertThat(recorded.getAttributes().get(AttributeKey.stringKey("gen_ai.operation.name"))).isEqualTo("chat");
+        assertThat(recorded.getEvents()).anyMatch(event -> event.getName().equals("gen_ai.content.prompt"));
+        assertThat(recorded.getEvents()).anyMatch(event -> event.getName().equals("gen_ai.content.completion"));
+    }
+
+    @Test
+    void comAsFlagsDesligadasOEnricherNaoGravaConteudo() {
+        ScriptedChatModel model = new ScriptedChatModel(
+                List.of(answer("ok")), List.of(new GenAiSpanEnricher(new TracingProperties())));
+        Span span = otel.getOpenTelemetry().getTracer("test").spanBuilder("chat").startSpan();
+
+        try (Scope ignored = span.makeCurrent()) {
+            assistant(model, FakeToolProvider.create(arguments -> "")).chat("conv-1", "oi");
+        }
+        span.end();
+
+        List<SpanData> spans = otel.getSpans();
+        assertThat(spans).hasSize(1);
+        assertThat(spans.get(0).getEvents()).isEmpty();
+    }
+}

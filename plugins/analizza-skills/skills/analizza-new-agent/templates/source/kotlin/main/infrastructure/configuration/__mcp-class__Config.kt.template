@@ -1,0 +1,54 @@
+package {base-package}.infrastructure.configuration
+
+import {base-package}.infrastructure.data.anticorruptionLayer.mcp.LazyMcpToolProvider
+import dev.langchain4j.mcp.client.DefaultMcpClient
+import dev.langchain4j.mcp.client.transport.http.StreamableHttpMcpTransport
+import dev.langchain4j.service.tool.ToolProvider
+import dev.langchain4j.service.tool.ToolProviderResult
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+
+/**
+ * Tools do assistente. O bean `chatToolProvider` existe sempre -- o AI Service
+ * o referencia pelo nome --, e o que muda com `{mcp-name}.enabled` e o que ele
+ * entrega: as tools do servidor MCP, ou nenhuma.
+ *
+ * Para um segundo servidor MCP: copie este par Config + Properties com outro
+ * nome e troque o `chatToolProvider` por um ToolProvider que junte os dois.
+ */
+@Configuration(proxyBeanMethods = false)
+class {mcp-class}Config {
+
+    @Bean("chatToolProvider", destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "{mcp-name}", name = ["enabled"], havingValue = "true")
+    fun mcpToolProvider(properties: {mcp-class}Properties): LazyMcpToolProvider =
+        // clientFactory nomeado: um lambda final seria ligado ao ultimo
+        // parametro (toolProviderFactory), nao ao clientFactory.
+        LazyMcpToolProvider("{mcp-name}", clientFactory = {
+            val headers = if (properties.authorization.isBlank()) {
+                emptyMap()
+            } else {
+                mapOf("Authorization" to properties.authorization)
+            }
+            DefaultMcpClient.builder()
+                .key("{mcp-name}")
+                .clientName("{agent-module}")
+                .transport(
+                    StreamableHttpMcpTransport.builder()
+                        .url(properties.baseUrl)
+                        .timeout(properties.timeout)
+                        .customHeaders(headers)
+                        .logRequests(properties.logRequests)
+                        .logResponses(properties.logResponses)
+                        .build(),
+                )
+                .initializationTimeout(properties.timeout)
+                .toolExecutionTimeout(properties.timeout)
+                .build()
+        })
+
+    @Bean("chatToolProvider")
+    @ConditionalOnProperty(prefix = "{mcp-name}", name = ["enabled"], havingValue = "false", matchIfMissing = true)
+    fun noToolProvider(): ToolProvider = ToolProvider { ToolProviderResult.builder().build() }
+}

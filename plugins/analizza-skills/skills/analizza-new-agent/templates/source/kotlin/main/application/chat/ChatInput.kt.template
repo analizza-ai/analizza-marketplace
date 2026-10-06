@@ -1,0 +1,17 @@
+package {base-package}.application.chat
+
+/** Validacao do corpo, compartilhada pelo handler sincrono e pelo de stream. */
+internal object ChatInput {
+
+    const val MAX_BODY_LENGTH = 8000
+
+    fun validate(body: String?): String {
+        if (body.isNullOrBlank()) {
+            throw InvalidChatRequestException("campo body vazio")
+        }
+        if (body.trim().length > MAX_BODY_LENGTH) {
+            throw InvalidChatRequestException("campo body excede $MAX_BODY_LENGTH caracteres")
+        }
+        return body
+    }
+}

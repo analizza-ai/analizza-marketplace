@@ -1,0 +1,9 @@
+package {base-package}.application.chat;
+
+/** Timeout na chamada ao provedor de LLM. */
+public class UpstreamTimeoutException extends RuntimeException {
+
+    public UpstreamTimeoutException(Throwable cause) {
+        super("tempo limite da requisicao excedido", cause);
+    }
+}

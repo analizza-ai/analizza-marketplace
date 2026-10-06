@@ -1,0 +1,130 @@
+spring:
+  application:
+    name: ${OTEL_SERVICE_NAME:{agent-module}}
+  # Nenhum profile ativo por padrao, de proposito: um deploy que nao define
+  # SPRING_PROFILES_ACTIVE nao pode cair no dev, que grava o conteudo das
+  # conversas nos traces. Os local.env*.example definem dev.
+  lifecycle:
+    timeout-per-shutdown-phase: ${TERMINATION_GRACE_PERIOD_SECONDS:30}s
+<!-- se postgres -->
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:{db-port}/{db-name}}
+    username: ${DB_USER:{db-name}}
+    password: ${DB_PASSWORD:{db-name}}
+<!-- fim se postgres -->
+
+server:
+  port: ${PORT:{agent-port}}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  # Metricas saem so por Prometheus (pull). O push OTLP vem ligado junto com o
+  # starter de OpenTelemetry e falha a cada ciclo sem coletor local.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    resource-attributes:
+      service.name: ${OTEL_SERVICE_NAME:{agent-module}}
+      service.version: ${APP_VERSION:0.0.1}
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
+    tracing:
+      export:
+        otlp:
+          # Default aponta para o LangWatch local do docker-compose.langwatch.yml.
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:5560/api/otel/v1/traces}
+          headers:
+            Authorization: "Bearer ${LANGWATCH_API_KEY:}"
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_RATIO:1.0}
+
+# Sem default de URL, token ou modelo: um default escondido aqui e o que faz
+# alguem gastar token de producao sem saber. Rode com local.env ou
+# local.env.ollama (make run-agent / make run-agent-ollama).
+langchain4j:
+  # Conteudo de conversa nos traces: desligado por padrao, ligado so no
+  # profile dev -- que so vale quando SPRING_PROFILES_ACTIVE=dev e definido.
+  # Prompt e resposta carregam dado de usuario.
+  tracing:
+    include-prompt: ${LANGCHAIN4J_TRACING_INCLUDE_PROMPT:false}
+    include-completion: ${LANGCHAIN4J_TRACING_INCLUDE_COMPLETION:false}
+    include-tool-arguments: ${LANGCHAIN4J_TRACING_INCLUDE_TOOL_ARGUMENTS:false}
+    include-tool-result: ${LANGCHAIN4J_TRACING_INCLUDE_TOOL_RESULT:false}
+  open-ai:
+    chat-model:
+      api-key: ${LLM_API_TOKEN}
+      base-url: ${LLM_BASE_URL}
+      model-name: ${LLM_MODEL}
+      timeout: ${LLM_TIMEOUT:PT120S}
+      max-retries: 3
+      log-requests: ${LANGCHAIN4J_LOG_REQUESTS:false}
+      log-responses: ${LANGCHAIN4J_LOG_RESPONSES:false}
+    streaming-chat-model:
+      api-key: ${LLM_API_TOKEN}
+      base-url: ${LLM_BASE_URL}
+      model-name: ${LLM_MODEL}
+      timeout: ${LLM_TIMEOUT:PT120S}
+      log-requests: ${LANGCHAIN4J_LOG_REQUESTS:false}
+      log-responses: ${LANGCHAIN4J_LOG_RESPONSES:false}
+
+# Servidor MCP consumido pelo agente. Com enabled=false nenhum cliente e
+# criado e o agente conversa so com o LLM.
+{mcp-name}:
+  enabled: ${{mcp-env}_ENABLED:{mcp-enabled}}
+  base-url: ${{mcp-env}_BASE_URL:{mcp-url}}
+  # Valor inteiro do header Authorization (ex.: "Bearer <token>"). Vazio = sem header.
+  authorization: ${{mcp-env}_AUTHORIZATION:}
+  timeout: ${{mcp-env}_TIMEOUT:PT10S}
+  log-requests: ${{mcp-env}_LOG_REQUESTS:false}
+  log-responses: ${{mcp-env}_LOG_RESPONSES:false}
+
+logging:
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+  level:
+    {base-package}: ${LOG_LEVEL:INFO}
+    dev.langchain4j: ${LOG_LEVEL:INFO}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+langchain4j:
+  tracing:
+    include-prompt: true
+    include-completion: true
+    include-tool-arguments: true
+    include-tool-result: true
+
+logging:
+  level:
+    {base-package}: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+management:
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_RATIO:0.1}
+
+logging:
+  level:
+    {base-package}: WARN
+    dev.langchain4j: WARN

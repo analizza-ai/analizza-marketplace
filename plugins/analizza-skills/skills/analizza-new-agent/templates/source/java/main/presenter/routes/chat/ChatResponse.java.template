@@ -1,0 +1,4 @@
+package {base-package}.presenter.routes.chat;
+
+public record ChatResponse(String response) {
+}

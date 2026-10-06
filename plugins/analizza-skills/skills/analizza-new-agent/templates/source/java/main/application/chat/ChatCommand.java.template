@@ -1,0 +1,14 @@
+package {base-package}.application.chat;
+
+import org.jspecify.annotations.Nullable;
+<!-- se buildingBlocks -->
+import {bb-package}.application.ResultCommand;
+
+public record ChatCommand(String conversationId, @Nullable String body) implements ResultCommand<ChatResult> {
+}
+<!-- fim se buildingBlocks -->
+<!-- se sem-buildingBlocks -->
+
+public record ChatCommand(String conversationId, @Nullable String body) {
+}
+<!-- fim se sem-buildingBlocks -->

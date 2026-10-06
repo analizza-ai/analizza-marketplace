@@ -1,0 +1,22 @@
+/**
+ * Separa de `buffer` os eventos SSE completos e devolve o que sobrou (um
+ * evento ainda pela metade) para ser prefixado ao próximo pedaço da resposta.
+ *
+ * O dado de cada linha é tudo depois de "data:", sem tirar espaço: o agente
+ * escreve "data:" + token, e o espaço inicial de um token faz parte do texto.
+ */
+export function parseSse(buffer: string): { data: string[]; rest: string } {
+  const events = buffer.replace(/\r\n/g, "\n").split("\n\n");
+  const rest = events.pop() ?? "";
+  const data: string[] = [];
+  for (const event of events) {
+    const lines = event
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice("data:".length));
+    if (lines.length > 0) {
+      data.push(lines.join("\n"));
+    }
+  }
+  return { data, rest };
+}

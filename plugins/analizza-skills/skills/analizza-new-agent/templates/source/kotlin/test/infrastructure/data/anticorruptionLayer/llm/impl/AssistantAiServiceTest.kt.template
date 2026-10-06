@@ -1,0 +1,124 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.impl
+
+import {base-package}.infrastructure.observability.GenAiSpanEnricher
+import {base-package}.infrastructure.observability.TracingProperties
+import {base-package}.support.FakeToolProvider
+import {base-package}.support.ScriptedChatModel
+import {base-package}.support.ScriptedChatModel.Companion.answer
+import {base-package}.support.ScriptedChatModel.Companion.callTool
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.ToolExecutionResultMessage
+<!-- se memoria -->
+import dev.langchain4j.memory.chat.MessageWindowChatMemory
+<!-- fim se memoria -->
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.service.AiServices
+import dev.langchain4j.service.tool.ToolProvider
+import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.sdk.testing.junit5.OpenTelemetryExtension
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * O AI Service montado a mao, com modelo roteirizado e tool de mentira: prova
+ * que os prompts carregam do classpath, que a tool e chamada e o resultado
+ * volta ao modelo, e que o enricher anota o span. Nenhuma rede.
+ */
+class AssistantAiServiceTest {
+
+    private fun assistant(model: ChatModel, tools: ToolProvider): AssistantAiService =
+        AiServices.builder(AssistantAiService::class.java)
+            .chatModel(model)
+            .toolProvider(tools)
+<!-- se memoria -->
+            .chatMemoryProvider { memoryId -> MessageWindowChatMemory.builder().id(memoryId).maxMessages(10).build() }
+<!-- fim se memoria -->
+            .build()
+
+    @Test
+    fun `chama a tool e devolve ao usuario a resposta final do modelo`() {
+        val toolArguments = mutableListOf<String>()
+        val model = ScriptedChatModel(
+            listOf(callTool(FakeToolProvider.TOOL, """{"id":"r-1"}"""), answer("Registro r-1 encontrado.")),
+        )
+        val tools = FakeToolProvider.create { toolArguments += it; """{"status":"ATIVO"}""" }
+
+        val response = assistant(model, tools).chat("conv-1", "cade o registro r-1?")
+
+        assertEquals("Registro r-1 encontrado.", response)
+        assertEquals(1, toolArguments.size)
+        assertTrue(toolArguments[0].contains("r-1"))
+        assertTrue(model.requests[1].messages().any { it is ToolExecutionResultMessage })
+    }
+
+    @Test
+    fun `manda o prompt de sistema carregado do classpath`() {
+        val model = ScriptedChatModel(listOf(answer("ok")))
+
+        assistant(model, FakeToolProvider.create { "" }).chat("conv-1", "oi")
+
+        val system = model.requests[0].messages().filterIsInstance<SystemMessage>().single()
+        assertTrue(system.text().isNotBlank())
+    }
+<!-- se memoria -->
+
+    @Test
+    fun `a segunda rodada da mesma conversa leva a primeira junto`() {
+        val model = ScriptedChatModel(listOf(answer("primeira"), answer("segunda")))
+        val service = assistant(model, FakeToolProvider.create { "" })
+
+        service.chat("conv-1", "oi")
+        service.chat("conv-1", "e agora?")
+
+        assertTrue(model.requests[1].messages().size > model.requests[0].messages().size)
+    }
+
+    @Test
+    fun `conversas diferentes nao compartilham memoria`() {
+        val model = ScriptedChatModel(listOf(answer("primeira"), answer("segunda")))
+        val service = assistant(model, FakeToolProvider.create { "" })
+
+        service.chat("conv-1", "oi")
+        service.chat("conv-2", "oi")
+
+        assertEquals(model.requests[0].messages().size, model.requests[1].messages().size)
+    }
+<!-- fim se memoria -->
+
+    @Test
+    fun `o enricher anota o span corrente com atributos e conteudo GenAI`() {
+        val properties = TracingProperties().apply {
+            includePrompt = true
+            includeCompletion = true
+        }
+        val model = ScriptedChatModel(listOf(answer("ok")), listOf(GenAiSpanEnricher(properties)))
+        val span = otel.openTelemetry.getTracer("test").spanBuilder("chat").startSpan()
+
+        span.makeCurrent().use { assistant(model, FakeToolProvider.create { "" }).chat("conv-1", "oi") }
+        span.end()
+
+        val recorded = otel.spans.single()
+        assertEquals("chat", recorded.attributes.get(AttributeKey.stringKey("gen_ai.operation.name")))
+        assertTrue(recorded.events.any { it.name == "gen_ai.content.prompt" })
+        assertTrue(recorded.events.any { it.name == "gen_ai.content.completion" })
+    }
+
+    @Test
+    fun `com as flags desligadas o enricher nao grava conteudo`() {
+        val model = ScriptedChatModel(listOf(answer("ok")), listOf(GenAiSpanEnricher(TracingProperties())))
+        val span = otel.openTelemetry.getTracer("test").spanBuilder("chat").startSpan()
+
+        span.makeCurrent().use { assistant(model, FakeToolProvider.create { "" }).chat("conv-1", "oi") }
+        span.end()
+
+        assertTrue(otel.spans.single().events.isEmpty())
+    }
+
+    companion object {
+        @JvmField
+        @RegisterExtension
+        val otel: OpenTelemetryExtension = OpenTelemetryExtension.create()
+    }
+}

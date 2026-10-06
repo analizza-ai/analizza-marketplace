@@ -1,0 +1,243 @@
+package {base-package}.infrastructure.observability;
+
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
+import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.ChatResponseMetadata;
+import dev.langchain4j.model.output.TokenUsage;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.trace.Span;
+import java.util.List;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * Enriches OpenTelemetry spans with GenAI Semantic Convention attributes and content events.
+ *
+ * Captura:
+ * 1. Atributos semânticos GenAI (modelo, tokens, finish reason) — sempre ativos
+ * 2. Conteúdo do prompt (mensagens enviadas ao LLM) — controlado por `langchain4j.tracing.include-prompt`
+ * 3. Conteúdo da completion (resposta do LLM) — controlado por `langchain4j.tracing.include-completion`
+ * 4. Argumentos de tool calls — controlado por `langchain4j.tracing.include-tool-arguments`
+ * 5. Resultados de tool calls — controlado por `langchain4j.tracing.include-tool-result`
+ *
+ * Esses eventos e atributos são interpretados pelo LangWatch para exibir as conversas completas.
+ *
+ * @see <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/">GenAI Semantic Conventions</a>
+ */
+@Component
+public class GenAiSpanEnricher implements ChatModelListener {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GenAiSpanEnricher.class);
+    private static final String SPAN_CONTEXT_KEY = "otel.parent.span";
+
+    private final TracingProperties tracingProperties;
+
+    public GenAiSpanEnricher(TracingProperties tracingProperties) {
+        this.tracingProperties = tracingProperties;
+    }
+
+    @Override
+    public void onRequest(ChatModelRequestContext context) {
+        try {
+            Span currentSpan = Span.current();
+            context.attributes().put(SPAN_CONTEXT_KEY, currentSpan);
+
+            if (!currentSpan.isRecording()) {
+                return;
+            }
+
+            var params = context.chatRequest().parameters();
+
+            String modelName = params.modelName();
+            currentSpan.setAttribute("gen_ai.request.model", modelName != null ? modelName : "unknown");
+            currentSpan.setAttribute("gen_ai.system", "openai");
+            currentSpan.setAttribute("gen_ai.operation.name", "chat");
+
+            // Captura do prompt (mensagens enviadas ao LLM)
+            if (tracingProperties.isIncludePrompt()) {
+                capturePromptContent(currentSpan, context.chatRequest().messages());
+            }
+        } catch (Exception e) {
+            LOG.warn("Falha ao enriquecer span (request)", e);
+        }
+    }
+
+    @Override
+    public void onResponse(ChatModelResponseContext context) {
+        try {
+            Span span = context.attributes().get(SPAN_CONTEXT_KEY) instanceof Span stored ? stored : Span.current();
+
+            if (!span.isRecording()) {
+                return;
+            }
+
+            ChatResponse response = context.chatResponse();
+            if (response == null) {
+                return;
+            }
+
+            // Metadata do modelo
+            ChatResponseMetadata metadata = response.metadata();
+            if (metadata != null) {
+                if (metadata.modelName() != null) {
+                    span.setAttribute("gen_ai.response.model", metadata.modelName());
+                }
+                if (metadata.finishReason() != null) {
+                    span.setAttribute("gen_ai.response.finish_reasons", metadata.finishReason().toString());
+                }
+                if (metadata.id() != null) {
+                    span.setAttribute("gen_ai.response.id", metadata.id());
+                }
+            }
+
+            // Token usage — essencial para cálculo de custos no LangWatch
+            TokenUsage usage = response.tokenUsage();
+            if (usage != null) {
+                if (usage.inputTokenCount() != null) {
+                    span.setAttribute("gen_ai.usage.input_tokens", usage.inputTokenCount().longValue());
+                }
+                if (usage.outputTokenCount() != null) {
+                    span.setAttribute("gen_ai.usage.output_tokens", usage.outputTokenCount().longValue());
+                }
+                if (usage.totalTokenCount() != null) {
+                    span.setAttribute("gen_ai.usage.total_tokens", usage.totalTokenCount().longValue());
+                }
+            }
+
+            // Captura da completion (resposta do LLM)
+            if (tracingProperties.isIncludeCompletion()) {
+                captureCompletionContent(span, response);
+            }
+        } catch (Exception e) {
+            LOG.warn("Falha ao enriquecer span (response)", e);
+        }
+    }
+
+    @Override
+    public void onError(ChatModelErrorContext context) {
+        // O erro e registrado no span da conversa por ChatTelemetry.fail().
+    }
+
+    /**
+     * Registra cada mensagem do prompt como um span event seguindo as GenAI Semantic Conventions.
+     * O LangWatch interpreta estes eventos para reconstruir a conversa.
+     */
+    private void capturePromptContent(Span span, @Nullable List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage message = messages.get(i);
+            String role = resolveRole(message);
+            String content = resolveContent(message);
+
+            if (content != null && !content.isEmpty()) {
+                span.addEvent(
+                        "gen_ai.content.prompt",
+                        Attributes.of(
+                                AttributeKey.longKey("gen_ai.prompt.sequence"), (long) i,
+                                AttributeKey.stringKey("gen_ai.prompt.role"), role,
+                                AttributeKey.stringKey("gen_ai.prompt.content"), content));
+            }
+
+            // Captura de tool call arguments em mensagens AI (assistente pedindo tool use)
+            if (tracingProperties.isIncludeToolArguments() && message instanceof AiMessage aiMessage) {
+                captureToolCalls(span, aiMessage, i);
+            }
+
+            // Captura de tool results em mensagens de resultado
+            if (tracingProperties.isIncludeToolResult() && message instanceof ToolExecutionResultMessage result) {
+                String text = result.text();
+                span.addEvent(
+                        "gen_ai.content.prompt",
+                        Attributes.of(
+                                AttributeKey.longKey("gen_ai.prompt.sequence"), (long) i,
+                                AttributeKey.stringKey("gen_ai.prompt.role"), "tool",
+                                AttributeKey.stringKey("gen_ai.prompt.content"), text != null ? text : ""));
+            }
+        }
+    }
+
+    /**
+     * Registra a resposta do LLM como um span event.
+     */
+    private void captureCompletionContent(Span span, ChatResponse response) {
+        AiMessage aiMessage = response.aiMessage();
+        if (aiMessage == null) {
+            return;
+        }
+
+        String text = aiMessage.text();
+        String content = text != null ? text : "";
+
+        span.addEvent(
+                "gen_ai.content.completion",
+                Attributes.of(
+                        AttributeKey.stringKey("gen_ai.completion.role"), "assistant",
+                        AttributeKey.stringKey("gen_ai.completion.content"), content));
+
+        // Captura de tool calls na resposta
+        if (tracingProperties.isIncludeToolArguments() && aiMessage.toolExecutionRequests() != null) {
+            captureToolCalls(span, aiMessage, -1);
+        }
+    }
+
+    private void captureToolCalls(Span span, AiMessage aiMessage, int sequence) {
+        List<ToolExecutionRequest> toolRequests = aiMessage.toolExecutionRequests();
+        if (toolRequests == null) {
+            return;
+        }
+
+        for (ToolExecutionRequest toolReq : toolRequests) {
+            AttributesBuilder attrsBuilder = Attributes.builder();
+            attrsBuilder.put("gen_ai.tool.name", toolReq.name() != null ? toolReq.name() : "unknown");
+            if (toolReq.arguments() != null) {
+                attrsBuilder.put("gen_ai.tool.arguments", toolReq.arguments());
+            }
+            if (toolReq.id() != null) {
+                attrsBuilder.put("gen_ai.tool.call_id", toolReq.id());
+            }
+            span.addEvent("gen_ai.tool.call", attrsBuilder.build());
+        }
+    }
+
+    private String resolveRole(ChatMessage message) {
+        if (message instanceof SystemMessage) {
+            return "system";
+        } else if (message instanceof UserMessage) {
+            return "user";
+        } else if (message instanceof AiMessage) {
+            return "assistant";
+        } else if (message instanceof ToolExecutionResultMessage) {
+            return "tool";
+        }
+        return "unknown";
+    }
+
+    private @Nullable String resolveContent(ChatMessage message) {
+        if (message instanceof SystemMessage system) {
+            return system.text();
+        } else if (message instanceof UserMessage user) {
+            return user.singleText();
+        } else if (message instanceof AiMessage ai) {
+            return ai.text();
+        } else if (message instanceof ToolExecutionResultMessage result) {
+            return result.text();
+        }
+        return null;
+    }
+}

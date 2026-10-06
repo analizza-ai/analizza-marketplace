@@ -1,0 +1,112 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.mcp;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+
+import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.service.tool.ToolProvider;
+import dev.langchain4j.service.tool.ToolProviderRequest;
+import dev.langchain4j.service.tool.ToolProviderResult;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Test;
+
+class LazyMcpToolProviderTest {
+
+    private final ToolProviderRequest request = mock(ToolProviderRequest.class);
+    private final ToolProvider noTools = req -> ToolProviderResult.builder().build();
+
+    @Test
+    void naoConectaEnquantoNenhumaConversaPedeAsTools() {
+        AtomicInteger connections = new AtomicInteger();
+
+        new LazyMcpToolProvider(
+                "tools-mcp",
+                () -> {
+                    connections.incrementAndGet();
+                    return mock(McpClient.class);
+                },
+                client -> noTools);
+
+        assertThat(connections.get()).isEqualTo(0);
+    }
+
+    @Test
+    void servidorForaViraMcpUnavailableExceptionEAConversaSeguinteTentaDeNovo() {
+        AtomicInteger connections = new AtomicInteger();
+        LazyMcpToolProvider provider = new LazyMcpToolProvider(
+                "tools-mcp",
+                () -> {
+                    connections.incrementAndGet();
+                    throw new IllegalStateException("connection refused");
+                },
+                client -> noTools);
+
+        Throwable error = catchThrowable(() -> provider.provideTools(request));
+        assertThatThrownBy(() -> provider.provideTools(request)).isInstanceOf(McpUnavailableException.class);
+
+        assertThat(error).isInstanceOf(McpUnavailableException.class);
+        assertThat(error.getMessage()).contains("tools-mcp");
+        assertThat(connections.get()).isEqualTo(2);
+    }
+
+    @Test
+    void reaproveitaAConexaoEnquantoOServidorResponde() {
+        AtomicInteger connections = new AtomicInteger();
+        LazyMcpToolProvider provider = new LazyMcpToolProvider(
+                "tools-mcp",
+                () -> {
+                    connections.incrementAndGet();
+                    return mock(McpClient.class);
+                },
+                client -> noTools);
+
+        provider.provideTools(request);
+        provider.provideTools(request);
+
+        assertThat(connections.get()).isEqualTo(1);
+    }
+
+    @Test
+    void falhaAoListarAsToolsFechaOClienteEReconectaNaProxima() throws Exception {
+        List<McpClient> clients = new ArrayList<>();
+        AtomicBoolean failing = new AtomicBoolean(true);
+        LazyMcpToolProvider provider = new LazyMcpToolProvider(
+                "tools-mcp",
+                () -> {
+                    McpClient created = mock(McpClient.class);
+                    clients.add(created);
+                    return created;
+                },
+                client -> req -> {
+                    if (failing.get()) {
+                        throw new IllegalStateException("sessao invalida");
+                    }
+                    return noTools.provideTools(req);
+                });
+
+        assertThatThrownBy(() -> provider.provideTools(request)).isInstanceOf(McpUnavailableException.class);
+        failing.set(false);
+        provider.provideTools(request);
+
+        assertThat(clients).hasSize(2);
+        verify(clients.get(0), times(1)).close();
+    }
+
+    @Test
+    void closeFechaOClienteConectado() throws Exception {
+        McpClient client = mock(McpClient.class);
+        LazyMcpToolProvider provider = new LazyMcpToolProvider("tools-mcp", () -> client, c -> noTools);
+        provider.provideTools(request);
+
+        provider.close();
+
+        verify(client, times(1)).close();
+    }
+}

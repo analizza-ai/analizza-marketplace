@@ -1,0 +1,21 @@
+  # Banco do agente, separado do banco do projeto: dois Flyway no mesmo schema
+  # disputam a mesma flyway_schema_history.
+  postgres-agent:
+    image: postgres:17-alpine
+    container_name: {project-name}-agent-postgres
+    environment:
+      POSTGRES_DB: {db-name}
+      POSTGRES_USER: {db-name}
+      POSTGRES_PASSWORD: {db-name}
+    ports:
+      - "{db-port}:5432"
+    volumes:
+      - postgres-agent-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {db-name} -d {db-name}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# sob volumes:
+  postgres-agent-data:

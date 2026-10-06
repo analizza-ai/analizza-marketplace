@@ -1,0 +1,47 @@
+package {base-package}.application.chat;
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant;
+import {base-package}.infrastructure.observability.ChatSpan;
+import {base-package}.infrastructure.observability.ChatTelemetry;
+import io.opentelemetry.context.Scope;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+
+/**
+ * Uma rodada de conversa em stream. Nao implementa o contrato de handler do
+ * buildingBlocks porque devolve um fluxo, nao um resultado: o span e as
+ * metricas fecham quando o fluxo termina, nao quando este metodo retorna.
+ */
+@Component
+public class ChatStreamHandler {
+
+    private final Assistant assistant;
+    private final ChatTelemetry telemetry;
+
+    public ChatStreamHandler(Assistant assistant, ChatTelemetry telemetry) {
+        this.assistant = assistant;
+        this.telemetry = telemetry;
+    }
+
+    public Flux<String> handle(ChatCommand command) {
+        String body = ChatInput.validate(command.body());
+        ChatSpan chatSpan = telemetry.start("chatStream", command.conversationId());
+        Flux<String> tokens;
+        try {
+            // O span precisa estar corrente quando o assistente dispara a
+            // chamada ao modelo, para o enricher de GenAI anexar os atributos nele.
+            try (Scope ignored = chatSpan.span().makeCurrent()) {
+                tokens = assistant.chatStream(command.conversationId(), body);
+            }
+        } catch (Exception e) {
+            RuntimeException failure = ChatFailures.classify(e);
+            telemetry.fail(chatSpan, failure);
+            throw failure;
+        }
+        return tokens
+                .onErrorMap(ChatFailures::classify)
+                .doOnComplete(() -> telemetry.succeed(chatSpan))
+                .doOnError(error -> telemetry.fail(chatSpan, error))
+                .doOnCancel(() -> telemetry.fail(chatSpan, new IllegalStateException("stream cancelado pelo cliente")));
+    }
+}

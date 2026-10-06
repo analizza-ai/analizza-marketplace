@@ -1,0 +1,5 @@
+<!-- arquivo se sem-buildingBlocks -->
+package {base-package}.presenter.configuration.exception;
+
+public record ErrorMessage(String code, String message) {
+}

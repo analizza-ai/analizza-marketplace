@@ -1,0 +1,12 @@
+package {base-package}.application.chat;
+
+// Moram em application/, e nao em presenter/, porque quem as lanca e o
+// handler: se morassem na entrada, o caso de uso importaria presenter.
+
+/** Corpo ausente, vazio ou longo demais. A mensagem vai para o cliente. */
+public class InvalidChatRequestException extends RuntimeException {
+
+    public InvalidChatRequestException(String message) {
+        super(message);
+    }
+}

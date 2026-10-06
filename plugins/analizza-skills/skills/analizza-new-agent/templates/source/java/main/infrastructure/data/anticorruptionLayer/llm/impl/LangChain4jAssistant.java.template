@@ -1,0 +1,33 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.impl;
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
+
+/** Adapta o AI Service a porta Assistant: e aqui que o TokenStream vira Flux. */
+@Component
+public class LangChain4jAssistant implements Assistant {
+
+    private final AssistantAiService aiService;
+
+    public LangChain4jAssistant(AssistantAiService aiService) {
+        this.aiService = aiService;
+    }
+
+    @Override
+    public String chat(String conversationId, String userInput) {
+        return aiService.chat(conversationId, userInput);
+    }
+
+    @Override
+    public Flux<String> chatStream(String conversationId, String userInput) {
+        Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
+        aiService.chatStream(conversationId, userInput)
+                .onPartialResponse(sink::tryEmitNext)
+                .onCompleteResponse(response -> sink.tryEmitComplete())
+                .onError(sink::tryEmitError)
+                .start();
+        return sink.asFlux();
+    }
+}

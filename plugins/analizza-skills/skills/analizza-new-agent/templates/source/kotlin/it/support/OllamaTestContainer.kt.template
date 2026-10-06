@@ -1,0 +1,73 @@
+package {base-package}.support
+
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.testcontainers.DockerClientFactory
+import org.testcontainers.ollama.OllamaContainer
+import org.testcontainers.utility.DockerImageName
+import java.util.Locale
+
+/**
+ * LLM real dos testes de integracao: Ollama em container, um por JVM, iniciado
+ * de forma eager -- o mesmo estilo do container de banco da base.
+ *
+ * Para nao baixar o modelo (~2 GB) a cada execucao: na primeira vez sobe a
+ * imagem base, faz `ollama pull` e grava o container como a imagem local
+ * `tc-ollama-<modelo>`; nas seguintes sobe direto dela. Para refazer o cache:
+ * `docker rmi tc-ollama-<modelo>`.
+ *
+ * Modelo padrao qwen2.5:3b: faz tool calling e nao emite tags de "thinking".
+ * Troque com a system property ou variavel de ambiente IT_OLLAMA_MODEL.
+ */
+object OllamaTestContainer {
+
+    private const val BASE_IMAGE = "ollama/ollama:0.34.3"
+    private const val DEFAULT_MODEL = "qwen2.5:3b"
+
+    val model: String = (System.getProperty("IT_OLLAMA_MODEL") ?: System.getenv("IT_OLLAMA_MODEL"))
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: DEFAULT_MODEL
+
+    val container: OllamaContainer = start()
+
+    /** URL OpenAI-compativel do container. */
+    fun openAiBaseUrl(): String = container.endpoint + "/v1"
+
+    /**
+     * Aponta os dois modelos do LangChain4j para o container e desliga o que
+     * nao e deste teste: o servidor MCP (outro sistema) e a exportacao de traces.
+     */
+    fun registerLlm(registry: DynamicPropertyRegistry, mcpName: String) {
+        for (prefix in listOf("langchain4j.open-ai.chat-model", "langchain4j.open-ai.streaming-chat-model")) {
+            registry.add("$prefix.base-url") { openAiBaseUrl() }
+            registry.add("$prefix.api-key") { "ollama" }
+            registry.add("$prefix.model-name") { model }
+            // Inferencia em CPU: uma chamada pode levar minutos.
+            registry.add("$prefix.timeout") { "PT300S" }
+        }
+        registry.add("$mcpName.enabled") { "false" }
+        registry.add("management.tracing.sampling.probability") { "0.0" }
+    }
+
+    private fun start(): OllamaContainer {
+        val cachedImage = "tc-ollama-" + model.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9._-]"), "-")
+        val cached = DockerClientFactory.instance().client()
+            .listImagesCmd()
+            .withReferenceFilter(cachedImage)
+            .exec()
+            .isNotEmpty()
+
+        val started = if (cached) {
+            OllamaContainer(DockerImageName.parse(cachedImage).asCompatibleSubstituteFor("ollama/ollama"))
+        } else {
+            OllamaContainer(BASE_IMAGE)
+        }
+        started.start()
+        if (!cached) {
+            val pull = started.execInContainer("ollama", "pull", model)
+            check(pull.exitCode == 0) { "ollama pull $model falhou: ${pull.stderr}" }
+            started.commitToImage(cachedImage)
+        }
+        return started
+    }
+}

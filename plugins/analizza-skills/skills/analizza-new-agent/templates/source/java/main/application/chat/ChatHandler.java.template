@@ -1,0 +1,49 @@
+package {base-package}.application.chat;
+
+<!-- se buildingBlocks -->
+import {bb-package}.application.ResultCommandHandler;
+<!-- fim se buildingBlocks -->
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.Assistant;
+import {base-package}.infrastructure.observability.ChatTelemetry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/** Uma rodada de conversa, sincrona: valida, chama o assistente, classifica a falha. */
+@Component
+<!-- se buildingBlocks -->
+public class ChatHandler implements ResultCommandHandler<ChatCommand, ChatResult> {
+<!-- fim se buildingBlocks -->
+<!-- se sem-buildingBlocks -->
+public class ChatHandler {
+<!-- fim se sem-buildingBlocks -->
+
+    private static final Logger log = LoggerFactory.getLogger(ChatHandler.class);
+
+    private final Assistant assistant;
+    private final ChatTelemetry telemetry;
+
+    public ChatHandler(Assistant assistant, ChatTelemetry telemetry) {
+        this.assistant = assistant;
+        this.telemetry = telemetry;
+    }
+
+<!-- se buildingBlocks -->
+    @Override
+<!-- fim se buildingBlocks -->
+    public ChatResult handle(ChatCommand command) {
+        String body = ChatInput.validate(command.body());
+        return telemetry.observe("chat", command.conversationId(), () -> {
+            try {
+                return new ChatResult(assistant.chat(command.conversationId(), body));
+            } catch (Exception e) {
+                RuntimeException failure = ChatFailures.classify(e);
+                log.warn(
+                        "conversa falhou conversationId={} tipo={}",
+                        command.conversationId(),
+                        failure.getClass().getSimpleName());
+                throw failure;
+            }
+        });
+    }
+}

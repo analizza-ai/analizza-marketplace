@@ -1,0 +1,155 @@
+package {base-package}.presenter.routes.chat
+
+import {base-package}.application.chat.ChatCommand
+import {base-package}.application.chat.ChatHandler
+import {base-package}.application.chat.ChatResult
+import {base-package}.application.chat.ChatStreamHandler
+import {base-package}.application.chat.InvalidChatRequestException
+import {base-package}.application.chat.McpUpstreamException
+import {base-package}.application.chat.UpstreamException
+import {base-package}.application.chat.UpstreamTimeoutException
+import {base-package}.presenter.configuration.ConversationIdFilter
+import {base-package}.presenter.configuration.exception.GlobalExceptionHandler
+import com.ninjasquad.springmockk.MockkBean
+import io.mockk.every
+import io.mockk.slot
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
+import org.springframework.context.annotation.Import
+import org.springframework.http.MediaType
+import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import java.util.concurrent.TimeoutException
+import kotlin.test.assertEquals
+
+/**
+ * A rota com os handlers mockados: prova o contrato HTTP -- status, corpo de
+ * erro, resolucao da conversa. O fluxo SSE de verdade e do ChatRouteIT, que
+ * fala HTTP com a aplicacao inteira.
+ */
+@WebMvcTest(ChatRoute::class)
+@Import(GlobalExceptionHandler::class, ConversationIdFilter::class)
+class ChatRouteTest {
+
+    @Autowired
+    private lateinit var mockMvc: MockMvc
+
+    @MockkBean
+    private lateinit var chatHandler: ChatHandler
+
+    @MockkBean
+    private lateinit var chatStreamHandler: ChatStreamHandler
+
+    private fun postChat(json: String, conversationId: String? = null) = mockMvc.perform(
+        post("/api/v1/agent/http")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(json)
+            .apply { if (conversationId != null) header(ConversationIds.HEADER, conversationId) },
+    )
+
+    @Test
+    fun `devolve 200 com a resposta do handler`() {
+        every { chatHandler.handle(any()) } returns ChatResult("Ola! Como posso ajudar?")
+
+        postChat("""{"from":"u1","body":"oi"}""")
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.response").value("Ola! Como posso ajudar?"))
+    }
+
+    @Test
+    fun `usa o header como conversa e o ecoa na resposta`() {
+        val command = slot<ChatCommand>()
+        every { chatHandler.handle(capture(command)) } returns ChatResult("ok")
+
+        postChat("""{"from":"u1","body":"oi"}""", conversationId = "conv-9")
+            .andExpect(status().isOk)
+            .andExpect(header().string(ConversationIds.HEADER, "conv-9"))
+
+        assertEquals("conv-9", command.captured.conversationId)
+        assertEquals("oi", command.captured.body)
+    }
+
+    @Test
+    fun `sem header usa o campo from como conversa`() {
+        val command = slot<ChatCommand>()
+        every { chatHandler.handle(capture(command)) } returns ChatResult("ok")
+
+        postChat("""{"from":"u1","body":"oi"}""").andExpect(status().isOk)
+
+        assertEquals("u1", command.captured.conversationId)
+    }
+
+    @Test
+    fun `campo desconhecido no JSON e ignorado`() {
+        every { chatHandler.handle(any()) } returns ChatResult("ok")
+
+        postChat("""{"body":"oi","outro":"ignorado"}""").andExpect(status().isOk)
+    }
+
+    @Test
+    fun `corpo invalido devolve 400 com a mensagem do caso de uso`() {
+        every { chatHandler.handle(any()) } throws InvalidChatRequestException("campo body vazio")
+
+        postChat("""{"body":"  "}""")
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+            .andExpect(jsonPath("$.message").value("campo body vazio"))
+    }
+
+    @Test
+    fun `JSON malformado devolve 400`() {
+        postChat("""{"body":""")
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("MALFORMED_JSON"))
+    }
+
+    @Test
+    fun `midia errada devolve 415`() {
+        mockMvc.perform(post("/api/v1/agent/http").contentType(MediaType.TEXT_PLAIN).content("oi"))
+            .andExpect(status().isUnsupportedMediaType)
+            .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"))
+    }
+
+    @Test
+    fun `falha do provedor devolve 502 sem vazar a causa`() {
+        every { chatHandler.handle(any()) } throws UpstreamException(RuntimeException("sk-segredo no corpo"))
+
+        postChat("""{"body":"oi"}""")
+            .andExpect(status().isBadGateway)
+            .andExpect(jsonPath("$.code").value("UPSTREAM_FAILURE"))
+            .andExpect(jsonPath("$.message").value("falha de comunicacao com o provedor"))
+    }
+
+    @Test
+    fun `timeout do provedor devolve 504`() {
+        every { chatHandler.handle(any()) } throws UpstreamTimeoutException(TimeoutException())
+
+        postChat("""{"body":"oi"}""")
+            .andExpect(status().isGatewayTimeout)
+            .andExpect(jsonPath("$.code").value("UPSTREAM_TIMEOUT"))
+    }
+
+    @Test
+    fun `servidor MCP fora devolve 502 com codigo proprio`() {
+        every { chatHandler.handle(any()) } throws McpUpstreamException(RuntimeException("recusada"))
+
+        postChat("""{"body":"oi"}""")
+            .andExpect(status().isBadGateway)
+            .andExpect(jsonPath("$.code").value("MCP_UNAVAILABLE"))
+    }
+
+    @Test
+    fun `stream com corpo invalido devolve 400 antes de abrir o fluxo`() {
+        every { chatStreamHandler.handle(any()) } throws InvalidChatRequestException("campo body vazio")
+
+        mockMvc.perform(
+            post("/api/v1/agent/stream").contentType(MediaType.APPLICATION_JSON).content("""{"body":""}"""),
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+    }
+}

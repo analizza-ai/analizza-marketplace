@@ -1,0 +1,35 @@
+package {base-package}.presenter.configuration;
+
+import {base-package}.application.chat.Whitespace;
+import {base-package}.presenter.routes.chat.ConversationIds;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+
+/**
+ * Ecoa o X-Conversation-Id na resposta, para o cliente correlacionar o que
+ * recebeu com o trace da conversa.
+ */
+@Component
+@Order(1)
+public class ConversationIdFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        if (request instanceof HttpServletRequest httpRequest && response instanceof HttpServletResponse httpResponse) {
+            String conversationId = httpRequest.getHeader(ConversationIds.HEADER);
+            if (conversationId != null && !Whitespace.isBlank(conversationId)) {
+                httpResponse.setHeader(ConversationIds.HEADER, conversationId);
+            }
+        }
+        chain.doFilter(request, response);
+    }
+}

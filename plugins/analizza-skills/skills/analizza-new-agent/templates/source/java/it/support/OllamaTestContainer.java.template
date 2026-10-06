@@ -1,0 +1,94 @@
+package {base-package}.support;
+
+import com.github.dockerjava.api.model.Image;
+import java.io.IOException;
+import java.util.List;
+import java.util.Locale;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.testcontainers.DockerClientFactory;
+import org.testcontainers.containers.Container.ExecResult;
+import org.testcontainers.ollama.OllamaContainer;
+import org.testcontainers.utility.DockerImageName;
+
+/**
+ * LLM real dos testes de integracao: Ollama em container, um por JVM, iniciado
+ * de forma eager -- o mesmo estilo do container de banco da base.
+ *
+ * <p>Para nao baixar o modelo (~2 GB) a cada execucao: na primeira vez sobe a
+ * imagem base, faz {@code ollama pull} e grava o container como a imagem local
+ * {@code tc-ollama-<modelo>}; nas seguintes sobe direto dela. Para refazer o
+ * cache: {@code docker rmi tc-ollama-<modelo>}.
+ *
+ * <p>Modelo padrao qwen2.5:3b: faz tool calling e nao emite tags de "thinking".
+ * Troque com a system property ou variavel de ambiente IT_OLLAMA_MODEL.
+ */
+public final class OllamaTestContainer {
+
+    private static final String BASE_IMAGE = "ollama/ollama:0.34.3";
+    private static final String DEFAULT_MODEL = "qwen2.5:3b";
+
+    public static final String MODEL = model();
+    public static final OllamaContainer CONTAINER = start();
+
+    private OllamaTestContainer() {
+    }
+
+    /** URL OpenAI-compativel do container. */
+    public static String openAiBaseUrl() {
+        return CONTAINER.getEndpoint() + "/v1";
+    }
+
+    /**
+     * Aponta os dois modelos do LangChain4j para o container e desliga o que
+     * nao e deste teste: o servidor MCP (outro sistema) e a exportacao de traces.
+     */
+    public static void registerLlm(DynamicPropertyRegistry registry, String mcpName) {
+        for (String prefix : List.of("langchain4j.open-ai.chat-model", "langchain4j.open-ai.streaming-chat-model")) {
+            registry.add(prefix + ".base-url", OllamaTestContainer::openAiBaseUrl);
+            registry.add(prefix + ".api-key", () -> "ollama");
+            registry.add(prefix + ".model-name", () -> MODEL);
+            // Inferencia em CPU: uma chamada pode levar minutos.
+            registry.add(prefix + ".timeout", () -> "PT300S");
+        }
+        registry.add(mcpName + ".enabled", () -> "false");
+        registry.add("management.tracing.sampling.probability", () -> "0.0");
+    }
+
+    private static String model() {
+        String model = System.getProperty("IT_OLLAMA_MODEL", System.getenv("IT_OLLAMA_MODEL"));
+        return model == null || model.isBlank() ? DEFAULT_MODEL : model.trim();
+    }
+
+    private static OllamaContainer start() {
+        String cachedImage = "tc-ollama-" + MODEL.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "-");
+        List<Image> cache = DockerClientFactory.instance().client()
+                .listImagesCmd()
+                .withReferenceFilter(cachedImage)
+                .exec();
+        boolean cached = !cache.isEmpty();
+
+        OllamaContainer container = cached
+                ? new OllamaContainer(DockerImageName.parse(cachedImage).asCompatibleSubstituteFor("ollama/ollama"))
+                : new OllamaContainer(BASE_IMAGE);
+        container.start();
+        if (!cached) {
+            pull(container);
+            container.commitToImage(cachedImage);
+        }
+        return container;
+    }
+
+    private static void pull(OllamaContainer container) {
+        try {
+            ExecResult pull = container.execInContainer("ollama", "pull", MODEL);
+            if (pull.getExitCode() != 0) {
+                throw new IllegalStateException("ollama pull " + MODEL + " falhou: " + pull.getStderr());
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("ollama pull " + MODEL + " falhou", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("ollama pull " + MODEL + " interrompido", e);
+        }
+    }
+}

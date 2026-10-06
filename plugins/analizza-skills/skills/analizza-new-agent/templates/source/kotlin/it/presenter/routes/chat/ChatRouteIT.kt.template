@@ -1,0 +1,100 @@
+package {base-package}.presenter.routes.chat
+
+import {base-package}.support.BaseIntegrationTest
+import org.junit.jupiter.api.Test
+<!-- se memoria-jdbc -->
+import org.springframework.beans.factory.annotation.Autowired
+<!-- fim se memoria-jdbc -->
+import org.springframework.http.MediaType
+import java.util.UUID
+<!-- se memoria-jdbc -->
+import javax.sql.DataSource
+import kotlin.test.assertEquals
+<!-- fim se memoria-jdbc -->
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/**
+ * A conversa de ponta a ponta: HTTP de verdade, aplicacao inteira, LLM real
+ * (Ollama em container). As assercoes toleram um modelo pequeno -- afirmam
+ * status, forma e efeitos colaterais, nunca o texto da resposta. O que precisa
+ * de texto exato e teste unitario com ScriptedChatModel.
+ */
+class ChatRouteIT : BaseIntegrationTest() {
+<!-- se memoria-jdbc -->
+
+    @Autowired
+    private lateinit var dataSource: DataSource
+
+    private fun memoryRows(conversationId: String): Int =
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("SELECT count(*) FROM chat_memory WHERE memory_id = ?").use { statement ->
+                statement.setString(1, conversationId)
+                statement.executeQuery().use { it.next(); it.getInt(1) }
+            }
+        }
+<!-- fim se memoria-jdbc -->
+
+    private fun post(path: String, json: String, conversationId: String) =
+        http.post().uri(path)
+            .contentType(MediaType.APPLICATION_JSON)
+            .header(ConversationIds.HEADER, conversationId)
+            .body(json)
+            .exchange()
+
+    @Test
+    fun `http responde com o LLM real, ecoa a conversa e registra a metrica`() {
+        val conversationId = "it-${UUID.randomUUID()}"
+
+        val body = post("/api/v1/agent/http", """{"body":"Responda com uma unica palavra: ok"}""", conversationId)
+            .expectStatus().isOk
+            .expectHeader().valueEquals(ConversationIds.HEADER, conversationId)
+            .expectBody(String::class.java)
+            .returnResult()
+            .responseBody
+
+        assertNotNull(body)
+        assertTrue(Regex("\"response\"\\s*:\\s*\"[^\"]").containsMatchIn(body), "resposta vazia: $body")
+<!-- se memoria-jdbc -->
+        // Uma linha por conversa: a janela de mensagens e um JSON so.
+        assertEquals(1, memoryRows(conversationId))
+<!-- fim se memoria-jdbc -->
+
+        val metrics = http.get().uri("/actuator/prometheus").exchange()
+            .expectStatus().isOk
+            .expectBody(String::class.java)
+            .returnResult()
+            .responseBody
+        assertNotNull(metrics)
+        assertTrue(metrics.contains("chat_requests_total"), "metrica chat_requests_total ausente")
+    }
+
+    @Test
+    fun `stream devolve eventos SSE`() {
+        val body = post("/api/v1/agent/stream", """{"body":"Responda com uma unica palavra: ok"}""", "it-${UUID.randomUUID()}")
+            .expectStatus().isOk
+            .expectBody(String::class.java)
+            .returnResult()
+            .responseBody
+
+        assertNotNull(body)
+        assertTrue(body.contains("data:"), "nenhum evento SSE: $body")
+    }
+
+    @Test
+    fun `corpo em branco devolve 400 sem chamar o LLM`() {
+        val conversationId = "it-${UUID.randomUUID()}"
+
+        val body = post("/api/v1/agent/http", """{"body":"   "}""", conversationId)
+            .expectStatus().isBadRequest
+            .expectBody(String::class.java)
+            .returnResult()
+            .responseBody
+
+        assertNotNull(body)
+        assertTrue(body.contains("INVALID_REQUEST"))
+<!-- se memoria-jdbc -->
+        assertEquals(0, memoryRows(conversationId))
+<!-- fim se memoria-jdbc -->
+    }
+}
