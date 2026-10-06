@@ -1,7 +1,7 @@
 # `analizza-new-agent` — design
 
 > Uma entrega, 1 PR, no `analizza-marketplace`: a skill, Kotlin e Java, provada
-> por três aplicações reais antes do merge.
+> por quatro aplicações reais antes do merge.
 
 ## Contexto
 
@@ -45,8 +45,8 @@ módulo do agente a um projeto Gradle multi-módulo que já existe.
 - **Autenticação do endpoint de chat.** A forma fica nas convenções; o código
   não sai do scaffold, pela mesma fronteira da `new-project`.
 - **Código de domínio.** `domain/` nasce vazio.
-- **Alterar a `analizza-integration-test`.** Se ela não cobrir um caso (ver
-  D16), a lacuna é registrada como débito dela, não corrigida aqui.
+- **Alterar a `analizza-integration-test`.** Ela não tem opção "sem banco"
+  (ver D16); a lacuna é contornada aqui e fica como débito dela.
 - **Qualquer coisa da Pags:** logger `pagseguro-logger`, URLs de intranet,
   `customerId`, Jenkinsfile, repositório Artifactory.
 
@@ -124,8 +124,11 @@ conversa, não na subida — o agente sobe e o healthcheck passa com o servidor
 fora. Se o servidor estiver fora na hora da conversa, a requisição falha com
 **502** e mensagem canônica; o agente **não** responde sem ferramentas, porque
 um agente que perde as tools em silêncio inventa a resposta. Sem servidor
-informado, o par Config+Properties é gerado com `enabled=false` e nenhum bean
-de MCP é criado.
+informado, o par Config+Properties é gerado com `enabled=false` e nenhum
+cliente MCP é criado. Um servidor feito pela `analizza-add-mcp-module` é
+protegido, então o cliente aceita uma credencial **do agente** em
+`{mcp-name}.authorization` (o header `Authorization` inteiro). Propagar a
+identidade do usuário até o servidor MCP fica fora do escopo.
 
 **D12 — Memória de conversa é pergunta; onde ela mora depende do banco.**
 Chave: `conversationId`, passado como `@MemoryId`.
@@ -136,15 +139,18 @@ Chave: `conversationId`, passado como `@MemoryId`.
 | sim | não | `MessageWindowChatMemory` em processo; aviso nas convenções: não sobrevive a restart nem a duas réplicas |
 | não | — | cada chamada é independente |
 
-Risco conhecido: o schema que o store JDBC espera precisa ser reproduzido
-exato na migration. Se isso não fechar na implementação, a skill usa
-`autoCreateTable` como a POC, e a convenção gravada explica por quê.
+O schema que o store espera foi lido do jar
+(`langchain4j-community-sql-1.20.0-beta30`, `PostgreSQLDialect`):
+`chat_memory (memory_id VARCHAR(255) PRIMARY KEY, content TEXT NOT NULL DEFAULT '')`
+— uma linha por conversa, com a janela em JSON. A migration reproduz isso e o
+store é criado com `autoCreateTable(false)`.
 
 **D13 — Banco é pergunta, e no modo existente é do agente.** Padrão *sim* do
 zero, *não* no existente. No existente, com `postgres=sim`, o agente ganha
 banco próprio (`{db-name}_agent`) no compose do projeto: dois Flyway na mesma
-`flyway_schema_history` se atropelam. Sem banco, o módulo não leva `data-jpa`
-nem `flyway`.
+`flyway_schema_history` se atropelam. Com banco o módulo leva
+`spring-boot-starter-jdbc` e Flyway — não `data-jpa`: ele nasce sem entidade
+nenhuma, e quem escrever a primeira troca o starter. Sem banco, nenhum dos dois.
 
 **D14 — Observabilidade vem pronta e roda sem conta externa.** Código: span
 `chat` por conversa com `conversationId`, `user_id` e `thread_id`;
@@ -172,12 +178,16 @@ linha de memória no Postgres, span emitido. Resposta exata é unitário.
 `OllamaTestContainer`, as propriedades de LLM no `BaseIntegrationTest` e o
 `ChatRouteIT` — assim a regra ArchUnit "todo entrypoint tem IT" já nasce
 satisfeita. Existente: ITs dentro do próprio `{agent-module}`, com
-`AgentBaseIntegrationTest` e task `integrationTest` própria; a skill não toca
+`BaseIntegrationTest` e task `integrationTest` próprios; a skill não toca
 no `{base}-integration-tests`, que sobe a aplicação do `-api`.
 
-A confirmar na implementação: se a `analizza-integration-test` aceita projeto
-sem banco. Se não aceitar, a `new-agent` escreve um `BaseIntegrationTest`
-enxuto nesse caso e a lacuna vira débito registrado da skill irmã.
+Do zero **sem banco**, os ITs também ficam dentro do módulo: a
+`analizza-integration-test` só oferece Postgres, Oracle, MySQL ou "outro", e o
+`BaseIntegrationTest` dela nasce com um container de banco. Consequência
+assumida e relatada ao usuário: nesses dois casos o agente fica sem a regra
+ArchUnit, sem JaCoCo e sem Pitest. A base tem o mesmo nome e pacote nos dois
+layouts, para o `ChatRouteIT` ser um arquivo só. Nos ITs o servidor MCP fica
+desligado — é outro sistema; o fluxo de tool é coberto no unitário.
 
 **D17 — O web é uma tela de chat, não um Next vazio.** Pergunta só no modo do
 zero, padrão *sim*. `create-next-app` mais `src/app/page.tsx` com a conversa
@@ -186,9 +196,9 @@ backend não precisa de CORS — e mantendo o `X-Conversation-Id` da sessão. Se
 biblioteca de UI. Cumpre o papel do `chat-simulator` estático do
 `agent-invest-sgap`.
 
-**D18 — Versões são lidas, não lembradas.** `langchain4jVersion` e
-`otelInstrumentationVersion` ficam em `gradle.properties`. A skill parte das
-versões da referência e confere a existência no Maven Central na execução. A
+**D18 — Versões são lidas, não lembradas.** `langchain4jVersion` fica em
+`gradle.properties`, uma só para toda a família. A skill parte da versão da
+referência (`1.20.0-beta30`) e confere a existência no Maven Central na execução. A
 versão do Boot vem do Initializr (do zero) ou do projeto (existente). Boot 3.x
 no modo existente: para e avisa — os starters `langchain4j-*-spring-boot4-*`
 exigem Boot 4.
@@ -201,7 +211,7 @@ exigem Boot 4.
 {project-name}/
 ├── settings.gradle{dsl-ext}          include de buildingBlocks e {agent-module}
 ├── build.gradle{dsl-ext}             versões dos plugins, apply false
-├── gradle.properties                 langchain4jVersion, otelInstrumentationVersion
+├── gradle.properties                 langchain4jVersion
 ├── buildingBlocks/                   templates da new-project
 ├── {agent-module}/                   Spring Boot; as quatro camadas
 ├── {project-name}-web/               [pergunta] Next.js + tela de chat
@@ -222,7 +232,7 @@ Mais `{project-name}-integration-tests`, criado pela `analizza-integration-test`
 ```
 {base}/
 ├── settings.gradle{dsl-ext}          + include do {agent-module}
-├── gradle.properties                 + as duas versões
+├── gradle.properties                 + langchain4jVersion
 ├── {agent-module}/                   pacote raiz {package}.agent
 ├── docker-compose.yml                + banco do agente [se postgres]
 ├── docker-compose.langwatch.yml      novo
@@ -245,26 +255,29 @@ Não toca no `-api` nem no `-core`.
 | `web` | pergunta, padrão sim | não oferece |
 | `postgres` | pergunta, padrão sim | pergunta, padrão não |
 | `chat-memory` | pergunta, padrão sim | pergunta, padrão sim |
-| `mcp-name`, `mcp-url` | pergunta, pode ficar vazio | padrão `{base}-mcp` se o módulo existir |
+| `mcp-name`, `mcp-url` | pergunta, pode ficar vazio (vira `tools-mcp`, desligado) | padrão `{base}-mcp` se o módulo existir |
 
 ### O módulo do agente
 
 ```
-{AgentModule}Application
+{app-class}                     ponto de entrada; raiz do component scan
 presenter/
-  routes/chat/                  ChatRoute, ChatRequest, ChatResponse, ConversationIds
+  routes/chat/                  ChatRoute (+ ChatRequest, ChatResponse), ConversationIds
   configuration/                ConversationIdFilter
-  configuration/exception/      GlobalExceptionHandler, InvalidRequestException
+  configuration/exception/      GlobalExceptionHandler
   configuration/security/       .gitkeep
   jobs/                         .gitkeep
 application/
-  chat/                         ChatCommand, ChatHandler, ChatResult, ChatStreamHandler,
-                                UpstreamException, UpstreamTimeoutException,
-                                McpUpstreamException
+  chat/                         ChatCommand, ChatResult, ChatHandler, ChatStreamHandler,
+                                ChatInput, ChatFailures, e as exceções do caso de uso:
+                                InvalidChatRequestException, UpstreamException,
+                                UpstreamTimeoutException, McpUpstreamException,
+                                McpUpstreamTimeoutException
 domain/                         .gitkeep em rules/, repositories/, services/
 infrastructure/
   data/anticorruptionLayer/llm/ Assistant; impl/LangChain4jAssistant, AssistantAiService
-  configuration/                {Mcp}McpConfig, {Mcp}McpProperties, ChatMemoryConfig
+  data/anticorruptionLayer/mcp/ LazyMcpToolProvider, McpUnavailableException
+  configuration/                {mcp-class}Config, {mcp-class}Properties, ChatMemoryConfig
   observability/                ChatTelemetry, GenAiSpanEnricher, TracingProperties
   repositories/, security/, utils/   .gitkeep
 resources/
@@ -272,6 +285,9 @@ resources/
   prompts/                      system-prompt.prompt, user-prompt.prompt
   db/migration/                 V1__chat_memory.sql [se memória em Postgres]
 ```
+
+As exceções moram em `application/chat/`, e não em `presenter/`, porque quem
+as lança é o handler: na entrada, o caso de uso importaria `presenter`.
 
 Contrato HTTP, igual ao da referência menos `customerId`:
 
@@ -282,7 +298,10 @@ Contrato HTTP, igual ao da referência menos `customerId`:
   trim e limite de 128; ecoado na resposta
 - `body` vazio ou acima de 8000 caracteres → 400; JSON inválido → 400; mídia
   errada → 415; falha do LLM ou do MCP → 502; timeout de LLM ou MCP → 504.
-  Corpo de erro canônico, sem stacktrace nem conteúdo do upstream
+- Corpo de erro canônico `{"code": "...", "message": "..."}` — o `ErrorMessage`
+  do `buildingBlocks` —, sem stacktrace nem conteúdo do upstream. Códigos:
+  `INVALID_REQUEST`, `MALFORMED_JSON`, `UNSUPPORTED_MEDIA_TYPE`,
+  `UPSTREAM_FAILURE`, `UPSTREAM_TIMEOUT`, `MCP_UNAVAILABLE`, `MCP_TIMEOUT`
 
 ### Convenções gravadas — seção "Agente"
 
@@ -326,16 +345,16 @@ Cada passo fecha com verificação por código de saída, não por ausência de 
 plugins/analizza-skills/skills/analizza-new-agent/
 ├── SKILL.md
 ├── references/
-│   ├── agent-conventions.md       a seção "Agente" do arquivo do SDD
-│   ├── mcp-client.md
-│   ├── observability.md
+│   ├── agent-conventions.md       a seção "Agente" do arquivo do SDD (inclui MCP e observabilidade)
+│   ├── it-llm-layer.md            o que acrescentar ao módulo de IT dedicado
 │   ├── pitfalls-agent.md
 │   └── runbook-agent-chat.md
 └── templates/
+    ├── architecture-conventions.md.template   camadas num módulo só
     ├── build/{groovy,kts}/        módulo do agente; raiz sem core
-    ├── source/{java,kotlin}/      produção e teste
+    ├── source/{java,kotlin}/      main, test e it, espelhando a árvore de pacotes
     ├── resources/                 application.yaml, prompts, migration
-    ├── web/                       page.tsx, route.ts, testes
+    ├── web/                       page.tsx, route.ts, parser de SSE, testes
     └── root/                      Makefile, composes, env examples
 ```
 
@@ -345,26 +364,27 @@ Também: versão `0.5.0 → 0.6.0` nos dois `plugin.json`, entrada no `README.md
 ## Prova
 
 Uma skill escrita só a partir da referência quebra no projeto nº 2 — foi o que
-a spec da `add-mcp-module` aprendeu com o `analizza-auction`. Três aplicações
-reais, em pasta descartável, antes do merge:
+a spec da `add-mcp-module` aprendeu com o `analizza-auction`. Quatro aplicações
+reais, em pasta descartável, antes do merge. Cada uma é feita por um executor
+que recebe só o `SKILL.md` e as respostas: o que ele precisar adivinhar é
+defeito da skill.
 
 1. **Do zero, Kotlin, tudo ligado** — web, Postgres, memória persistida, sem
-   MCP.
-2. **Do zero, Java, mínimo** — sem web, sem banco, memória em processo. É o
-   lado sem referência de produção.
-3. **Existente, Kotlin** — projeto gerado pela `new-project` com a
-   `add-mcp-module` aplicada, consumindo o `{base}-mcp` de verdade.
+   MCP. ITs no módulo dedicado.
+2. **Do zero, Java, mínimo** — sem web, sem banco, memória em processo, num
+   projeto cujo nome termina em `-agent` (exercita D6).
+3. **Existente, Java** — cópia do `analizza-auction`, o único projeto local com
+   `-mcp`. Prova que o agente sobe com o servidor MCP fora e que a conversa
+   devolve `502`.
+4. **Existente, Kotlin** — cópia do `eaf-agent`, com banco próprio do agente.
 
-Cada uma precisa terminar com `make build` e `make test-integration` em
-`EXIT=0` e o smoke do passo 11 respondendo. O que cada execução ensinar volta
-para a skill antes do PR; o que não der para provar fica escrito no PR como
-não provado.
+As provas 3 e 4 rodam em cópias; os repositórios originais não são tocados.
+Cada uma precisa terminar com build e testes de integração em `EXIT=0` e o
+smoke do passo 11 respondendo. O que cada execução ensinar volta para a skill
+antes do PR; o que não der para provar fica escrito no PR como não provado.
 
 ## Riscos
 
-- **Schema do `ChatMemoryStore` JDBC** (D12) — saída prevista: `autoCreateTable`.
-- **`analizza-integration-test` sem banco** (D16) — saída prevista:
-  `BaseIntegrationTest` próprio.
 - **Starters LangChain4j em beta** (`1.20.0-beta30` na referência) — a API de
   MCP e de `@AiService` pode mudar entre versões; por isso D18.
 - **Modelo pequeno em CPU** — IT lento e ocasionalmente instável em tool
