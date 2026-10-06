@@ -1,0 +1,24 @@
+package {base-package}.infrastructure.observability;
+
+import io.micrometer.core.instrument.Timer;
+import io.opentelemetry.api.trace.Span;
+
+/** Um span em andamento e o cronometro da mesma conversa. */
+public final class ChatSpan {
+
+    private final Span span;
+    private final Timer.Sample sample;
+
+    public ChatSpan(Span span, Timer.Sample sample) {
+        this.span = span;
+        this.sample = sample;
+    }
+
+    public Span span() {
+        return span;
+    }
+
+    Timer.Sample sample() {
+        return sample;
+    }
+}

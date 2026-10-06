@@ -1,0 +1,63 @@
+<!-- arquivo se it-no-modulo -->
+package {base-package}.support;
+
+import {base-package}.{app-class};
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+<!-- se postgres -->
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+<!-- fim se postgres -->
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.client.RestTestClient;
+<!-- se postgres -->
+import org.testcontainers.postgresql.PostgreSQLContainer;
+<!-- fim se postgres -->
+
+/**
+ * Base de todo teste de integracao do agente: toda classe terminada em IT a
+ * estende. Aplicacao inteira em porta aleatoria, LLM real em container.
+ *
+ * <p>Os containers sao um por suite, iniciados na mao e sem @Container: o ciclo
+ * do @Container e por classe e reiniciaria tudo a cada IT.
+ */
+@SpringBootTest(
+        classes = {app-class}.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+public abstract class BaseIntegrationTest {
+
+<!-- se postgres -->
+    @ServiceConnection
+    static final PostgreSQLContainer DATABASE = startDatabase();
+
+<!-- fim se postgres -->
+    @LocalServerPort
+    private int port;
+
+    protected RestTestClient http;
+
+    @BeforeEach
+    void prepararCliente() {
+        // O JdkClientHttpRequestFactory vai explicito porque bindToServer() sem
+        // argumento escolhe o cliente HTTP pelo classpath, e o webflux deste
+        // modulo traria outro transporte para o teste.
+        http = RestTestClient.bindToServer(new JdkClientHttpRequestFactory())
+                .baseUrl("http://localhost:" + port)
+                .build();
+    }
+
+    @DynamicPropertySource
+    static void llm(DynamicPropertyRegistry registry) {
+        OllamaTestContainer.registerLlm(registry, "{mcp-name}");
+    }
+<!-- se postgres -->
+
+    private static PostgreSQLContainer startDatabase() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:17-alpine");
+        container.start();
+        return container;
+    }
+<!-- fim se postgres -->
+}

@@ -1,0 +1,35 @@
+package {base-package}.support;
+
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.service.tool.ToolExecutor;
+import dev.langchain4j.service.tool.ToolProvider;
+import dev.langchain4j.service.tool.ToolProviderResult;
+import java.util.function.Function;
+
+/**
+ * Duble de um servidor MCP: uma tool com nome, descricao e parametro, e a
+ * resposta que o teste escolher. O servidor MCP de verdade e outro sistema e
+ * nao entra em teste unitario.
+ */
+public final class FakeToolProvider {
+
+    public static final String TOOL = "consultar_exemplo";
+
+    private FakeToolProvider() {
+    }
+
+    public static ToolProvider create(Function<String, String> result) {
+        ToolSpecification specification = ToolSpecification.builder()
+                .name(TOOL)
+                .description("Consulta um registro de exemplo pelo identificador.")
+                .parameters(JsonObjectSchema.builder()
+                        .addStringProperty("id", "Identificador do registro")
+                        .required("id")
+                        .build())
+                .build();
+        ToolExecutor executor = (request, memoryId) -> result.apply(request.arguments());
+        ToolProviderResult provided = ToolProviderResult.builder().add(specification, executor).build();
+        return request -> provided;
+    }
+}

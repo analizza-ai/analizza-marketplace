@@ -1,0 +1,31 @@
+package {base-package}.presenter.routes.chat;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+
+class ConversationIdsTest {
+
+    @Test
+    void headerVenceOCampoFrom() {
+        assertThat(ConversationIds.resolve(" do-header ", "do-corpo")).isEqualTo("do-header");
+    }
+
+    @Test
+    void semHeaderUsaOCampoFrom() {
+        assertThat(ConversationIds.resolve("   ", " do-corpo ")).isEqualTo("do-corpo");
+    }
+
+    @Test
+    void semHeaderESemFromGeraUmIdNovoACadaChamada() {
+        String primeiro = ConversationIds.resolve(null, null);
+        String segundo = ConversationIds.resolve(null, null);
+        assertThat(primeiro).hasSize(36);
+        assertThat(primeiro).isNotEqualTo(segundo);
+    }
+
+    @Test
+    void cortaEm128Caracteres() {
+        assertThat(ConversationIds.resolve("x".repeat(300), null)).hasSize(128);
+    }
+}

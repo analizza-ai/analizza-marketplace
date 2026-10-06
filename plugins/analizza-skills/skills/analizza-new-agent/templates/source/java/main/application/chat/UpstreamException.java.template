@@ -1,0 +1,9 @@
+package {base-package}.application.chat;
+
+/** Falha de comunicacao com o provedor de LLM. */
+public class UpstreamException extends RuntimeException {
+
+    public UpstreamException(Throwable cause) {
+        super("falha de comunicacao com o provedor", cause);
+    }
+}

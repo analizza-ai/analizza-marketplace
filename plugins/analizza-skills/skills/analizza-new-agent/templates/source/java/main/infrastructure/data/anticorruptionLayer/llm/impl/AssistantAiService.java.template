@@ -1,0 +1,45 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.impl;
+
+<!-- se memoria -->
+import dev.langchain4j.service.MemoryId;
+<!-- fim se memoria -->
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
+import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
+
+/**
+ * AI Service do LangChain4j: o starter gera a implementacao em runtime.
+ * Wiring explicito para que acrescentar um segundo ChatModel ou ToolProvider
+ * ao contexto nao mude em silencio o que este assistente usa.
+ */
+@AiService(
+        wiringMode = AiServiceWiringMode.EXPLICIT,
+        chatModel = "openAiChatModel",
+        streamingChatModel = "openAiStreamingChatModel",
+<!-- se memoria -->
+        chatMemoryProvider = "chatMemoryProvider",
+<!-- fim se memoria -->
+        toolProvider = "chatToolProvider")
+public interface AssistantAiService {
+
+    @SystemMessage(fromResource = "prompts/system-prompt.prompt")
+    @UserMessage(fromResource = "prompts/user-prompt.prompt")
+<!-- se memoria -->
+    String chat(@MemoryId String conversationId, @V("userInput") String userInput);
+<!-- fim se memoria -->
+<!-- se sem-memoria -->
+    String chat(@V("conversationId") String conversationId, @V("userInput") String userInput);
+<!-- fim se sem-memoria -->
+
+    @SystemMessage(fromResource = "prompts/system-prompt.prompt")
+    @UserMessage(fromResource = "prompts/user-prompt.prompt")
+<!-- se memoria -->
+    TokenStream chatStream(@MemoryId String conversationId, @V("userInput") String userInput);
+<!-- fim se memoria -->
+<!-- se sem-memoria -->
+    TokenStream chatStream(@V("conversationId") String conversationId, @V("userInput") String userInput);
+<!-- fim se sem-memoria -->
+}

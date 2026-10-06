@@ -1,0 +1,33 @@
+package {base-package}.presenter.routes.chat;
+
+import java.util.UUID;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * Resolve o identificador da conversa. Precedencia: header, depois o campo
+ * `from` do corpo, depois um UUID novo. O limite de tamanho existe porque o
+ * valor vira chave de memoria e atributo de span.
+ */
+public final class ConversationIds {
+
+    public static final String HEADER = "X-Conversation-Id";
+    private static final int MAX_LENGTH = 128;
+
+    private ConversationIds() {
+    }
+
+    public static String resolve(@Nullable String header, @Nullable String from) {
+        String candidate;
+        if (header != null && !header.isBlank()) {
+            candidate = header.strip();
+        } else if (from != null && !from.isBlank()) {
+            candidate = from.strip();
+        } else {
+            candidate = null;
+        }
+        if (candidate == null) {
+            return UUID.randomUUID().toString();
+        }
+        return candidate.substring(0, Math.min(candidate.length(), MAX_LENGTH));
+    }
+}

@@ -1,0 +1,70 @@
+package {base-package}.infrastructure.observability;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import java.util.function.Supplier;
+import org.springframework.stereotype.Component;
+
+/**
+ * Span e metricas de uma rodada de conversa. Os handlers chamam isto em vez
+ * de montar span na mao, para que o sincrono e o de stream emitam os mesmos
+ * atributos e as mesmas metricas.
+ *
+ * <p>user_id e thread_id sao os atributos que o LangWatch usa para agrupar
+ * traces por usuario e por conversa.
+ */
+@Component
+public class ChatTelemetry {
+
+    private final Tracer tracer;
+    private final MeterRegistry meterRegistry;
+
+    public ChatTelemetry(Tracer tracer, MeterRegistry meterRegistry) {
+        this.tracer = tracer;
+        this.meterRegistry = meterRegistry;
+    }
+
+    public <T> T observe(String spanName, String conversationId, Supplier<T> block) {
+        ChatSpan chatSpan = start(spanName, conversationId);
+        try {
+            T result;
+            try (Scope ignored = chatSpan.span().makeCurrent()) {
+                result = block.get();
+            }
+            succeed(chatSpan);
+            return result;
+        } catch (Exception e) {
+            fail(chatSpan, e);
+            throw e;
+        }
+    }
+
+    public ChatSpan start(String spanName, String conversationId) {
+        Span span = tracer.spanBuilder(spanName).startSpan();
+        span.setAttribute("conversationId", conversationId);
+        span.setAttribute("user_id", conversationId);
+        span.setAttribute("thread_id", conversationId);
+        return new ChatSpan(span, Timer.start(meterRegistry));
+    }
+
+    public void succeed(ChatSpan chatSpan) {
+        finish(chatSpan, "success");
+    }
+
+    public void fail(ChatSpan chatSpan, Throwable error) {
+        chatSpan.span().setStatus(StatusCode.ERROR, error.getMessage() != null ? error.getMessage() : "erro desconhecido");
+        chatSpan.span().recordException(error);
+        finish(chatSpan, "failure");
+    }
+
+    private void finish(ChatSpan chatSpan, String outcome) {
+        Counter.builder("chat.requests").tag("outcome", outcome).register(meterRegistry).increment();
+        chatSpan.sample().stop(Timer.builder("chat.request.duration").register(meterRegistry));
+        chatSpan.span().end();
+    }
+}

@@ -1,0 +1,53 @@
+package {base-package}.application.chat;
+
+import {base-package}.infrastructure.data.anticorruptionLayer.mcp.McpUnavailableException;
+import java.net.SocketTimeoutException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
+
+/**
+ * Traduz qualquer falha da conversa numa das excecoes do caso de uso. Olha a
+ * cadeia de causas inteira porque o LangChain4j embrulha a excecao original, e
+ * pelo nome da classe porque o timeout do cliente HTTP dele nao estende
+ * java.util.concurrent.TimeoutException.
+ */
+final class ChatFailures {
+
+    private static final int MAX_DEPTH = 20;
+
+    private ChatFailures() {
+    }
+
+    static RuntimeException classify(Throwable error) {
+        if (error instanceof InvalidChatRequestException invalid) {
+            return invalid;
+        }
+        List<Throwable> chain = new ArrayList<>();
+        int depth = 0;
+        for (Throwable t = error; t != null && depth < MAX_DEPTH; t = t.getCause()) {
+            chain.add(t);
+            depth++;
+        }
+        if (chain.stream().anyMatch(ChatFailures::isMcpTimeout)) {
+            return new McpUpstreamTimeoutException(error);
+        }
+        if (chain.stream().anyMatch(t -> t instanceof McpUnavailableException)) {
+            return new McpUpstreamException(error);
+        }
+        if (chain.stream().anyMatch(ChatFailures::isTimeout)) {
+            return new UpstreamTimeoutException(error);
+        }
+        return new UpstreamException(error);
+    }
+
+    private static boolean isTimeout(Throwable e) {
+        return e instanceof SocketTimeoutException
+                || e instanceof TimeoutException
+                || e.getClass().getSimpleName().endsWith("TimeoutException");
+    }
+
+    private static boolean isMcpTimeout(Throwable e) {
+        return isTimeout(e) && e.getClass().getName().startsWith("dev.langchain4j.mcp");
+    }
+}

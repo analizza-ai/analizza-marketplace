@@ -1,0 +1,9 @@
+package {base-package}.application.chat;
+
+/** O servidor MCP nao respondeu a tempo durante uma tool call. */
+public class McpUpstreamTimeoutException extends RuntimeException {
+
+    public McpUpstreamTimeoutException(Throwable cause) {
+        super("tempo limite ao consultar ferramenta externa", cause);
+    }
+}

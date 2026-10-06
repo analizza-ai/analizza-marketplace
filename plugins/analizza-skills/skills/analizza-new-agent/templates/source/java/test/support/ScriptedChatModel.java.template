@@ -1,0 +1,60 @@
+package {base-package}.support;
+
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+
+/**
+ * LLM falso e deterministico: cada chamada ao modelo consome o proximo passo
+ * do roteiro, e uma chamada alem do roteiro falha o teste. E o que permite
+ * afirmar o texto exato da resposta -- coisa que um modelo real nao permite.
+ */
+public class ScriptedChatModel implements ChatModel {
+
+    private final List<Function<ChatRequest, AiMessage>> steps;
+    private final List<ChatModelListener> listeners;
+    private final List<ChatRequest> requests = new ArrayList<>();
+
+    public ScriptedChatModel(List<Function<ChatRequest, AiMessage>> steps) {
+        this(steps, List.of());
+    }
+
+    public ScriptedChatModel(List<Function<ChatRequest, AiMessage>> steps, List<ChatModelListener> listeners) {
+        this.steps = List.copyOf(steps);
+        this.listeners = List.copyOf(listeners);
+    }
+
+    @Override
+    public List<ChatModelListener> listeners() {
+        return listeners;
+    }
+
+    @Override
+    public ChatResponse doChat(ChatRequest request) {
+        int call = requests.size();
+        requests.add(request);
+        if (call >= steps.size()) {
+            throw new IllegalStateException("chamada inesperada ao modelo #" + (call + 1));
+        }
+        return ChatResponse.builder().aiMessage(steps.get(call).apply(request)).build();
+    }
+
+    public List<ChatRequest> requests() {
+        return requests;
+    }
+
+    public static Function<ChatRequest, AiMessage> callTool(String name, String argumentsJson) {
+        return request -> AiMessage.from(ToolExecutionRequest.builder()
+                .id("call-" + name).name(name).arguments(argumentsJson).build());
+    }
+
+    public static Function<ChatRequest, AiMessage> answer(String text) {
+        return request -> AiMessage.from(text);
+    }
+}

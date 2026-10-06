@@ -1,0 +1,68 @@
+package {base-package}.infrastructure.configuration;
+
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+/** Conexao com o servidor MCP `{mcp-name}`. */
+@Component
+@ConfigurationProperties(prefix = "{mcp-name}")
+public class {mcp-class}Properties {
+
+    private boolean enabled = false;
+    private String baseUrl = "";
+
+    /** Valor inteiro do header Authorization. Vazio = nenhum header. */
+    private String authorization = "";
+    private Duration timeout = Duration.ofSeconds(10);
+    private boolean logRequests = false;
+    private boolean logResponses = false;
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public String getBaseUrl() {
+        return baseUrl;
+    }
+
+    public void setBaseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
+    }
+
+    public String getAuthorization() {
+        return authorization;
+    }
+
+    public void setAuthorization(String authorization) {
+        this.authorization = authorization;
+    }
+
+    public Duration getTimeout() {
+        return timeout;
+    }
+
+    public void setTimeout(Duration timeout) {
+        this.timeout = timeout;
+    }
+
+    public boolean isLogRequests() {
+        return logRequests;
+    }
+
+    public void setLogRequests(boolean logRequests) {
+        this.logRequests = logRequests;
+    }
+
+    public boolean isLogResponses() {
+        return logResponses;
+    }
+
+    public void setLogResponses(boolean logResponses) {
+        this.logResponses = logResponses;
+    }
+}

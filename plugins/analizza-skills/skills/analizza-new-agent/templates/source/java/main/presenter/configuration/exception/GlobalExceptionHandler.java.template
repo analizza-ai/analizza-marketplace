@@ -1,0 +1,75 @@
+package {base-package}.presenter.configuration.exception;
+
+import {base-package}.application.chat.InvalidChatRequestException;
+import {base-package}.application.chat.McpUpstreamException;
+import {base-package}.application.chat.McpUpstreamTimeoutException;
+import {base-package}.application.chat.UpstreamException;
+import {base-package}.application.chat.UpstreamTimeoutException;
+<!-- se buildingBlocks -->
+import {bb-package}.presenter.exception.ErrorMessage;
+<!-- fim se buildingBlocks -->
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/**
+ * Corpo de erro canonico. Nunca devolve stacktrace, token nem o corpo que o
+ * LLM ou o servidor MCP respondeu: o detalhe fica no log, a mensagem para o
+ * cliente e fixa.
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(InvalidChatRequestException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorMessage invalidRequest(InvalidChatRequestException e) {
+        return new ErrorMessage("INVALID_REQUEST", e.getMessage() != null ? e.getMessage() : "requisicao invalida");
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorMessage malformedJson(HttpMessageNotReadableException e) {
+        return new ErrorMessage("MALFORMED_JSON", "requisicao JSON invalida");
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorMessage unsupportedMediaType(HttpMediaTypeNotSupportedException e) {
+        return new ErrorMessage("UNSUPPORTED_MEDIA_TYPE", "tipo de midia nao suportado");
+    }
+
+    @ExceptionHandler(UpstreamException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorMessage upstream(UpstreamException e) {
+        log.error("falha do provedor de LLM", e);
+        return new ErrorMessage("UPSTREAM_FAILURE", "falha de comunicacao com o provedor");
+    }
+
+    @ExceptionHandler(UpstreamTimeoutException.class)
+    @ResponseStatus(HttpStatus.GATEWAY_TIMEOUT)
+    public ErrorMessage upstreamTimeout(UpstreamTimeoutException e) {
+        log.error("timeout do provedor de LLM", e);
+        return new ErrorMessage("UPSTREAM_TIMEOUT", "tempo limite da requisicao excedido");
+    }
+
+    @ExceptionHandler(McpUpstreamException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorMessage mcpUnavailable(McpUpstreamException e) {
+        log.error("servidor MCP indisponivel", e);
+        return new ErrorMessage("MCP_UNAVAILABLE", "ferramenta externa indisponivel");
+    }
+
+    @ExceptionHandler(McpUpstreamTimeoutException.class)
+    @ResponseStatus(HttpStatus.GATEWAY_TIMEOUT)
+    public ErrorMessage mcpTimeout(McpUpstreamTimeoutException e) {
+        log.error("timeout do servidor MCP", e);
+        return new ErrorMessage("MCP_TIMEOUT", "tempo limite ao consultar ferramenta externa");
+    }
+}

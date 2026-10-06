@@ -1,0 +1,117 @@
+package {base-package}.presenter.routes.chat;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import {base-package}.support.BaseIntegrationTest;
+<!-- se memoria-jdbc -->
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+<!-- fim se memoria-jdbc -->
+import java.util.UUID;
+import java.util.regex.Pattern;
+<!-- se memoria-jdbc -->
+import javax.sql.DataSource;
+<!-- fim se memoria-jdbc -->
+import org.junit.jupiter.api.Test;
+<!-- se memoria-jdbc -->
+import org.springframework.beans.factory.annotation.Autowired;
+<!-- fim se memoria-jdbc -->
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+/**
+ * A conversa de ponta a ponta: HTTP de verdade, aplicacao inteira, LLM real
+ * (Ollama em container). As assercoes toleram um modelo pequeno -- afirmam
+ * status, forma e efeitos colaterais, nunca o texto da resposta. O que precisa
+ * de texto exato e teste unitario com ScriptedChatModel.
+ */
+class ChatRouteIT extends BaseIntegrationTest {
+<!-- se memoria-jdbc -->
+
+    @Autowired
+    private DataSource dataSource;
+
+    private int memoryRows(String conversationId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement =
+                        connection.prepareStatement("SELECT count(*) FROM chat_memory WHERE memory_id = ?")) {
+            statement.setString(1, conversationId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+<!-- fim se memoria-jdbc -->
+
+    private RestTestClient.ResponseSpec post(String path, String json, String conversationId) {
+        return http.post().uri(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(ConversationIds.HEADER, conversationId)
+                .body(json)
+                .exchange();
+    }
+
+    @Test
+    void httpRespondeComOLlmRealEcoaAConversaERegistraAMetrica() throws Exception {
+        String conversationId = "it-" + UUID.randomUUID();
+
+        String body = post("/api/v1/agent/http", "{\"body\":\"Responda com uma unica palavra: ok\"}", conversationId)
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(ConversationIds.HEADER, conversationId)
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).isNotNull();
+        assertThat(Pattern.compile("\"response\"\\s*:\\s*\"[^\"]").matcher(body).find())
+                .as("resposta vazia: %s", body)
+                .isTrue();
+<!-- se memoria-jdbc -->
+        // Uma linha por conversa: a janela de mensagens e um JSON so.
+        assertThat(memoryRows(conversationId)).isEqualTo(1);
+<!-- fim se memoria-jdbc -->
+
+        String metrics = http.get().uri("/actuator/prometheus").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(metrics).isNotNull();
+        assertThat(metrics).as("metrica chat_requests_total ausente").contains("chat_requests_total");
+    }
+
+    @Test
+    void streamDevolveEventosSse() {
+        String body = post(
+                        "/api/v1/agent/stream",
+                        "{\"body\":\"Responda com uma unica palavra: ok\"}",
+                        "it-" + UUID.randomUUID())
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body).as("nenhum evento SSE: %s", body).contains("data:");
+    }
+
+    @Test
+    void corpoEmBrancoDevolve400SemChamarOLlm() throws Exception {
+        String conversationId = "it-" + UUID.randomUUID();
+
+        String body = post("/api/v1/agent/http", "{\"body\":\"   \"}", conversationId)
+                .expectStatus().isBadRequest()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body).contains("INVALID_REQUEST");
+<!-- se memoria-jdbc -->
+        assertThat(memoryRows(conversationId)).isEqualTo(0);
+<!-- fim se memoria-jdbc -->
+    }
+}

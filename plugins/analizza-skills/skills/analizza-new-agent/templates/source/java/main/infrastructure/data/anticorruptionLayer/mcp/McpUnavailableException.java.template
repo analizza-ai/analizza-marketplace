@@ -1,0 +1,9 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.mcp;
+
+/** O servidor MCP nao aceitou a conexao ou nao listou as tools. */
+public class McpUnavailableException extends RuntimeException {
+
+    public McpUnavailableException(String serverName, Throwable cause) {
+        super("servidor MCP '" + serverName + "' indisponivel", cause);
+    }
+}

@@ -1,0 +1,108 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.mcp;
+
+import dev.langchain4j.mcp.McpToolProvider;
+import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.service.tool.ToolProvider;
+import dev.langchain4j.service.tool.ToolProviderRequest;
+import dev.langchain4j.service.tool.ToolProviderResult;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Tools de um servidor MCP, com conexao na primeira conversa.
+ *
+ * <p>O DefaultMcpClient conecta no construtor: como bean comum, um servidor MCP
+ * fora do ar impediria o agente de subir. Aqui o cliente so nasce quando uma
+ * conversa pede as tools, e e descartado em qualquer falha -- a conversa
+ * seguinte reconecta, o que cobre o restart do servidor, que invalida a sessao.
+ *
+ * <p>Falha vira McpUnavailableException em vez de "nenhuma tool": um agente que
+ * perde as ferramentas em silencio inventa a resposta.
+ */
+public class LazyMcpToolProvider implements ToolProvider, AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(LazyMcpToolProvider.class);
+
+    private final String serverName;
+    private final Supplier<McpClient> clientFactory;
+    private final Function<McpClient, ToolProvider> toolProviderFactory;
+    private final Object lock = new Object();
+    private McpClient client;
+    private ToolProvider delegate;
+
+    public LazyMcpToolProvider(String serverName, Supplier<McpClient> clientFactory) {
+        this(serverName, clientFactory, LazyMcpToolProvider::strictMcpToolProvider);
+    }
+
+    /** Costura de teste: o padrao e o McpToolProvider de verdade. */
+    public LazyMcpToolProvider(
+            String serverName,
+            Supplier<McpClient> clientFactory,
+            Function<McpClient, ToolProvider> toolProviderFactory) {
+        this.serverName = serverName;
+        this.clientFactory = clientFactory;
+        this.toolProviderFactory = toolProviderFactory;
+    }
+
+    @Override
+    public ToolProviderResult provideTools(ToolProviderRequest request) {
+        ToolProvider provider = connect();
+        try {
+            return provider.provideTools(request);
+        } catch (RuntimeException e) {
+            discard();
+            throw new McpUnavailableException(serverName, e);
+        }
+    }
+
+    private ToolProvider connect() {
+        synchronized (lock) {
+            if (delegate == null) {
+                try {
+                    client = clientFactory.get();
+                    delegate = toolProviderFactory.apply(client);
+                } catch (RuntimeException e) {
+                    throw new McpUnavailableException(serverName, e);
+                }
+            }
+            return delegate;
+        }
+    }
+
+    private void discard() {
+        McpClient stale;
+        synchronized (lock) {
+            stale = client;
+            client = null;
+            delegate = null;
+        }
+        closeQuietly(stale);
+    }
+
+    @Override
+    public void close() {
+        discard();
+    }
+
+    private void closeQuietly(McpClient target) {
+        if (target == null) {
+            return;
+        }
+        try {
+            target.close();
+        } catch (Exception e) {
+            log.debug("falha ao fechar o cliente MCP '{}': {}", serverName, e.toString());
+        }
+    }
+
+    // Sem failIfOneServerFails o provider registra um aviso e devolve zero tools
+    // quando o servidor falha -- exatamente o silencio que nao queremos.
+    private static ToolProvider strictMcpToolProvider(McpClient client) {
+        return McpToolProvider.builder()
+                .mcpClients(client)
+                .failIfOneServerFails(true)
+                .build();
+    }
+}

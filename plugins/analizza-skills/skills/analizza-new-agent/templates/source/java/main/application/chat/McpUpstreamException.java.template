@@ -1,0 +1,9 @@
+package {base-package}.application.chat;
+
+/** O servidor MCP nao respondeu ou recusou a conexao. */
+public class McpUpstreamException extends RuntimeException {
+
+    public McpUpstreamException(Throwable cause) {
+        super("ferramenta externa indisponivel", cause);
+    }
+}
