@@ -1,0 +1,29 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { novaConversa } from "./conversation";
+
+describe("novaConversa", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("devolve um id não vazio", () => {
+    expect(novaConversa().length).toBeGreaterThan(0);
+  });
+
+  it("devolve ids diferentes a cada chamada", () => {
+    expect(novaConversa()).not.toBe(novaConversa());
+  });
+
+  it("funciona sem crypto.randomUUID (contexto não seguro, http por IP)", () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues: (bytes: Uint8Array) => {
+        for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+        return bytes;
+      },
+    });
+    const a = novaConversa();
+    const b = novaConversa();
+    expect(a.length).toBeGreaterThan(0);
+    expect(a).not.toBe(b);
+  });
+});

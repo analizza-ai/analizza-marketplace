@@ -1,0 +1,14 @@
+/**
+ * Id de uma conversa nova: é a chave da memória no agente.
+ *
+ * `crypto.randomUUID` só existe em contexto seguro (https ou localhost); abrir
+ * o servidor de desenvolvimento pelo IP da rede em http puro deixa-o indefinido.
+ * `crypto.getRandomValues` funciona nos dois casos.
+ */
+export function novaConversa(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}

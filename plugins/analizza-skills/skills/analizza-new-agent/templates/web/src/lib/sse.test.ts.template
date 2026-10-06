@@ -27,4 +27,16 @@ describe("parseSse", () => {
   it("aceita CRLF", () => {
     expect(parseSse("data:ok\r\n\r\n").data).toEqual(["ok"]);
   });
+
+  it("recupera o evento final sem linha em branco quando o chamador acrescenta o terminador", () => {
+    const { data, rest } = parseSse("data:Ol\n\ndata:fim");
+    expect(data).toEqual(["Ol"]);
+    expect(parseSse(rest + "\n\n")).toEqual({ data: ["fim"], rest: "" });
+  });
+
+  it("remonta um evento partido entre duas chamadas", () => {
+    const primeira = parseSse("data:Ol\n\ndata:me");
+    expect(primeira).toEqual({ data: ["Ol"], rest: "data:me" });
+    expect(parseSse(primeira.rest + "ia\n\n")).toEqual({ data: ["meia"], rest: "" });
+  });
 });

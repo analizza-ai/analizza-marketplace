@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useState } from "react";
+import { novaConversa } from "@/lib/conversation";
 import { parseSse } from "@/lib/sse";
 
 type Mensagem = { autor: "usuario" | "agente"; texto: string };
@@ -13,7 +14,7 @@ export default function Home() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   // Uma conversa por carregamento da página: é a chave da memória no agente.
-  const [conversationId] = useState(() => crypto.randomUUID());
+  const [conversationId] = useState(novaConversa);
 
   function acrescentarAoAgente(pedaco: string) {
     setMensagens((atuais) => {
@@ -53,6 +54,10 @@ export default function Home() {
         pendente = rest;
         if (data.length > 0) acrescentarAoAgente(data.join(""));
       }
+      // Fim do stream: esvazia o decodificador e processa um último evento
+      // que tenha chegado sem a linha em branco final.
+      const final = parseSse(pendente + decodificador.decode() + "\n\n");
+      if (final.data.length > 0) acrescentarAoAgente(final.data.join(""));
     } catch (falha) {
       setErro(falha instanceof Error ? falha.message : FALHA);
     } finally {
@@ -92,7 +97,7 @@ export default function Home() {
           onChange={(evento) => setRascunho(evento.target.value)}
           placeholder="Escreva sua mensagem"
           aria-label="Mensagem"
-          disabled={enviando}
+          readOnly={enviando}
         />
         <button
           type="submit"
