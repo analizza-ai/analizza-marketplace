@@ -347,10 +347,10 @@ Obrigatório. Sem isso não há como afirmar que o scaffold funciona.
 make build > /tmp/build.log 2>&1; echo "EXIT=$?"
 ```
 
-`build-backend` e `test-backend` dependem de `db-up`: o teste padrão que o
+`build-backend` e `test-backend` dependem de `up`: o teste padrão que o
 Initializr gera sobe o contexto Spring inteiro, o que aciona o Flyway e falha
 sem Postgres de pé. Por isso `make build` já sobe o banco sozinho — não é
-preciso rodar `db-up` à parte antes.
+preciso rodar `up` à parte antes.
 
 Exija `EXIT=0` e confirme o resultado dos testes no XML, não pela ausência de
 erro (ver [armadilhas](./references/pitfalls.md), seção "Verificação").
@@ -381,7 +381,7 @@ inicializando — é o que prova que o Postgres foi conectado de fato.
 
 Encerre com SIGINT no grupo de processos do make, confirme que 8080 e 3000
 ficaram livres e que não sobrou processo órfão. Depois `make doctor-mobile` e,
-por último, `make db-down`.
+por último, `make down`.
 
 ### Passo 11 — Relatar
 

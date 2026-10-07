@@ -187,7 +187,7 @@ antes (`apply false`).
 
 `make run-agent` e `make run-agent-ollama` sobem o Postgres do
 `docker-compose.yml` e esperam ele ficar saudável antes de subir o agente;
-`make db-up`, `db-down` e `db-reset` existem para mexer nele à parte.
+`make up`, `down` e `down-volumes` existem para mexer nele à parte.
 <!-- fim se do-zero -->
 <!-- se existente -->
 

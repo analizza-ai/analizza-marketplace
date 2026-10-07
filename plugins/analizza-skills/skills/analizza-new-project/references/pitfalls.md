@@ -178,11 +178,11 @@ de domínio.
 
 Isso não é um defeito do teste gerado nem algo para "corrigir" no `-api`: é o
 comportamento padrão do Spring Boot com essas dependências. A correção é
-`build-backend` e `test-backend` dependerem de `db-up` no Makefile, para que
+`build-backend` e `test-backend` dependerem de `up` no Makefile, para que
 `make build` funcione sozinho, na ordem em que o Passo 9 o executa, sem exigir
 que quem roda o comando saiba de antemão que precisa subir o banco primeiro.
-`db-up` usa `docker compose up -d --wait`, então chamar duas vezes (por
-exemplo `make build` seguido de `make run`) não tem custo — o segundo `db-up`
+`up` usa `docker compose up -d --wait`, então chamar duas vezes (por
+exemplo `make build` seguido de `make run`) não tem custo — o segundo `up`
 só confirma que o healthcheck já passou.
 
 ### `db/migration` vazio não derruba a aplicação

@@ -478,14 +478,14 @@ O que os alvos fazem, para não descrever errado ao usuário:
   de `cp` se faltar. Só então, com `postgres`, sobem o banco e esperam ele
   ficar saudável — `docker compose up -d --wait` do zero,
   `docker compose up -d --wait postgres-agent` no existente — e por fim rodam
-  o `bootRun`. Nenhum dos dois depende do alvo `db-up`.
+  o `bootRun`. Nenhum dos dois depende do alvo `up`.
 - `run-agent-with ENV_FILE=<arquivo>` é a mesma receita com um arquivo de
   variáveis avulso. É o que o smoke do Passo 11 usa, com `local.env.smoke`,
   para nunca escrever no `local.env.ollama` do usuário.
 - Do zero: `run-agent`, `run-agent-ollama`, `run-agent-with`, `build`,
   `build-backend`, `test-backend`, `clean`, `help`, `langwatch-up`,
-  `langwatch-down`, `langwatch-logs`; com `postgres`, `db-up`, `db-down`,
-  `db-reset`; com `web`, `install`, `build-web`, `test-web`,
+  `langwatch-down`, `langwatch-logs`; com `postgres`, `up`, `down`,
+  `down-volumes`; com `web`, `install`, `build-web`, `test-web`,
   `run-web` e `run` (agente contra o Ollama local + web); com `it-no-modulo`,
   `test-integration`. Em `it-dedicado` quem acrescenta o `test-integration` é
   a `analizza-integration-test`, no Passo 10.
@@ -847,7 +847,7 @@ if [ -s /tmp/agent-smoke.pid ]; then
 fi
 docker stop agent-smoke-ollama
 rm -f local.env.smoke
-# so com postgres -- do zero: make db-down
+# so com postgres -- do zero: make down
 #                    existente: docker compose stop postgres-agent   (so o servico do agente)
 for i in $(seq 15); do lsof -nP -iTCP:{agent-port} -sTCP:LISTEN > /dev/null 2>&1 || break; sleep 2; done
 lsof -nP -iTCP:{agent-port} -sTCP:LISTEN; pgrep -fl '[:]{agent-module}:bootRun'; echo "encerrado se nada acima"
@@ -879,7 +879,7 @@ relatório diz isso. Para apagar só eles, se o usuário pedir:
 de `docker volume ls | grep postgres-agent-data`). **Nunca** rode nem sugira
 `docker compose down`, `down -v`, `stop` ou `rm` sem o nome do serviço, nem
 `docker volume prune`: derrubam os containers e apagam os volumes do projeto
-hospedeiro, o banco dele inclusive. Os alvos `db-down` e `db-reset` que o
+hospedeiro, o banco dele inclusive. Os alvos `down` e `down-volumes` que o
 `Makefile` do projeto já tinha são dele, não do agente.
 
 **Auditoria e commit.** Só com tudo acima verde. Repita antes a conferência

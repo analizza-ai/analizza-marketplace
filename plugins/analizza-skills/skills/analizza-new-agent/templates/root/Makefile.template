@@ -46,16 +46,17 @@ install: $(WEB_DIR)/node_modules ## Instala dependências do web
 
 ##@ Banco
 
-.PHONY: db-up
-db-up: ## Sobe o Postgres e espera ficar saudável
+# Sem prefixo db-: os alvos do compose do projeto sao up, down e down-volumes.
+.PHONY: up
+up: ## Sobe o Postgres e espera ficar saudável
 	docker compose up -d --wait
 
-.PHONY: db-down
-db-down: ## Derruba o Postgres (mantém o volume)
+.PHONY: down
+down: ## Derruba o Postgres (mantém o volume)
 	docker compose down
 
-.PHONY: db-reset
-db-reset: ## Derruba o Postgres e apaga o volume de dados
+.PHONY: down-volumes
+down-volumes: ## Derruba o Postgres e APAGA o volume de dados
 	docker compose down -v
 <!-- fim se postgres -->
 
