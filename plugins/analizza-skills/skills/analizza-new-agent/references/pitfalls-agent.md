@@ -95,7 +95,7 @@ O projeto compose, os containers e o volume (`{project-name}_postgres-data`)
 saem da pasta / de `{project-name}`. Um segundo projeto com o mesmo nome na
 mesma máquina reaproveita o volume antigo: o Flyway já encontra schema e a
 `chat_memory` traz linhas de conversas passadas, o que contamina uma
-conferência por `X-Conversation-Id`. Antes do primeiro `make db-up`, confira
+conferência por `X-Conversation-Id`. Antes do primeiro `make up`, confira
 com `docker volume ls`.
 
 ### O Postgres do LangWatch disputaria a 5432
@@ -125,7 +125,7 @@ comandos. Use `{mcp-env}_AUTHORIZATION="Bearer abc"`.
 ### `make run-agent` checa o arquivo antes de subir o banco
 
 A ordem é de propósito: sem `local.env`, o `make` falha com a instrução de
-`cp` **antes** de chamar o Docker. `run-agent` não depende de `db-up`; quem
+`cp` **antes** de chamar o Docker. `run-agent` não depende de `up`; quem
 sobe o Postgres é a própria receita, depois da checagem. Ao mexer no
 `Makefile`, não transforme isso em pré-requisito do alvo — pré-requisito roda
 antes da receita, e o Docker voltaria a subir para depois falhar por falta do
@@ -168,7 +168,7 @@ docker volume rm <nome que saiu acima>        # apaga os dados do agente, e so e
 ```
 
 As duas últimas só a pedido do usuário. `docker volume prune` e os alvos
-`db-down` / `db-reset` que o `Makefile` do projeto já tinha também não são do
+`down` / `down-volumes` que o `Makefile` do projeto já tinha também não são do
 agente.
 
 ### Matar quem segura a porta mata o processo errado

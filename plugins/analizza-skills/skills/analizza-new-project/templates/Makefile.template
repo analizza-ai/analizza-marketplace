@@ -34,16 +34,17 @@ install: $(WEB_DIR)/node_modules $(MOBILE_DIR)/node_modules ## Instala dependên
 
 ##@ Banco
 
-.PHONY: db-up
-db-up: ## Sobe o Postgres e espera ficar saudável
+# Sem prefixo db-: os alvos do compose do projeto sao up, down e down-volumes.
+.PHONY: up
+up: ## Sobe o Postgres e espera ficar saudável
 	docker compose up -d --wait
 
-.PHONY: db-down
-db-down: ## Derruba o Postgres (mantém o volume)
+.PHONY: down
+down: ## Derruba o Postgres (mantém o volume)
 	docker compose down
 
-.PHONY: db-reset
-db-reset: ## Derruba o Postgres e apaga o volume de dados
+.PHONY: down-volumes
+down-volumes: ## Derruba o Postgres e APAGA o volume de dados
 	docker compose down -v
 
 ##@ Build
@@ -52,7 +53,7 @@ db-reset: ## Derruba o Postgres e apaga o volume de dados
 build: build-backend build-web build-mobile ## Builda os quatro módulos
 
 .PHONY: build-backend
-build-backend: db-up ## Builda api e core (gera o jar e roda os testes; precisa do Postgres de pé)
+build-backend: up ## Builda api e core (gera o jar e roda os testes; precisa do Postgres de pé)
 	$(GRADLEW) build
 
 .PHONY: build-web
@@ -70,7 +71,7 @@ build-mobile: $(MOBILE_DIR)/node_modules ## Checa tipos do mobile (Expo não tem
 test: test-backend test-web ## Roda testes do backend e lint do web
 
 .PHONY: test-backend
-test-backend: db-up ## Roda os testes de api e core (precisa do Postgres de pé)
+test-backend: up ## Roda os testes de api e core (precisa do Postgres de pé)
 	$(GRADLEW) test
 
 .PHONY: test-web
@@ -84,7 +85,7 @@ doctor-mobile: $(MOBILE_DIR)/node_modules ## Confere as dependências do Expo
 ##@ Execução
 
 .PHONY: run
-run: db-up $(WEB_DIR)/node_modules ## Sobe banco, api e web juntos (Ctrl+C encerra api e web)
+run: up $(WEB_DIR)/node_modules ## Sobe banco, api e web juntos (Ctrl+C encerra api e web)
 	@echo "api -> http://localhost:$(API_PORT)"
 	@echo "web -> http://localhost:$(WEB_PORT)"
 	@echo ""
@@ -94,7 +95,7 @@ run: db-up $(WEB_DIR)/node_modules ## Sobe banco, api e web juntos (Ctrl+C encer
 		wait
 
 .PHONY: run-api
-run-api: db-up ## Roda somente o backend
+run-api: up ## Roda somente o backend
 	$(GRADLEW) :$(API_DIR):bootRun
 
 .PHONY: run-web

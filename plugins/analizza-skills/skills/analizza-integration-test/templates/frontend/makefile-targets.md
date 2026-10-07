@@ -49,7 +49,7 @@ test-mobile: $(MOBILE_DIR)/node_modules ## Tipos e testes do mobile
 
 Retire do `test` o que não existir no projeto (sem `-mobile`, sem
 `test-mobile`; sem backend, sem os dois primeiros e sem `test-mutation`).
-`test-backend` **não** depende de `db-up`: depois desta skill, `./gradlew test`
+`test-backend` **não** depende de `up`: depois desta skill, `./gradlew test`
 não sobe banco. `test-mutation` fica **fora** do `test` de propósito: é
 diagnóstico, não gate, e custa vários minutos. `{pitest-task}` vem do
 vocabulário da skill: `:loja-core:pitest`, ou só `pitest` num módulo único.
