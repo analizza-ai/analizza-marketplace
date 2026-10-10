@@ -85,6 +85,19 @@ pergunta que se aprende a pular.
 As duas perguntas são separadas quando existem: juntá-las obriga a decidir
 como conferir antes de saber o que conferir.
 
+**Escolhido o navegador, uma terceira `AskUserQuestion`**, com a pergunta e
+os dois `label` **literais**:
+
+> Deseja que prints sejam enviados das telas em testes?
+
+1. `Sim, mostre os prints no chat`
+2. `Não, relate só em texto`
+
+Ela só existe nesse caminho: no manual e nos tipos sem tela você não vê tela
+nenhuma, e perguntar ali é ruído. Print a cada passo alonga a conversa, e
+quem já está olhando o painel pode não querer — por isso a escolha é dela, e
+vale para a conferência inteira.
+
 **Um runbook `api` ainda pode precisar de tela no setup.** Isso não muda o
 tipo, porque o tipo descreve onde se confere. Se a preparação for mais
 rápida pela API, faça pela API e diga.
@@ -116,13 +129,20 @@ ele está.
 Vá num ritmo que dê para acompanhar. Diga o que vai fazer antes de fazer, e
 prefira passos separados a um lote grande.
 
-Execute os passos da seção 1 e relate o que viu, com evidência: print da
-tela, o que apareceu na aba Network, a saída de comandos. Você consegue
-**verificar** valor, formato, status — o que você não consegue é **julgar**
-aparência. "A tela parece errada" não é verificação; mostre e devolva:
+Execute os passos da seção 1 e relate o que viu, com evidência: o que
+apareceu na aba Network, a saída de comandos e — **se ela pediu prints** — o
+print da tela a cada passo que muda o que se vê. Você consegue **verificar**
+valor, formato, status — o que você não consegue é **julgar** aparência. "A
+tela parece errada" não é verificação; mostre e devolva:
 
 > Print abaixo. Se a tela está como você desenhou, eu não sei dizer — olhe e
 > me diga.
+
+**Se ela dispensou os prints**, não mande nenhum: relate em texto e aponte
+para o painel, que é onde ela está olhando:
+
+> A tela está aberta no painel. Se está como você desenhou, eu não sei
+> dizer — olhe e me diga.
 
 E nunca aprove. A frase final é dela, não sua.
 
