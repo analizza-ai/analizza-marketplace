@@ -75,7 +75,8 @@ numa caixa de entrada. **O navegador embutido só vale para `screen-web` e
   2. `Você executa passo a passo, eu te forneço a sequência`
 
 - **qualquer outro tipo** → não pergunte. Diga numa linha que ali é terminal
-  e vá para o caminho manual.
+  e vá para o caminho manual. Se ela pedir que **você** rode os comandos,
+  rode — a seção 4a diz como — e feche com o relatório em tabela da seção 5.
 
 **Use esses rótulos como estão, sem reescrever.** Cada opção precisa dizer
 quem faz e quem olha, com o sujeito explícito — "eu" e "você" trocam de dono
@@ -117,6 +118,13 @@ Três coisas que fazem a diferença:
 
 Termine com as seções 2 e 3 do runbook — as provocações e o lembrete de
 estranhar número que aparece sem ter sido pedido.
+
+**Se quem roda os comandos é você** (ela pediu, num runbook sem tela):
+execute cada passo como está escrito, na ordem, e guarde de cada um o
+esperado e o que veio de fato — o código HTTP, o campo que importa do corpo,
+a contagem. **Não há print num runbook sem tela**: captura de terminal não
+mostra nada que o valor observado já não diga, e esconde o que importa no
+meio de ruído. A evidência aqui é o relatório em tabela da seção 5.
 
 ## 4b. Caminho navegador: execute, observe, e devolva o julgamento
 
@@ -180,13 +188,54 @@ projeto):**
   deveria, diga isso — provavelmente o runbook está desatualizado, e isso é
   um achado.
 
-## 5. Feche dizendo o que ficou sem verificação
+## 5. Feche com o relatório das jornadas e com o que ficou sem verificação
 
-Toda conferência termina com duas listas, e a segunda é a que importa:
+**O resultado de uma conferência que você executou é um relatório em
+tabela**, não um parágrafo. Vale para os dois caminhos em que você executa —
+o navegador e os comandos de um runbook sem tela.
+
+Uma **jornada** é um caminho que alguém percorre de ponta a ponta: cada
+subseção da seção 1 do runbook é uma, e cada provocação da seção 2 é outra.
+Primeiro o resumo, uma linha por jornada:
+
+```
+| Jornada | Passos | OK | Divergentes | Resultado |
+|---|---|---|---|---|
+| <nome da subseção ou da provocação> | 5 | 5 | 0 | OK |
+| <outra> | 3 | 2 | 1 | ACHADO |
+```
+
+Depois, uma tabela por jornada, uma linha por passo:
+
+```
+| # | Passo | Esperado | Observado | Resultado |
+|---|---|---|---|---|
+| 1 | <o que foi feito, em poucas palavras> | <do runbook> | <o valor que veio> | OK |
+```
+
+Regras do relatório:
+
+- **`Observado` é o valor medido**, copiado da saída — `202`, `247 pastas`,
+  `allow=false` —, nunca "conforme esperado". Uma coluna que só repete a do
+  lado não prova que alguém olhou.
+- **`Resultado` é um de três**: `OK`; `ACHADO`, quando o sistema responde
+  diferente do que deveria; `RUNBOOK`, quando quem estava errado era o
+  comando ou o número esperado do runbook, e ele foi corrigido.
+- **Passo que não foi executado entra na tabela**, com `NÃO EXECUTADO` e o
+  motivo. Sumir com a linha é o que transforma relatório em propaganda.
+- **Nada de segredo na tabela**: nem token, nem senha, nem chave. O claim que
+  importa de um token, sim.
+- **Print só entra em runbook com tela**, e só se ela pediu (seção 3). Num
+  tipo sem tela a tabela é a evidência inteira.
+
+No caminho manual, em que quem executa é ela, entregue a tabela **vazia** nas
+colunas `Observado` e `Resultado`, pronta para ela preencher.
+
+Depois das tabelas, as duas listas — e a segunda é a que importa:
 
 ```
 Verifiquei:
-- <o que você mediu, com o valor observado>
+- <o que você mediu; a tabela tem o detalhe>
 
 Não consegui verificar:
 - <o que precisa do olho de quem está conferindo>
@@ -195,7 +244,8 @@ A decisão de seguir é sua.
 ```
 
 Escreva a segunda lista sem que perguntem — é o que impede o checkpoint de
-virar carimbo.
+virar carimbo. A tabela diz o que foi medido; ela não diz o que ficou de
+fora, e por isso não substitui a lista.
 
 ## 6. Se algo foi encontrado, o runbook muda
 

@@ -84,3 +84,13 @@ apagá-lo do que mantê-lo.
 Uma pessoa, na mão. Um agente pode preparar o ambiente, atualizar o runbook e
 dizer o que não conseguiu verificar; a conferência e a decisão de aprovar são
 de quem olha.
+
+## O relatório da execução
+
+Quando quem executa o runbook é o agente, o resultado volta como **relatório
+em tabela**: um resumo com uma linha por jornada — cada subseção da seção 1 e
+cada provocação da seção 2 — e, por jornada, uma linha por passo com o
+esperado, o **valor observado** e o resultado.
+
+Captura de tela é evidência de runbook com tela. Num runbook `api` não há
+print: a tabela, com o valor que veio de fato, é a evidência inteira.
