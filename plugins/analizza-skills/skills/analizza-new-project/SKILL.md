@@ -30,6 +30,7 @@ argument-hint: "Sem argumentos — o nome vem da pasta raiz; linguagem, group, p
 ├── {project-name}-core/         application/, domain/, infrastructure/ — pode usar Spring
 ├── {project-name}-web/          Next.js
 ├── {project-name}-mobile/       Expo
+├── docs/domain/                 guia de domínio (gerado depois, pela domain-context-map)
 ├── docker-compose.yml           Postgres
 ├── Makefile
 ├── .gitignore
@@ -316,6 +317,17 @@ mkdir -p "$api/presenter/routes" "$api/presenter/jobs" \
 find {project-name}-core {project-name}-api -type d -empty -exec touch {}/.gitkeep \;
 ```
 
+Crie também a pasta do guia de domínio, vazia:
+
+```bash
+mkdir -p docs/domain && touch docs/domain/.gitkeep
+```
+
+É onde a skill `domain-context-map` grava `docs/domain/domain-guide.md`: o
+mapa de onde ficam specs, rotas, casos de uso, regras e o glossário do
+projeto. O scaffold **não** gera esse arquivo — num projeto sem domínio não há
+o que mapear. Ele nasce depois da primeira fatia vertical (ver Passo 11).
+
 Essa é a única metade da proibição antiga que ainda vale: **não escreva
 código de domínio.** O documento é a especificação do que deve ser
 construído; o scaffold entrega a estrutura de pastas vazia e a especificação,
@@ -396,6 +408,10 @@ Informe ao usuário:
 - Que o banco sobe sem schema: Flyway com zero migrations e nenhuma entidade é o
   esperado, não defeito
 - Em qual arquivo as convenções de arquitetura foram gravadas
+- Que o guia de domínio ainda não existe: depois da primeira fatia vertical,
+  rodar `/domain-context-map` na raiz do projeto gera
+  `docs/domain/domain-guide.md`, e rodar de novo mais tarde confere se ele
+  ficou velho. A skill vem neste mesmo plugin, então não há o que instalar
 - Que a skill vai acionar, a seguir, o guardrail de testes de integração (Passo 12)
 
 ### Passo 12 — Acionar o guardrail de testes de integração
@@ -449,6 +465,10 @@ escreve esse código: nenhum endpoint de login, nenhum
 `GlobalExceptionHandler`, nenhuma configuração de segurança sai do scaffold.
 Isso, como o resto da primeira fatia vertical, é trabalho de quem for
 implementar, seguindo o arquivo do SDD.
+
+O guia de domínio (`docs/domain/domain-guide.md`) também não sai do scaffold:
+quem o gera é a skill irmã `domain-context-map`, quando já houver domínio para
+mapear.
 
 A skill entrega a forma. A primeira fatia vertical é escrita por quem for
 implementar, seguindo o arquivo do SDD.

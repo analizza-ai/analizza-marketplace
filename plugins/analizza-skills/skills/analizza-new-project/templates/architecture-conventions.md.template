@@ -445,6 +445,19 @@ ArchUnit (`com.tngtech.archunit:archunit-junit5`), as de Testcontainers
 `integrationTest` propriamente dita (um `sourceSet` separado de `test`, ou um
 filtro por tag do JUnit — a escolha é de quem implementar).
 
+### Guia de domínio
+
+`docs/domain/domain-guide.md` é o mapa do projeto para quem chega sem o
+código na cabeça, pessoa ou agente: onde ficam as specs e em que formato, as
+pastas de rotas, casos de uso, regras e persistência, como seguir uma regra da
+rota até o domínio, e o glossário entre termo de negócio e nome no código. Não
+resume regra de negócio: diz onde ela está.
+
+Ele é gerado, não escrito à mão: `/domain-context-map` na raiz do projeto. O
+arquivo ainda não existe num projeto recém-criado; gere-o depois da primeira
+fatia vertical, e rode a skill de novo quando a organização das pastas mudar —
+ela compara o projeto com o guia e diz o que ficou velho antes de regravar.
+
 ### Não está decidido
 
 O scaffold deliberadamente não escolheu, e a primeira implementação que
