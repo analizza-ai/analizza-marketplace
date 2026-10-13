@@ -297,7 +297,7 @@ def stamp(found, today):
     """
     kept = {key: value for key, value in found.items() if key != "remote"}
     return "\n".join([
-        "<!-- olly-guide",
+        "<!-- domain-guide",
         f"gerado: {today}",
         f"commit: {found.get('commit') or ''}",
         "inventario: " + json.dumps(kept, ensure_ascii=False),

@@ -52,7 +52,7 @@ class CompareTest(unittest.TestCase):
     def test_o_carimbo_cabe_em_linhas_simples(self):
         lines = inventory.stamp(self.found, "2026-10-13").splitlines()
 
-        self.assertEqual("<!-- olly-guide", lines[0])
+        self.assertEqual("<!-- domain-guide", lines[0])
         self.assertEqual("-->", lines[-1])
         self.assertEqual(5, len(lines))
 
@@ -137,7 +137,7 @@ class CompareTest(unittest.TestCase):
             ("sufixos sem nome", {**whole, "sufixos": [{}]}),
             ("camada nula", {**whole, "dominio": None}),
         ):
-            stamp = "<!-- olly-guide\ngerado: 2026-10-01\ncommit: abc1234\ninventario: " + json.dumps(broken) + "\n-->"
+            stamp = "<!-- domain-guide\ngerado: 2026-10-01\ncommit: abc1234\ninventario: " + json.dumps(broken) + "\n-->"
             with self.subTest(label):
                 self.assertEqual(
                     {"carimbo": False, "gerado": None, "commit": None, "mudancas": []},

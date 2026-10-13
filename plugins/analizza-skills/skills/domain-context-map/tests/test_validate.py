@@ -12,7 +12,7 @@ sys.path.insert(0, str(SCRIPTS))
 import guide_file  # noqa: E402
 import validate  # noqa: E402
 
-STAMP = """<!-- olly-guide
+STAMP = """<!-- domain-guide
 gerado: 2026-10-13
 commit: abc1234
 inventario: {"modulos": [], "specs": {"frameworks": [], "pastas": [], "markdown": []}, "rotas": [{"pasta": "src/main/kotlin/app/presenter/routes", "arquivos": 2}], "servicos": [], "dominio": [], "validacoes": [], "migrations": [], "sufixos": []}
@@ -38,7 +38,7 @@ Serviço de contas em Kotlin com Spring.
 
 def text(description="Contas e login. Não tem carga de arquivos.", body=BODY, stamp=STAMP):
     return (
-        f"{stamp}\n# Guia do Ólly para este repositório\n\n"
+        f"{stamp}\n# Guia de domínio deste repositório\n\n"
         f"{guide_file.DESCRIPTION_TITLE}\n\n{description}\n\n{guide_file.GUIDE_TITLE}\n\n{body}\n"
     )
 
@@ -66,6 +66,9 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual("Contas e login. Não tem carga de arquivos.", parsed.description)
         self.assertTrue(parsed.guide.startswith("### O que é"))
         self.assertTrue(parsed.guide.endswith("- conta = `Account`"))
+
+    def test_guia_gerado_com_o_marcador_antigo_continua_valido(self):
+        self.assertEqual([], self.problems(stamp=STAMP.replace("<!-- domain-guide", "<!-- olly-guide")))
 
     def test_arquivo_certo_nao_tem_problema(self):
         self.assertEqual([], self.problems())
@@ -165,7 +168,7 @@ class ValidateTest(unittest.TestCase):
 
     def test_carimbo_com_inventario_vazio_ou_sem_as_chaves_nao_e_carimbo(self):
         for inventory in ("{}", '{"rotas": []}', '{"modulos": ["a"], "rotas": [1]}'):
-            stamp = f"<!-- olly-guide\ngerado: 2026-10-13\ncommit: abc1234\ninventario: {inventory}\n-->\n"
+            stamp = f"<!-- domain-guide\ngerado: 2026-10-13\ncommit: abc1234\ninventario: {inventory}\n-->\n"
             with self.subTest(inventory=inventory):
                 self.assertProblem("carimbo", self.problems(stamp=stamp))
 
@@ -182,7 +185,7 @@ class ValidateTest(unittest.TestCase):
 
     def test_sem_carimbo(self):
         self.assertProblem("carimbo", self.problems(stamp=""))
-        self.assertProblem("carimbo", self.problems(stamp="<!-- olly-guide\ninventario: {isto nao e json\n-->\n"))
+        self.assertProblem("carimbo", self.problems(stamp="<!-- domain-guide\ninventario: {isto nao e json\n-->\n"))
 
     def test_arquivo_escrito_a_mao_sem_os_titulos(self):
         found = validate.problems("# Meu guia\n\nTexto solto.\n", self.root)

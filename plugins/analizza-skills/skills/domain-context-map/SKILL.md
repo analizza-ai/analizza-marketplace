@@ -82,11 +82,11 @@ O arquivo tem esta forma. Os dois títulos `##` são fixos: é por eles que a
 validação acha cada parte.
 
 ```markdown
-<!-- olly-guide
+<!-- domain-guide
 (o carimbo, como o script imprimiu)
 -->
 
-# Guia do Ólly para este repositório
+# Guia de domínio deste repositório
 
 ## Descrição do alvo
 

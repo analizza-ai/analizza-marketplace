@@ -7,7 +7,8 @@ from dataclasses import dataclass
 
 DESCRIPTION_TITLE = "## Descrição do alvo"
 GUIDE_TITLE = "## Guia do alvo"
-STAMP = re.compile(r"\A\s*<!-- olly-guide\n(.*?)\n-->", re.S)
+# O marcador antigo (olly-guide) continua lido: ha guias gerados com ele.
+STAMP = re.compile(r"\A\s*<!-- (?:domain|olly)-guide\n(.*?)\n-->", re.S)
 
 
 FOLDER_KEYS = ("rotas", "servicos", "dominio", "validacoes", "migrations")
