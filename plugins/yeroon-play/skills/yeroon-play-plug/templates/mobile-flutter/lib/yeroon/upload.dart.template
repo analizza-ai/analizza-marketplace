@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
@@ -131,10 +132,15 @@ class _Plan {
 /// Retoma um envio interrompido do mesmo arquivo (nome + tamanho) pulando as partes que o back já
 /// lista em `GET …/upload/parts`. [cancelToken] cancela no back (`DELETE …/upload`) e termina com
 /// [UploadCancelledException].
+///
+/// O `PUT` das partes vai para a URL assinada do storage (terceiro) por [storageClient] — padrão: um
+/// `http.Client()` novo, fechado no fim —, nunca pelo `client` do [api], onde o projeto injeta a
+/// autenticação do app.
 Future<String> uploadVideo(
   File file,
   UploadProgress? onProgress, {
   YeroonApi? api,
+  http.Client? storageClient,
   PendingUploadStore? store,
   UploadCancelToken? cancelToken,
   PartReader reader = readPart,
@@ -142,7 +148,27 @@ Future<String> uploadVideo(
   String? contentType,
   List<Duration> retryDelays = defaultRetryDelays,
 }) async {
-  final back = api ?? YeroonApi();
+  final storage = storageClient ?? http.Client();
+  try {
+    return await _uploadVideo(file, onProgress, api ?? YeroonApi(), storage, store, cancelToken, reader, fileName,
+        contentType, retryDelays);
+  } finally {
+    if (storageClient == null) storage.close();
+  }
+}
+
+Future<String> _uploadVideo(
+  File file,
+  UploadProgress? onProgress,
+  YeroonApi back,
+  http.Client storage,
+  PendingUploadStore? store,
+  UploadCancelToken? cancelToken,
+  PartReader reader,
+  String? fileName,
+  String? contentType,
+  List<Duration> retryDelays,
+) async {
   final pending = store ?? SharedPreferencesPendingUploadStore();
   final name = fileName ?? file.uri.pathSegments.last;
   final size = await file.length();
@@ -238,7 +264,8 @@ Future<String> uploadVideo(
     for (var attempt = 0;; attempt++) {
       if (cancelled()) throw UploadCancelledException();
       try {
-        final res = await back.client.put(url, headers: {'content-type': 'application/octet-stream'}, body: bytes);
+        // Só o que a URL assinada pede: nada de `authorization` nem `cookie`.
+        final res = await storage.put(url, headers: {'content-type': 'application/octet-stream'}, body: bytes);
         if (res.statusCode < 200 || res.statusCode >= 300) {
           throw HttpException('PUT da parte $n falhou (${res.statusCode})');
         }

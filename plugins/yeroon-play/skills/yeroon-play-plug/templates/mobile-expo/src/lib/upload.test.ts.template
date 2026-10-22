@@ -1,5 +1,6 @@
 import { API_BASE, InvalidVideoIdError } from "@/lib/api";
-import { UploadRejectedError, fileFingerprint, uploadVideo, type PendingUploadStore } from "@/lib/upload";
+import { fetch as expoFetch } from "expo/fetch";
+import { UploadRejectedError, fileFingerprint, uploadVideo, type PendingUploadStore, type PutFetch } from "@/lib/upload";
 
 // O molde importa expo-file-system para o leitor e o armazenamento padrão; os testes injetam os dois.
 jest.mock("expo-file-system", () => ({ File: jest.fn(), Paths: {}, FileMode: { ReadOnly: "r" } }));
@@ -11,6 +12,7 @@ const VIDEOS = `${API_BASE}/videos`;
 const NO_WAIT = [0, 0, 0];
 
 type Call = { method: string; url: string; body?: unknown };
+type Sent = { method: string; url: string; headers: Record<string, string> };
 
 function memoryStore(initial: Record<string, string> = {}): PendingUploadStore & { data: Map<string, string> } {
   const data = new Map(Object.entries(initial));
@@ -40,12 +42,14 @@ function fakeApi(opts: {
   const videoId = opts.videoId ?? ID;
   const base = `${VIDEOS}/${encodeURIComponent(videoId)}`;
   const calls: Call[] = [];
+  const sent: Sent[] = [];
   const putAttempts = new Map<number, number>();
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
     calls.push({ method, url, body });
+    sent.push({ method, url, headers: Object.fromEntries(new Headers(init?.headers).entries()) });
     if (method === "POST" && url === `${VIDEOS}/uploads`) {
       if (opts.initResponse) return opts.initResponse;
       return json({ videoId, partSizeBytes: opts.partSize ?? 10, partCount: opts.partCount ?? 3 }, 201);
@@ -71,7 +75,8 @@ function fakeApi(opts: {
     if (method === "DELETE" && url === `${base}/upload`) return new Response(null, { status: 204 });
     throw new Error(`chamada inesperada ${method} ${url}`);
   }) as typeof fetch;
-  return { calls, fetchImpl };
+  // O dublê serve também de storage: os testes o passam como `putFetch` (o PUT nunca usa o `fetchImpl`).
+  return { calls, sent, fetchImpl, putFetch: fetchImpl as PutFetch };
 }
 
 /** Leitor falso: devolve `length` bytes com o valor do número da parte e anota as faixas pedidas. */
@@ -89,12 +94,13 @@ const key = "upload:a.mp4:25";
 
 describe("uploadVideo", () => {
   test("lePartesPorFaixaEnviaEDevolveOVideoId", async () => {
-    const { calls, fetchImpl } = fakeApi({});
+    const { calls, fetchImpl, putFetch } = fakeApi({});
     const { reads, readPart } = fakeReader();
     const store = memoryStore();
     const progress: [number, number][] = [];
     const id = await uploadVideo(file, (sent, total) => progress.push([sent, total]), {
       fetchImpl,
+      putFetch,
       readPart,
       store,
       retryDelaysMs: NO_WAIT,
@@ -128,9 +134,10 @@ describe("uploadVideo", () => {
   });
 
   test("pedeNoMaximo20UrlsPorChamada", async () => {
-    const { calls, fetchImpl } = fakeApi({ partSize: 1, partCount: 45 });
+    const { calls, fetchImpl, putFetch } = fakeApi({ partSize: 1, partCount: 45 });
     await uploadVideo({ ...file, size: 45 }, undefined, {
       fetchImpl,
+      putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore(),
       retryDelaysMs: NO_WAIT,
@@ -142,11 +149,11 @@ describe("uploadVideo", () => {
   });
 
   test("retomaEnviandoSoAsPartesQueFaltam", async () => {
-    const { calls, fetchImpl } = fakeApi({ existingParts: [1, 2] });
+    const { calls, fetchImpl, putFetch } = fakeApi({ existingParts: [1, 2] });
     const { readPart } = fakeReader();
     const plan = JSON.stringify({ partSize: 10, fingerprint: await fileFingerprint(file, readPart) });
     const store = memoryStore({ [key]: ID, [`${key}:plan`]: plan });
-    await uploadVideo(file, undefined, { fetchImpl, readPart, store, retryDelaysMs: NO_WAIT });
+    await uploadVideo(file, undefined, { fetchImpl, putFetch, readPart, store, retryDelaysMs: NO_WAIT });
     expect(calls.some((c) => c.url === `${VIDEOS}/uploads`)).toBe(false);
     expect(calls.filter((c) => c.method === "PUT").map((c) => c.url)).toEqual(["https://storage/put/3"]);
     const urlsAsked = calls.find((c) => c.url.endsWith("/part-urls"))?.body;
@@ -156,11 +163,12 @@ describe("uploadVideo", () => {
   });
 
   test("uploadGuardadoQueNaoEstaMaisPendenteComecaDoZero", async () => {
-    const { calls, fetchImpl } = fakeApi({ partsStatus: 422 });
+    const { calls, fetchImpl, putFetch } = fakeApi({ partsStatus: 422 });
     const { readPart } = fakeReader();
     const plan = JSON.stringify({ partSize: 10, fingerprint: await fileFingerprint(file, readPart) });
     await uploadVideo(file, undefined, {
       fetchImpl,
+      putFetch,
       readPart,
       store: memoryStore({ [key]: ID, [`${key}:plan`]: plan }),
       retryDelaysMs: NO_WAIT,
@@ -170,10 +178,11 @@ describe("uploadVideo", () => {
   });
 
   test("mesmoNomeETamanhoComConteudoDiferenteNaoRetoma", async () => {
-    const { calls, fetchImpl } = fakeApi({ existingParts: [1, 2] });
+    const { calls, fetchImpl, putFetch } = fakeApi({ existingParts: [1, 2] });
     const plan = JSON.stringify({ partSize: 10, fingerprint: "25:00000000" });
     await uploadVideo(file, undefined, {
       fetchImpl,
+      putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore({ [key]: ID, [`${key}:plan`]: plan }),
       retryDelaysMs: NO_WAIT,
@@ -185,9 +194,10 @@ describe("uploadVideo", () => {
   });
 
   test("planoGuardadoSemImpressaoDigitalNaoRetoma", async () => {
-    const { calls, fetchImpl } = fakeApi({ existingParts: [1] });
+    const { calls, fetchImpl, putFetch } = fakeApi({ existingParts: [1] });
     await uploadVideo(file, undefined, {
       fetchImpl,
+      putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore({ [key]: ID, [`${key}:plan`]: JSON.stringify({ partSize: 10 }) }),
       retryDelaysMs: NO_WAIT,
@@ -197,11 +207,11 @@ describe("uploadVideo", () => {
   });
 
   test("leituraCurtaFalhaAParteAntesDoPut", async () => {
-    const { calls, fetchImpl } = fakeApi({});
+    const { calls, fetchImpl, putFetch } = fakeApi({});
     const readPart = async (_uri: string, offset: number, length: number) =>
       new Uint8Array(offset === 10 ? length - 1 : length);
     await expect(
-      uploadVideo(file, undefined, { fetchImpl, readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
+      uploadVideo(file, undefined, { fetchImpl, putFetch, readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
     ).rejects.toThrow("Parte 2: lidos 9 de 10 bytes do arquivo");
     expect(calls.some((c) => c.method === "PUT" && c.url.endsWith("/2"))).toBe(false);
     expect(calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(false);
@@ -212,7 +222,7 @@ describe("uploadVideo", () => {
     const storage = fakeApi({});
     await uploadVideo(file, undefined, {
       fetchImpl: api.fetchImpl,
-      putFetch: storage.fetchImpl,
+      putFetch: storage.putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore(),
       retryDelaysMs: NO_WAIT,
@@ -222,10 +232,63 @@ describe("uploadVideo", () => {
     expect(api.calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(true);
   });
 
+  test("putDasPartesNuncaUsaOFetchAutenticadoDoBack", async () => {
+    const api = fakeApi({});
+    const storage = fakeApi({});
+    // O projeto injeta a autenticação do app no fetch do back; ela não pode chegar ao storage (R2).
+    const authed = ((input: RequestInfo | URL, init?: RequestInit) =>
+      api.fetchImpl(input, {
+        ...init,
+        headers: { ...(init?.headers as Record<string, string>), Authorization: "Bearer app-token", Cookie: "s=1" },
+      })) as typeof fetch;
+    const native = expoFetch as unknown as jest.Mock;
+    native.mockReset();
+    native.mockImplementation(storage.putFetch);
+
+    // Sem `putFetch`: o padrão é o `expo/fetch`, nunca o `fetchImpl`.
+    await uploadVideo(file, undefined, {
+      fetchImpl: authed,
+      readPart: fakeReader().readPart,
+      store: memoryStore(),
+      retryDelaysMs: NO_WAIT,
+    });
+    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
+    expect(native).toHaveBeenCalledTimes(3);
+    for (const [, init] of native.mock.calls) expect(init).toMatchObject({ credentials: "omit" });
+    const puts = storage.sent.filter((s) => s.method === "PUT");
+    expect(puts).toHaveLength(3);
+    for (const put of puts) {
+      expect(put.headers).not.toHaveProperty("authorization");
+      expect(put.headers).not.toHaveProperty("cookie");
+      expect(put.headers).toEqual({ "content-type": "application/octet-stream" });
+    }
+    // As chamadas ao back seguem autenticadas.
+    expect(api.sent.length).toBeGreaterThan(0);
+    for (const call of api.sent) expect(call.headers.authorization).toBe("Bearer app-token");
+  });
+
+  test("putFetchInjetadoTambemNaoRecebeAuthorization", async () => {
+    const api = fakeApi({});
+    const storage = fakeApi({ putHook: (n, attempt) => (n === 2 && attempt === 1 ? new Response(null, { status: 500 }) : undefined) });
+    const authed = ((input: RequestInfo | URL, init?: RequestInit) =>
+      api.fetchImpl(input, { ...init, headers: { ...(init?.headers as Record<string, string>), Authorization: "Bearer app-token" } })) as typeof fetch;
+    await uploadVideo(file, undefined, {
+      fetchImpl: authed,
+      putFetch: storage.putFetch,
+      readPart: fakeReader().readPart,
+      store: memoryStore(),
+      retryDelaysMs: NO_WAIT,
+    });
+    const puts = storage.sent.filter((s) => s.method === "PUT");
+    expect(puts).toHaveLength(4); // 3 partes + 1 nova tentativa
+    for (const put of puts) expect(put.headers).not.toHaveProperty("authorization");
+  });
+
   test("idGuardadoQueNaoEUuidEDescartadoSemChamarOBack", async () => {
-    const { calls, fetchImpl } = fakeApi({});
+    const { calls, fetchImpl, putFetch } = fakeApi({});
     await uploadVideo(file, undefined, {
       fetchImpl,
+      putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore({ [key]: ".." }),
       retryDelaysMs: NO_WAIT,
@@ -235,19 +298,20 @@ describe("uploadVideo", () => {
   });
 
   test("videoIdDoBackQueNaoEUuidParaOEnvio", async () => {
-    const { calls, fetchImpl } = fakeApi({ videoId: "a/b" });
+    const { calls, fetchImpl, putFetch } = fakeApi({ videoId: "a/b" });
     await expect(
-      uploadVideo(file, undefined, { fetchImpl, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
+      uploadVideo(file, undefined, { fetchImpl, putFetch, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
     ).rejects.toBeInstanceOf(InvalidVideoIdError);
     expect(calls.some((c) => c.url.endsWith("/part-urls"))).toBe(false);
   });
 
   test("inicioRecusadoCom422TrazAsMensagensDoServidor", async () => {
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       initResponse: json({ errors: [{ code: "trial.video-limit", message: "Limite de vídeos atingido." }] }, 422),
     });
     const err = await uploadVideo(file, undefined, {
       fetchImpl,
+      putFetch,
       readPart: fakeReader().readPart,
       store: memoryStore(),
     }).catch((e: unknown) => e);
@@ -257,20 +321,20 @@ describe("uploadVideo", () => {
   });
 
   test("tentaDeNovoUmaParteQueFalhou", async () => {
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       putHook: (n, attempt) => (n === 2 && attempt === 1 ? new Response(null, { status: 500 }) : undefined),
     });
-    await uploadVideo(file, undefined, { fetchImpl, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT });
+    await uploadVideo(file, undefined, { fetchImpl, putFetch, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT });
     expect(calls.filter((c) => c.method === "PUT" && c.url.endsWith("/2"))).toHaveLength(2);
     expect(calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(true);
   });
 
   test("parteSemETagFalhaENaoCompleta", async () => {
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       putHook: (n) => (n === 1 ? new Response(null, { status: 200 }) : undefined),
     });
     await expect(
-      uploadVideo(file, undefined, { fetchImpl, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
+      uploadVideo(file, undefined, { fetchImpl, putFetch, readPart: fakeReader().readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
     ).rejects.toThrow(/ETag/);
     expect(calls.filter((c) => c.method === "PUT" && c.url.endsWith("/1"))).toHaveLength(NO_WAIT.length + 1);
     expect(calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(false);
@@ -278,7 +342,7 @@ describe("uploadVideo", () => {
 
   test("cancelarAbortaNoBackEApagaOPendente", async () => {
     const controller = new AbortController();
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       putHook: () => {
         controller.abort();
       },
@@ -287,6 +351,7 @@ describe("uploadVideo", () => {
     await expect(
       uploadVideo(file, undefined, {
         fetchImpl,
+        putFetch,
         readPart: fakeReader().readPart,
         store,
         signal: controller.signal,

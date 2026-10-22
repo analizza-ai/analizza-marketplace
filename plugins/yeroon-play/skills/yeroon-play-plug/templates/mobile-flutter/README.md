@@ -110,10 +110,11 @@ chamadas. Os moldes não inventam login: injete o cabeçalho pelo `http.Client`.
   `Authorization: Bearer <token da sessão>`) e passe `YeroonApi(client: ...)`
   a `VideoList` e `VideoPlayerScreen` (parâmetro `api`) e ao `uploadVideo(api: ...)`
   — no `VideoUploadButton`, pelo parâmetro `upload`, que embrulha o `uploadVideo`.
-- **Só para o back:** o `uploadVideo` usa o mesmo `client` no `PUT` das partes
-  às URLs assinadas do storage. O cliente acrescenta o cabeçalho **apenas**
-  quando `request.url` começa com `apiBase`; senão a credencial do usuário iria
-  para o storage do yeroon.
+- É seguro: o código nunca usa o `client` do `YeroonApi` no `PUT` das partes às
+  URLs assinadas do storage do yeroon (R2, terceiro). O `uploadVideo` manda as
+  partes por um `http.Client` próprio, sem autenticação (parâmetro
+  `storageClient`; padrão: `http.Client()` novo, fechado no fim do envio), só com
+  `content-type`. Os testes do molde conferem isso.
 - Back sem autenticação nenhuma: as rotas ficam abertas a qualquer um — o plano
   avisa (Passo 2) e o norte pede para protegê-las antes de produção.
 

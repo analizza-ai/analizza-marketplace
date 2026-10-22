@@ -1,7 +1,13 @@
 export type UploadOptions = {
   onProgress?: (sentParts: number, totalParts: number) => void;
   signal?: AbortSignal;
+  /** Chamadas às rotas `/api/videos/…` (onde o projeto pode injetar a autenticação). Padrão: `fetch` global. */
   fetchImpl?: typeof fetch;
+  /**
+   * `PUT` das partes no storage (URL assinada de terceiro). Padrão: `fetch` global, sem credenciais.
+   * Nunca cai no `fetchImpl`: a autenticação do app não vai para o storage.
+   */
+  putFetch?: typeof fetch;
   storage?: Storage;
 };
 
@@ -30,6 +36,8 @@ export async function uploadVideo(
   opts: UploadOptions = {},
 ): Promise<{ videoId: string }> {
   const doFetch = opts.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
+  // O storage recebe só a URL assinada e o conteúdo: nunca o fetch das rotas (com a autenticação do app).
+  const putFetch = opts.putFetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const storage = opts.storage ?? localStorage;
   const { signal } = opts;
   const key = `upload:${file.name}:${file.size}:${file.lastModified}`;
@@ -149,11 +157,13 @@ export async function uploadVideo(
     for (let attempt = 0; ; attempt++) {
       if (signal?.aborted) throw abortError();
       try {
-        const res = await doFetch(url, {
+        const res = await putFetch(url, {
           method: "PUT",
+          // Só o que a URL assinada pede: nada de `authorization` nem `cookie`.
           headers: { "content-type": "application/octet-stream" },
           body: blob,
           signal,
+          credentials: "omit",
         });
         if (!res.ok) throw new Error(`PUT da parte ${n} falhou (${res.status})`);
         const etag = res.headers.get("ETag");

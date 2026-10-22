@@ -1,7 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { UploadRejectedError, uploadVideo } from "./upload";
 
 type Call = { method: string; url: string; body?: unknown };
+type Sent = { method: string; url: string; headers: Record<string, string>; credentials?: RequestCredentials };
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial));
@@ -30,6 +31,7 @@ function fakeApi(opts: {
   putHook?: (partNumber: number, attempt: number) => Response | void;
 }) {
   const calls: Call[] = [];
+  const sent: Sent[] = [];
   const putAttempts = new Map<number, number>();
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -37,6 +39,12 @@ function fakeApi(opts: {
     const body =
       typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
     calls.push({ method, url, body });
+    sent.push({
+      method,
+      url,
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      credentials: init?.credentials,
+    });
     if (method === "POST" && url === "/api/videos/uploads") {
       if (opts.initResponse) return opts.initResponse;
       return json({ videoId: "v1", partSizeBytes: 10, partCount: 3 }, 201);
@@ -75,7 +83,8 @@ function fakeApi(opts: {
     }
     throw new Error(`chamada inesperada ${method} ${url}`);
   }) as typeof fetch;
-  return { calls, fetchImpl };
+  // O dublê serve também de storage: os testes o passam como `putFetch` (o PUT nunca usa o `fetchImpl`).
+  return { calls, sent, fetchImpl, putFetch: fetchImpl };
 }
 
 const file = new File(["x".repeat(25)], "a.mp4", {
@@ -86,11 +95,12 @@ const key = "upload:a.mp4:25:1";
 
 describe("uploadVideo", () => {
   test("enviaTodasAsPartesECompletaComOsETags", async () => {
-    const { calls, fetchImpl } = fakeApi({});
+    const { calls, fetchImpl, putFetch } = fakeApi({});
     const storage = memoryStorage();
     const progress: number[] = [];
     const r = await uploadVideo(file, {
       fetchImpl,
+      putFetch,
       storage,
       onProgress: (sent) => progress.push(sent),
     });
@@ -109,9 +119,9 @@ describe("uploadVideo", () => {
   });
 
   test("retomaEnviandoSoAsPartesQueFaltam", async () => {
-    const { calls, fetchImpl } = fakeApi({ existingParts: [1, 2] });
+    const { calls, fetchImpl, putFetch } = fakeApi({ existingParts: [1, 2] });
     const storage = memoryStorage({ [key]: "v1" });
-    await uploadVideo(file, { fetchImpl, storage });
+    await uploadVideo(file, { fetchImpl, putFetch, storage });
     expect(calls.some((c) => c.url === "/api/videos/uploads")).toBe(false);
     const puts = calls.filter((c) => c.method === "PUT");
     expect(puts.map((c) => c.url)).toEqual(["http://minio/put/3"]);
@@ -124,14 +134,14 @@ describe("uploadVideo", () => {
   });
 
   test("videoNaoMaisPendenteApagaAChaveEComecaDoZero", async () => {
-    const { calls, fetchImpl } = fakeApi({ partsStatus: 422 });
+    const { calls, fetchImpl, putFetch } = fakeApi({ partsStatus: 422 });
     const storage = memoryStorage({ [key]: "v1" });
-    await uploadVideo(file, { fetchImpl, storage });
+    await uploadVideo(file, { fetchImpl, putFetch, storage });
     expect(calls.some((c) => c.url === "/api/videos/uploads")).toBe(true);
   });
 
   test("inicioRecusadoCom422TrazAsMensagensDoServidor", async () => {
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       initResponse: json(
         {
           title: "Regra de negocio violada",
@@ -140,26 +150,26 @@ describe("uploadVideo", () => {
         422,
       ),
     });
-    const err = await uploadVideo(file, { fetchImpl, storage: memoryStorage() }).catch((e) => e);
+    const err = await uploadVideo(file, { fetchImpl, putFetch, storage: memoryStorage() }).catch((e) => e);
     expect(err).toBeInstanceOf(UploadRejectedError);
     expect((err as Error).message).toBe("Só vídeos são aceitos.");
     expect(calls.some((c) => c.url.endsWith("/part-urls"))).toBe(false);
   });
 
   test("arquivoComTamanhoDiferenteComecaUploadNovo", async () => {
-    const { calls, fetchImpl } = fakeApi({});
+    const { calls, fetchImpl, putFetch } = fakeApi({});
     const storage = memoryStorage({ "upload:a.mp4:99:1": "v1" });
-    await uploadVideo(file, { fetchImpl, storage });
+    await uploadVideo(file, { fetchImpl, putFetch, storage });
     expect(calls.some((c) => c.url === "/api/videos/uploads")).toBe(true);
     expect(calls.some((c) => c.url.endsWith("/upload/parts"))).toBe(false);
   });
 
   test("tentaDeNovoUmaParteQueFalhou", async () => {
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       putHook: (n, attempt) =>
         n === 2 && attempt === 1 ? new Response(null, { status: 500 }) : undefined,
     });
-    await uploadVideo(file, { fetchImpl, storage: memoryStorage() });
+    await uploadVideo(file, { fetchImpl, putFetch, storage: memoryStorage() });
     expect(
       calls.filter((c) => c.method === "PUT" && c.url.endsWith("/2")),
     ).toHaveLength(2);
@@ -168,14 +178,14 @@ describe("uploadVideo", () => {
 
   test("cancelarAbortaNoBackend", async () => {
     const controller = new AbortController();
-    const { calls, fetchImpl } = fakeApi({
+    const { calls, fetchImpl, putFetch } = fakeApi({
       putHook: () => {
         controller.abort();
       },
     });
     const storage = memoryStorage();
     await expect(
-      uploadVideo(file, { fetchImpl, storage, signal: controller.signal }),
+      uploadVideo(file, { fetchImpl, putFetch, storage, signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(
       calls.some((c) => c.method === "DELETE" && c.url === "/api/videos/v1/upload"),
@@ -196,8 +206,51 @@ describe("uploadVideo com videoId fora do comum", () => {
       if (init?.method === "PUT") return new Response(null, { status: 200, headers: { ETag: '"e1"' } });
       return json({ videoId: "a/b", status: "ENVIADO" });
     }) as typeof fetch;
-    await uploadVideo(file, { fetchImpl, storage: memoryStorage() });
+    await uploadVideo(file, { fetchImpl, putFetch: fetchImpl, storage: memoryStorage() });
     expect(calls).toContain("POST /api/videos/a%2Fb/upload/part-urls");
     expect(calls).toContain("POST /api/videos/a%2Fb/upload/complete");
+  });
+});
+
+describe("uploadVideo e a autenticação do app", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // O projeto pode injetar a autenticação do app no fetch das rotas; ela não pode chegar ao storage.
+  const authed = (api: ReturnType<typeof fakeApi>) =>
+    ((input: RequestInfo | URL, init?: RequestInit) =>
+      api.fetchImpl(input, {
+        ...init,
+        headers: { ...(init?.headers as Record<string, string>), Authorization: "Bearer app-token", Cookie: "s=1" },
+      })) as typeof fetch;
+
+  test("putDasPartesNuncaUsaOFetchAutenticadoDasRotas", async () => {
+    const api = fakeApi({});
+    const storage = fakeApi({});
+    vi.stubGlobal("fetch", storage.putFetch);
+    // Sem `putFetch`: o padrão é o `fetch` global, nunca o `fetchImpl`.
+    await uploadVideo(file, { fetchImpl: authed(api), storage: memoryStorage() });
+    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
+    const puts = storage.sent.filter((s) => s.method === "PUT");
+    expect(puts).toHaveLength(3);
+    for (const put of puts) {
+      expect(put.headers).toEqual({ "content-type": "application/octet-stream" });
+      expect(put.credentials).toBe("omit");
+    }
+    expect(api.sent.length).toBeGreaterThan(0);
+    for (const call of api.sent) expect(call.headers.authorization).toBe("Bearer app-token");
+  });
+
+  test("putFetchInjetadoTambemNaoRecebeAuthorization", async () => {
+    const api = fakeApi({});
+    const storage = fakeApi({
+      putHook: (n, attempt) => (n === 2 && attempt === 1 ? new Response(null, { status: 500 }) : undefined),
+    });
+    await uploadVideo(file, { fetchImpl: authed(api), putFetch: storage.putFetch, storage: memoryStorage() });
+    const puts = storage.sent.filter((s) => s.method === "PUT");
+    expect(puts).toHaveLength(4); // 3 partes + 1 nova tentativa
+    for (const put of puts) {
+      expect(put.headers).not.toHaveProperty("authorization");
+      expect(put.headers).not.toHaveProperty("cookie");
+    }
   });
 });

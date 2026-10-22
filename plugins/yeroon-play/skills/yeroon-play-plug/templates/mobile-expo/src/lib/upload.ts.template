@@ -14,12 +14,12 @@ export type PendingUploadStore = {
 
 export type UploadOptions = {
   signal?: AbortSignal;
-  /** Chamadas ao back. Padrão: `fetch` global. */
+  /** Chamadas ao back (é aqui que o projeto injeta a autenticação do app). Padrão: `fetch` global. */
   fetchImpl?: typeof fetch;
   /**
-   * `PUT` das partes no storage. Padrão: `fetch` de `expo/fetch`, que entrega o `Uint8Array` ao
-   * código nativo como está; o `fetch` global do React Native converteria cada parte em base64 no JS.
-   * Se só `fetchImpl` for passado (testes), ele serve também para os `PUT`.
+   * `PUT` das partes no storage (URL assinada de terceiro). Padrão: `fetch` de `expo/fetch`, que entrega
+   * o `Uint8Array` ao código nativo como está; o `fetch` global do React Native converteria cada parte
+   * em base64 no JS. Nunca cai no `fetchImpl`: a autenticação do app não vai para o storage.
    */
   putFetch?: PutFetch;
   /** Lê `length` bytes a partir de `offset`. Padrão: `FileHandle` do expo-file-system. */
@@ -32,7 +32,13 @@ export type UploadOptions = {
 /** O mínimo de `fetch` que o `PUT` das partes usa (o global e o de `expo/fetch` servem). */
 export type PutFetch = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: Uint8Array<ArrayBuffer>; signal?: AbortSignal },
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: Uint8Array<ArrayBuffer>;
+    signal?: AbortSignal;
+    credentials?: "omit";
+  },
 ) => Promise<{ ok: boolean; status: number; headers: { get(name: string): string | null } }>;
 
 /** O início do upload foi recusado por regra de negócio (422): reenviar o mesmo arquivo não adianta. */
@@ -130,7 +136,8 @@ export async function uploadVideo(
   opts: UploadOptions = {},
 ): Promise<string> {
   const doFetch = opts.fetchImpl ?? globalFetch;
-  const putFetch: PutFetch = opts.putFetch ?? opts.fetchImpl ?? ((url, init) => expoFetch(url, init));
+  // O storage recebe só a URL assinada e o conteúdo: nunca o fetch do back (com a autenticação do app).
+  const putFetch: PutFetch = opts.putFetch ?? ((url, init) => expoFetch(url, init));
   const readPart = opts.readPart ?? readPartFromFile;
   const store = opts.store ?? fileStore();
   const delays = opts.retryDelaysMs ?? BACKOFF_MS;
@@ -249,9 +256,12 @@ export async function uploadVideo(
       try {
         const res = await putFetch(url, {
           method: "PUT",
+          // Só o que a URL assinada pede: nada de `authorization` nem `cookie`. O `expo/fetch` manda os
+          // cookies do app por padrão (`credentials: "include"`); para o storage, não.
           headers: { "content-type": "application/octet-stream" },
           body: bytes,
           signal,
+          credentials: "omit",
         });
         if (!res.ok) throw new Error(`PUT da parte ${n} falhou (${res.status})`);
         const etag = res.headers.get("ETag");

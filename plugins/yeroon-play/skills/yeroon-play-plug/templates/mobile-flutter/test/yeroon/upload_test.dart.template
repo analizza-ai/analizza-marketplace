@@ -13,10 +13,26 @@ const base = 'http://back.test/api';
 const noWait = [Duration.zero, Duration.zero, Duration.zero];
 
 class Call {
-  Call(this.method, this.url, this.body);
+  Call(this.method, this.url, this.body, {this.via = '', this.headers = const {}});
   final String method;
   final String url;
   final Object? body;
+
+  /// Por qual cliente a chamada saiu: `back` ou `storage`.
+  final String via;
+  final Map<String, String> headers;
+}
+
+/// O que o projeto faz no app: um cliente do back que injeta a autenticação do app.
+class AuthClient extends http.BaseClient {
+  AuthClient(this._inner);
+  final http.Client _inner;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.headers['Authorization'] = 'Bearer app-token';
+    request.headers['Cookie'] = 's=1';
+    return _inner.send(request);
+  }
 }
 
 http.Response jsonResponse(Object body, [int status = 200]) =>
@@ -45,14 +61,22 @@ class FakeBack {
   final putBodies = <int, List<int>>{};
   final _attempts = <int, int>{};
 
-  YeroonApi get api => YeroonApi(baseUrl: base, client: MockClient(_handle));
+  YeroonApi get api => YeroonApi(baseUrl: base, client: MockClient((r) => _handle(r, 'back')));
+
+  /// Back com a autenticação do app injetada no cliente.
+  YeroonApi get authedApi => YeroonApi(baseUrl: base, client: AuthClient(MockClient((r) => _handle(r, 'back'))));
+
+  /// Cliente do storage (as URLs assinadas).
+  http.Client get storage => MockClient((r) => _handle(r, 'storage'));
 
   String get _video => '$base/videos/${Uri.encodeComponent(videoId)}';
 
-  Future<http.Response> _handle(http.Request r) async {
+  Future<http.Response> _handle(http.Request r, String via) async {
     final url = r.url.toString();
     final body = r.headers['content-type']?.startsWith('application/json') == true ? jsonDecode(r.body) : null;
-    calls.add(Call(r.method, url, body));
+    calls.add(Call(r.method, url, body, via: via, headers: {
+      for (final e in r.headers.entries) e.key.toLowerCase(): e.value,
+    }));
     if (r.method == 'POST' && url == '$base/videos/uploads') {
       return initResponse ?? jsonResponse({'videoId': videoId, 'partSizeBytes': partSize, 'partCount': partCount}, 201);
     }
@@ -112,6 +136,7 @@ void main() {
       file,
       (sent, total) => progress.add([sent, total]),
       api: back.api,
+      storageClient: back.storage,
       store: store,
       retryDelays: noWait,
     );
@@ -132,10 +157,43 @@ void main() {
     expect(store.isEmpty, isTrue);
   });
 
+  test('PUT das partes nunca usa o cliente autenticado do back', () async {
+    final back = FakeBack(putHook: (n, attempt) => n == 2 && attempt == 1 ? http.Response('', 500) : null);
+    await uploadVideo(file, null,
+        api: back.authedApi, storageClient: back.storage, store: MemoryPendingUploadStore(), retryDelays: noWait);
+    expect(back.calls.where((c) => c.via == 'back' && c.method == 'PUT'), isEmpty);
+    final puts = back.calls.where((c) => c.method == 'PUT').toList();
+    expect(puts.length, 4); // 3 partes + 1 nova tentativa
+    for (final put in puts) {
+      expect(put.via, 'storage');
+      expect(put.headers.containsKey('authorization'), isFalse);
+      expect(put.headers.containsKey('cookie'), isFalse);
+    }
+    final backCalls = back.calls.where((c) => c.via == 'back').toList();
+    expect(backCalls, isNotEmpty);
+    for (final call in backCalls) {
+      expect(call.headers['authorization'], 'Bearer app-token');
+    }
+  });
+
+  test('sem storageClient, o PUT usa um http.Client novo e não o do back', () async {
+    final back = FakeBack();
+    await http.runWithClient(
+      () => uploadVideo(file, null, api: back.authedApi, store: MemoryPendingUploadStore(), retryDelays: noWait),
+      () => back.storage,
+    );
+    final puts = back.calls.where((c) => c.method == 'PUT').toList();
+    expect(puts.length, 3);
+    for (final put in puts) {
+      expect(put.via, 'storage');
+      expect(put.headers.containsKey('authorization'), isFalse);
+    }
+  });
+
   test('pede no máximo 20 URLs por chamada', () async {
     await file.writeAsBytes(List.filled(45, 7));
     final back = FakeBack(partSize: 1, partCount: 45);
-    await uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore(), retryDelays: noWait);
+    await uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore(), retryDelays: noWait);
     final batches = back.calls
         .where((c) => c.url.endsWith('/part-urls'))
         .map((c) => ((c.body as Map)['partNumbers'] as List).length)
@@ -147,7 +205,7 @@ void main() {
     final back = FakeBack(existingParts: [1, 2]);
     final plan = jsonEncode({'partSize': 10, 'fingerprint': await fileFingerprint(file)});
     final store = MemoryPendingUploadStore({key: id, '$key:plan': plan});
-    await uploadVideo(file, null, api: back.api, store: store, retryDelays: noWait);
+    await uploadVideo(file, null, api: back.api, storageClient: back.storage, store: store, retryDelays: noWait);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isFalse);
     expect(back.calls.where((c) => c.method == 'PUT').map((c) => c.url), ['https://storage.test/put/3']);
     final asked = back.calls.firstWhere((c) => c.url.endsWith('/part-urls')).body;
@@ -162,7 +220,7 @@ void main() {
     final back = FakeBack(partsStatus: 422);
     final plan = jsonEncode({'partSize': 10, 'fingerprint': await fileFingerprint(file)});
     await uploadVideo(file, null,
-        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+        api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
     expect(back.calls.any((c) => c.method == 'GET' && c.url.endsWith('/upload/parts')), isTrue);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
   });
@@ -171,7 +229,7 @@ void main() {
     final back = FakeBack(existingParts: [1, 2]);
     final plan = jsonEncode({'partSize': 10, 'fingerprint': '25:00000000'});
     await uploadVideo(file, null,
-        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+        api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
     expect(back.calls.any((c) => c.url.endsWith('/upload/parts')), isFalse);
     expect(back.calls.any((c) => c.method == 'DELETE' && c.url == '$base/videos/$id/upload'), isTrue);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
@@ -182,7 +240,7 @@ void main() {
     final back = FakeBack(existingParts: [1]);
     final plan = jsonEncode({'partSize': 10});
     await uploadVideo(file, null,
-        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+        api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
     expect(back.calls.any((c) => c.url.endsWith('/upload/parts')), isFalse);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
   });
@@ -193,7 +251,7 @@ void main() {
         Uint8List(start == 10 ? length - 1 : length);
     await expectLater(
       uploadVideo(file, null,
-          api: back.api, store: MemoryPendingUploadStore(), reader: shortReader, retryDelays: noWait),
+          api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore(), reader: shortReader, retryDelays: noWait),
       throwsA(predicate((e) => e.toString().contains('Parte 2: lidos 9 de 10 bytes do arquivo'))),
     );
     expect(back.calls.any((c) => c.method == 'PUT' && c.url.endsWith('/2')), isFalse);
@@ -202,14 +260,14 @@ void main() {
 
   test('id guardado que não é UUID é descartado sem chamar o back', () async {
     final back = FakeBack();
-    await uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore({key: '..'}), retryDelays: noWait);
+    await uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore({key: '..'}), retryDelays: noWait);
     expect(back.calls.first.url, '$base/videos/uploads');
   });
 
   test('videoId do back que não é UUID para o envio', () async {
     final back = FakeBack(videoId: 'a/b');
     await expectLater(
-      uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore(), retryDelays: noWait),
+      uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore(), retryDelays: noWait),
       throwsA(isA<InvalidVideoIdException>()),
     );
     expect(back.calls.any((c) => c.url.endsWith('/part-urls')), isFalse);
@@ -223,7 +281,7 @@ void main() {
         ],
       }, 422),
     );
-    final err = await uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore())
+    final err = await uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore())
         .then<Object?>((_) => null, onError: (Object e) => e);
     expect(err, isA<UploadRejectedException>());
     expect((err as UploadRejectedException).message, 'Limite de vídeos atingido.');
@@ -232,7 +290,7 @@ void main() {
 
   test('tenta de novo uma parte que falhou', () async {
     final back = FakeBack(putHook: (n, attempt) => n == 2 && attempt == 1 ? http.Response('', 500) : null);
-    await uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore(), retryDelays: noWait);
+    await uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore(), retryDelays: noWait);
     expect(back.calls.where((c) => c.method == 'PUT' && c.url.endsWith('/2')).length, 2);
     expect(back.calls.any((c) => c.url.endsWith('/upload/complete')), isTrue);
   });
@@ -240,7 +298,7 @@ void main() {
   test('parte sem ETag falha e não completa', () async {
     final back = FakeBack(putHook: (n, _) => n == 1 ? http.Response('', 200) : null);
     await expectLater(
-      uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore(), retryDelays: noWait),
+      uploadVideo(file, null, api: back.api, storageClient: back.storage, store: MemoryPendingUploadStore(), retryDelays: noWait),
       throwsA(predicate((e) => e.toString().contains('ETag'))),
     );
     expect(back.calls.where((c) => c.method == 'PUT' && c.url.endsWith('/1')).length, noWait.length + 1);
@@ -255,7 +313,7 @@ void main() {
     });
     final store = MemoryPendingUploadStore();
     await expectLater(
-      uploadVideo(file, null, api: back.api, store: store, cancelToken: token, retryDelays: noWait),
+      uploadVideo(file, null, api: back.api, storageClient: back.storage, store: store, cancelToken: token, retryDelays: noWait),
       throwsA(isA<UploadCancelledException>()),
     );
     expect(back.calls.any((c) => c.method == 'DELETE' && c.url == '$base/videos/$id/upload'), isTrue);

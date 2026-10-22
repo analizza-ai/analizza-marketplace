@@ -119,11 +119,12 @@ chamadas. Os moldes não inventam login: injete o cabeçalho pelo `fetch`.
   Crie um `authFetch` no projeto que acrescenta o cabeçalho do app (ex.:
   `Authorization: Bearer <token da sessão>`) e passe-o nas chamadas, ou troque o
   `globalFetch` do arquivo por ele.
-- **`src/lib/upload.ts`:** passe `fetchImpl: authFetch` **e** `putFetch`
-  explícito (o `fetch` de `expo/fetch`). Sem `putFetch`, o molde usa o
-  `fetchImpl` também no `PUT` das partes, e a credencial do usuário iria para o
-  storage do yeroon nas URLs assinadas. Se preferir um `fetch` só, acrescente o
-  cabeçalho apenas quando a URL começa com `API_BASE`.
+- **`src/lib/upload.ts`:** passe `fetchImpl: authFetch`. É seguro: o código
+  nunca usa o `fetchImpl` no `PUT` das partes às URLs assinadas do storage do
+  yeroon (R2, terceiro). O `PUT` sai pelo `putFetch` — padrão: `fetch` de
+  `expo/fetch`, nunca o `fetchImpl` —, só com `content-type` e
+  `credentials: "omit"` (sem `authorization` nem os cookies do app). Os testes
+  do molde conferem isso.
 - Back sem autenticação nenhuma: as rotas ficam abertas a qualquer um — o plano
   avisa (Passo 2) e o norte pede para protegê-las antes de produção.
 
