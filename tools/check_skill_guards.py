@@ -1,4 +1,4 @@
-"""Guarda das skills do plugin yeroon-play: impede que as anti-metas vazem."""
+"""Guarda da skill yeroon-play-plug: impede que as anti-metas vazem."""
 import re
 import sys
 from pathlib import Path
@@ -88,9 +88,7 @@ def verificar_skill(skill_dir: Path) -> list[str]:
 
 def main() -> int:
     raiz = Path(__file__).resolve().parents[1]
-    pastas = sorted(
-        p for p in (raiz / "plugins/yeroon-play/skills").glob("*") if p.is_dir()
-    )
+    pastas = [raiz / "plugins/analizza-skills/skills/yeroon-play-plug"]
     erros = []
     for pasta in pastas:
         erros += [f"{pasta.name}/{e}" for e in verificar_skill(pasta)]

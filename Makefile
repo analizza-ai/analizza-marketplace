@@ -1,7 +1,7 @@
 REPO        := analizza-ai/analizza-marketplace
 MARKETPLACE := analizza-marketplace
 PLUGIN      ?= analizza-skills
-PLUGINS     := analizza-skills yeroon-play
+PLUGINS     := analizza-skills
 
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
@@ -22,7 +22,7 @@ marketplace-add: ## Registra este repositório como marketplace
 	claude plugin marketplace add $(REPO)
 
 .PHONY: install
-install: ## Instala o plugin (PLUGIN=analizza-skills|yeroon-play) a partir do marketplace
+install: ## Instala o plugin (PLUGIN=analizza-skills) a partir do marketplace
 	claude plugin install $(PLUGIN)@$(MARKETPLACE)
 
 .PHONY: agy-install
