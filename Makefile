@@ -1,7 +1,6 @@
 REPO        := analizza-ai/analizza-marketplace
 MARKETPLACE := analizza-marketplace
-PLUGIN      := analizza-skills
-PLUGIN_DIR  := plugins/analizza-skills
+PLUGIN      ?= analizza-skills
 PLUGINS     := analizza-skills yeroon-play
 
 .DEFAULT_GOAL := help
@@ -23,7 +22,7 @@ marketplace-add: ## Registra este repositório como marketplace
 	claude plugin marketplace add $(REPO)
 
 .PHONY: install
-install: ## Instala o plugin a partir do marketplace
+install: ## Instala o plugin (PLUGIN=analizza-skills|yeroon-play) a partir do marketplace
 	claude plugin install $(PLUGIN)@$(MARKETPLACE)
 
 .PHONY: agy-install
@@ -33,7 +32,7 @@ agy-install: ## Instala o plugin no Antigravity (agy)
 ##@ Atualização
 
 .PHONY: update
-update: ## Atualiza o marketplace e depois o plugin
+update: ## Atualiza o marketplace e depois o plugin (PLUGIN=...)
 	claude plugin marketplace update $(MARKETPLACE) && claude plugin update $(PLUGIN)
 
 .PHONY: agy-update
