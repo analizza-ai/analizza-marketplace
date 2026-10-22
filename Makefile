@@ -2,6 +2,7 @@ REPO        := analizza-ai/analizza-marketplace
 MARKETPLACE := analizza-marketplace
 PLUGIN      := analizza-skills
 PLUGIN_DIR  := plugins/analizza-skills
+PLUGINS     := analizza-skills yeroon-play
 
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
@@ -43,11 +44,18 @@ agy-update: ## Atualiza o plugin no Antigravity (agy) reinstalando
 
 .PHONY: validate
 validate: ## Valida os manifestos do marketplace, Claude e Codex
-	claude plugin validate . && claude plugin validate $(PLUGIN_DIR) && python3 tools/validate_plugin_manifests.py
+	claude plugin validate . && \
+	for p in $(PLUGINS); do \
+		[ -d plugins/$$p ] || continue; \
+		claude plugin validate plugins/$$p || exit 1; \
+	done && python3 tools/validate_plugin_manifests.py
 
 .PHONY: tag
-tag: validate ## Cria a tag {plugin}--v{version} validando os manifestos
-	claude plugin tag $(PLUGIN_DIR)
+tag: validate ## Cria a tag {plugin}--v{version} de cada plugin, validando os manifestos
+	for p in $(PLUGINS); do \
+		[ -d plugins/$$p ] || continue; \
+		claude plugin tag plugins/$$p || exit 1; \
+	done
 
 ##@ Qualidade
 

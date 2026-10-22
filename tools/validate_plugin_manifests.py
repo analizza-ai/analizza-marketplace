@@ -65,18 +65,31 @@ def carregar_manifesto(caminho: Path) -> Optional[dict]:
     return dados
 
 
+def validar_marketplace(raiz: Path) -> list[str]:
+    marketplace = carregar_manifesto(raiz / ".claude-plugin" / "marketplace.json")
+    if marketplace is None:
+        return ["marketplace.json ausente ou inválido"]
+
+    erros = []
+    for plugin in marketplace.get("plugins", []):
+        nome = plugin.get("name", "?")
+        source = plugin.get("source")
+        if not isinstance(source, str):
+            erros.append(f"{nome}: source ausente")
+            continue
+        plugin_dir = raiz / source
+        claude = carregar_manifesto(plugin_dir / ".claude-plugin" / "plugin.json")
+        codex = carregar_manifesto(plugin_dir / ".codex-plugin" / "plugin.json")
+        if claude is None or codex is None:
+            erros.append(f"{nome}: manifesto ausente ou inválido")
+            continue
+        erros.extend(f"{nome}: {e}" for e in validar_manifestos(claude, codex, plugin_dir))
+    return erros
+
+
 def main() -> int:
     raiz = Path(__file__).resolve().parent.parent
-    plugin_dir = raiz / "plugins" / "analizza-skills"
-    caminho_claude = plugin_dir / ".claude-plugin" / "plugin.json"
-    caminho_codex = plugin_dir / ".codex-plugin" / "plugin.json"
-
-    claude = carregar_manifesto(caminho_claude)
-    codex = carregar_manifesto(caminho_codex)
-    if claude is None or codex is None:
-        return 1
-
-    erros = validar_manifestos(claude, codex, plugin_dir)
+    erros = validar_marketplace(raiz)
     if erros:
         print("\n".join(erros))
         return 1

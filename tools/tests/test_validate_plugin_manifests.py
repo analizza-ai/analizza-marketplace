@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from tools.validate_plugin_manifests import carregar_manifesto, validar_manifestos
+from tools.validate_plugin_manifests import (
+    carregar_manifesto,
+    validar_manifestos,
+    validar_marketplace,
+)
 
 
 def manifestos_validos():
@@ -132,3 +136,42 @@ def test_readme_documenta_claude_e_codex_sem_comando_inventado():
     assert "### Codex" in readme
     assert "Plugins" in readme
     assert "codex plugin install" not in readme
+
+
+def criar_plugin(raiz: Path, nome: str, version_codex: str, com_codex: bool = True) -> None:
+    plugin_dir = raiz / "plugins" / nome
+    (plugin_dir / ".claude-plugin").mkdir(parents=True)
+    claude, codex = manifestos_validos()
+    claude.update(name=nome, version="1.0.0")
+    codex.update(name=nome, version=version_codex)
+    (plugin_dir / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps(claude), encoding="utf-8"
+    )
+    if com_codex:
+        (plugin_dir / ".codex-plugin").mkdir()
+        (plugin_dir / ".codex-plugin" / "plugin.json").write_text(
+            json.dumps(codex), encoding="utf-8"
+        )
+    criar_skills(plugin_dir, ["a"])
+
+
+def escrever_marketplace(raiz: Path, nomes: list[str]) -> None:
+    (raiz / ".claude-plugin").mkdir(exist_ok=True)
+    plugins = [{"name": n, "source": f"./plugins/{n}"} for n in nomes]
+    (raiz / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps({"plugins": plugins}), encoding="utf-8"
+    )
+
+
+def test_marketplace_valida_todos_os_plugins(tmp_path: Path):
+    criar_plugin(tmp_path, "p1", "1.0.0")
+    criar_plugin(tmp_path, "p2", "2.0.0")
+    escrever_marketplace(tmp_path, ["p1", "p2"])
+    erros = validar_marketplace(tmp_path)
+    assert erros == ["p2: version diverge entre os manifestos"]
+
+
+def test_plugin_sem_codex_e_reportado(tmp_path: Path):
+    criar_plugin(tmp_path, "p1", "1.0.0", com_codex=False)
+    escrever_marketplace(tmp_path, ["p1"])
+    assert any(e.startswith("p1: ") for e in validar_marketplace(tmp_path))
