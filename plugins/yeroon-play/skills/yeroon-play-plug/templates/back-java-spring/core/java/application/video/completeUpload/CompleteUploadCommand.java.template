@@ -1,0 +1,8 @@
+package {base-package}.application.video.completeUpload;
+
+import java.util.List;
+import java.util.UUID;
+
+public record CompleteUploadCommand(UUID videoId, List<Part> parts) {
+    public record Part(int partNumber, String etag) {}
+}

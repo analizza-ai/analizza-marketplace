@@ -1,0 +1,24 @@
+package {base-package}.application.video.listUploadedParts;
+
+import {base-package}.domain.{video-entity}NotFoundException;
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ListUploadedPartsHandler {
+    private final YeroonClient yeroon;
+    private final {video-entity}Repository videos;
+
+    public ListUploadedPartsHandler(YeroonClient yeroon, {video-entity}Repository videos) {
+        this.yeroon = yeroon;
+        this.videos = videos;
+    }
+
+    public ListUploadedPartsResult handle(ListUploadedPartsQuery query) {
+        if (!videos.existsById(query.videoId())) throw new {video-entity}NotFoundException();
+        return new ListUploadedPartsResult(yeroon.uploadedParts(query.videoId()).stream()
+                .map(p -> new ListUploadedPartsResult.Part(p.partNumber(), p.etag(), p.sizeBytes()))
+                .toList());
+    }
+}

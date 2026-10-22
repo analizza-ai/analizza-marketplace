@@ -1,0 +1,164 @@
+package {base-package}.presenter.routes.webhook;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.support.YeroonIntegrationTest;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
+
+    private static final String ROUTE = "{api-routes-prefix}/webhooks/yeroon";
+
+    @Autowired
+    private DataSource dataSource;
+
+    @BeforeEach
+    void limparRecibos() throws Exception {
+        try (Connection c = dataSource.getConnection(); PreparedStatement st = c.prepareStatement("delete from webhook_receipt")) {
+            st.executeUpdate();
+        }
+    }
+
+    private static String sign(String secret, long t, byte[] body) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.update((t + ".").getBytes(StandardCharsets.UTF_8));
+        return "t=" + t + ",v1=" + HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    private static String sign(byte[] body) throws Exception {
+        return sign(WEBHOOK_SECRET, Instant.now().getEpochSecond(), body);
+    }
+
+    private static byte[] body(UUID videoId, String eventId) {
+        return ("{\"id\":\"" + eventId + "\",\"type\":\"video.ready\",\"createdAt\":\"2026-10-22T10:00:00Z\","
+                + "\"data\":{\"videoId\":\"" + videoId + "\",\"status\":\"PRONTO\",\"renditions\":[\"720p\"]}}")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    private RestTestClient.ResponseSpec post(byte[] body, String signature, String delivery) {
+        var spec = api.post().uri(ROUTE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Yeroon-Event", "video.ready")
+                .header("X-Yeroon-Delivery", delivery);
+        if (signature != null) {
+            spec = spec.header("X-Yeroon-Signature", signature);
+        }
+        return spec.body(body).exchange();
+    }
+
+    private int recibos() throws Exception {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement st = c.prepareStatement("select count(*) from webhook_receipt");
+             ResultSet rs = st.executeQuery()) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
+    private UUID videoDoRecibo(String deliveryId) throws Exception {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement st = c.prepareStatement("select video_id from webhook_receipt where delivery_id = ?")) {
+            st.setString(1, deliveryId);
+            try (ResultSet rs = st.executeQuery()) {
+                rs.next();
+                return rs.getObject(1, UUID.class);
+            }
+        }
+    }
+
+    @Test
+    void avisoAssinadoRegistraEResponde200() throws Exception {
+        UUID video = UUID.randomUUID();
+        byte[] body = body(video, "evt-1");
+
+        post(body, sign(body), "evt-1").expectStatus().isOk();
+
+        assertEquals(1, recibos());
+        assertEquals(video, videoDoRecibo("evt-1"));
+    }
+
+    @Test
+    void corpoComEspacamentoEOrdemIncomunsValeAssinaturaSobreOsBytesBrutos() throws Exception {
+        UUID video = UUID.randomUUID();
+        // Ordem de campos trocada, espaços, quebra de linha, tab e acento: se o
+        // back re-serializasse o JSON antes de conferir, a assinatura não bateria.
+        byte[] body = ("{\n  \"data\" : {  \"renditions\" : [ \"720p\" ,\"480p\" ],\t\"status\":\"PRONTO\" ,"
+                + " \"videoId\" :   \"" + video + "\", \"nota\": \"aula de revisão\" } ,"
+                + "\"type\"   : \"video.ready\" ,\n\"createdAt\":\"2026-10-22T10:00:00Z\",  \"id\" : \"evt-raro\"\n}\n")
+                .getBytes(StandardCharsets.UTF_8);
+
+        post(body, sign(body), "evt-raro").expectStatus().isOk();
+
+        assertEquals(video, videoDoRecibo("evt-raro"));
+    }
+
+    @Test
+    void avisoRepetidoResponde200SemSegundaLinha() throws Exception {
+        byte[] body = body(UUID.randomUUID(), "evt-2");
+        String sig = sign(body);
+
+        post(body, sig, "evt-2").expectStatus().isOk();
+        post(body, sig, "evt-2").expectStatus().isOk();
+
+        assertEquals(1, recibos());
+    }
+
+    @Test
+    void corpoAlteradoResponde401() throws Exception {
+        byte[] body = body(UUID.randomUUID(), "evt-3");
+        String sig = sign(body);
+        byte[] alterado = new String(body, StandardCharsets.UTF_8).replace("PRONTO", "FALHOU")
+                .getBytes(StandardCharsets.UTF_8);
+
+        post(alterado, sig, "evt-3").expectStatus().isUnauthorized();
+
+        assertEquals(0, recibos());
+    }
+
+    @Test
+    void marcaDeTempoForaDaJanelaResponde401() throws Exception {
+        byte[] body = body(UUID.randomUUID(), "evt-4");
+
+        post(body, sign(WEBHOOK_SECRET, Instant.now().getEpochSecond() - 301, body), "evt-4")
+                .expectStatus().isUnauthorized();
+        post(body, sign(WEBHOOK_SECRET, Instant.now().getEpochSecond() + 301, body), "evt-4")
+                .expectStatus().isUnauthorized();
+
+        assertEquals(0, recibos());
+    }
+
+    @Test
+    void segredoErradoOuSemAssinaturaResponde401() throws Exception {
+        byte[] body = body(UUID.randomUUID(), "evt-5");
+
+        post(body, sign("outro-segredo", Instant.now().getEpochSecond(), body), "evt-5")
+                .expectStatus().isUnauthorized();
+        post(body, null, "evt-5").expectStatus().isUnauthorized();
+
+        assertEquals(0, recibos());
+    }
+
+    @Test
+    void entregaQueNaoBateComOIdAssinadoResponde400() throws Exception {
+        byte[] body = body(UUID.randomUUID(), "evt-6");
+
+        post(body, sign(body), "outro-id").expectStatus().isBadRequest();
+
+        assertEquals(0, recibos());
+    }
+}

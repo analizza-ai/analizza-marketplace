@@ -1,0 +1,63 @@
+package {base-package}.presenter.routes.webhook.receiveYeroonWebhook;
+
+import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventCommand;
+import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventHandler;
+import {base-package}.presenter.configuration.security.YeroonWebhookSignature;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.json.JsonParserFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+/**
+ * Recebe os avisos do yeroon play. A URL pública que vai no cadastro da conta é
+ * a do back + context-path + esta rota. Sem login: a autenticação é a assinatura.
+ */
+@RestController
+public class ReceiveYeroonWebhookRoute {
+
+    private final ReceiveYeroonEventHandler handler;
+    private final String secret;
+
+    public ReceiveYeroonWebhookRoute(ReceiveYeroonEventHandler handler,
+                                     @Value("${yeroon.webhook-secret:}") String secret) {
+        this.handler = handler;
+        this.secret = secret;
+    }
+
+    @PostMapping("{api-routes-prefix}/webhooks/yeroon")
+    public ResponseEntity<?> handle(@RequestBody byte[] rawBody,
+                                    @RequestHeader(value = "X-Yeroon-Signature", required = false) String signature,
+                                    @RequestHeader(value = "X-Yeroon-Delivery", required = false) String deliveryId,
+                                    @RequestHeader(value = "X-Yeroon-Event", required = false) String eventType) {
+        // Assinatura sobre os bytes brutos, antes de qualquer parse.
+        if (!YeroonWebhookSignature.verify(secret, signature, rawBody, Instant.now())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED));
+        }
+        String eventId;
+        String type;
+        UUID videoId;
+        try {
+            Map<String, Object> root = JsonParserFactory.getJsonParser()
+                    .parseMap(new String(rawBody, StandardCharsets.UTF_8));
+            eventId = String.valueOf(root.getOrDefault("id", ""));
+            type = String.valueOf(root.getOrDefault("type", ""));
+            Object data = root.get("data");
+            videoId = UUID.fromString(String.valueOf(((Map<?, ?>) data).get("videoId")));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(ProblemDetail.forStatus(HttpStatus.BAD_REQUEST));
+        }
+        // O id do corpo é assinado; os cabeçalhos não. Dedupe pelo id assinado, que
+        // é o mesmo valor do X-Yeroon-Delivery; divergência é recusada.
+        if (eventId.isBlank() || (deliveryId != null && !deliveryId.equals(eventId))) {
+            return ResponseEntity.badRequest().body(ProblemDetail.forStatus(HttpStatus.BAD_REQUEST));
+        }
+        handler.handle(new ReceiveYeroonEventCommand(eventId, type.isBlank() ? eventType : type, videoId));
+        return ResponseEntity.ok().build();
+    }
+}

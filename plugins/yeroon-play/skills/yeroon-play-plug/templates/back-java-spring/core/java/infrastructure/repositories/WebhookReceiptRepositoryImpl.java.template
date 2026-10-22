@@ -1,0 +1,26 @@
+package {base-package}.infrastructure.repositories;
+
+import {base-package}.domain.repositories.WebhookReceiptRepository;
+import java.time.Instant;
+import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Repository;
+
+@Repository
+class WebhookReceiptRepositoryImpl implements WebhookReceiptRepository {
+    private final WebhookReceiptJpaRepository jpa;
+
+    WebhookReceiptRepositoryImpl(WebhookReceiptJpaRepository jpa) {
+        this.jpa = jpa;
+    }
+
+    @Override
+    public boolean registerIfNew(String deliveryId, String eventType, UUID videoId, Instant at) {
+        try {
+            jpa.saveAndFlush(new WebhookReceiptJpaEntity(deliveryId, eventType, videoId, at));
+            return true;
+        } catch (DataIntegrityViolationException alreadyReceived) {
+            return false;
+        }
+    }
+}

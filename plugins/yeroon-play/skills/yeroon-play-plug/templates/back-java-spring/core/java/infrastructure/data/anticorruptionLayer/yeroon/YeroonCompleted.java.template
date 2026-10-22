@@ -1,0 +1,5 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
+
+import java.util.UUID;
+
+public record YeroonCompleted(UUID videoId, String status) {}

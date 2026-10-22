@@ -1,0 +1,43 @@
+package {base-package}.infrastructure;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.domain.repositories.WebhookReceiptRepository;
+import {base-package}.support.YeroonIntegrationTest;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+class YeroonRepositoriesIT extends YeroonIntegrationTest {
+
+    @Autowired
+    private {video-entity}Repository videos;
+
+    @Autowired
+    private WebhookReceiptRepository receipts;
+
+    @Test
+    void salvaListaEApagaOsIds() {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        videos.save({video-entity}.register(a, Instant.now()));
+        videos.save({video-entity}.register(b, Instant.now()));
+
+        assertTrue(videos.findAllIds().containsAll(java.util.Set.of(a, b)));
+        videos.deleteById(a);
+        assertFalse(videos.existsById(a));
+        assertTrue(videos.existsById(b));
+    }
+
+    @Test
+    void reciboSoEntraNaPrimeiraVez() {
+        String delivery = "delivery-" + UUID.randomUUID();
+        UUID video = UUID.randomUUID();
+
+        assertTrue(receipts.registerIfNew(delivery, "video.ready", video, Instant.now()));
+        assertFalse(receipts.registerIfNew(delivery, "video.ready", video, Instant.now()));
+    }
+}

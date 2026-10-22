@@ -1,0 +1,33 @@
+package {base-package}.application.video.listVideos;
+
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ListVideosHandler {
+    private final YeroonClient yeroon;
+    private final {video-entity}Repository videos;
+
+    public ListVideosHandler(YeroonClient yeroon, {video-entity}Repository videos) {
+        this.yeroon = yeroon;
+        this.videos = videos;
+    }
+
+    /** A /v1 lista tudo da conta; aqui só entram os vídeos que este projeto registrou. */
+    public ListVideosResult handle(ListVideosQuery query) {
+        Set<UUID> own = videos.findAllIds();
+        return new ListVideosResult(yeroon.list().stream()
+                .filter(v -> own.contains(v.videoId()))
+                .map(v -> new ListVideosResult.Item(
+                        v.videoId(),
+                        v.fileName(),
+                        v.status(),
+                        v.createdAt(),
+                        v.thumbnailUrl() == null ? null : v.thumbnailUrl().toString(),
+                        v.sizeBytes()))
+                .toList());
+    }
+}

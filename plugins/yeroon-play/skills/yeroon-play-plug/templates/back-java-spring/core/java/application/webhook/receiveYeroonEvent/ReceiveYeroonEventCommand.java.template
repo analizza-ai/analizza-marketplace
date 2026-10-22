@@ -1,0 +1,5 @@
+package {base-package}.application.webhook.receiveYeroonEvent;
+
+import java.util.UUID;
+
+public record ReceiveYeroonEventCommand(String deliveryId, String eventType, UUID videoId) {}

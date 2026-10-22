@@ -1,0 +1,43 @@
+package {base-package}.support;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+/**
+ * Base dos ITs do yeroon play: estende a base de IT do projeto (banco, contexto,
+ * dublês do TestConfig) e acrescenta só o que a integração precisa — o dublê da
+ * /v1 zerado a cada teste, um segredo de webhook de teste e um cliente HTTP.
+ *
+ * <p>O segredo é de teste, sem valor real; o de verdade fica só no .env do back.
+ */
+public abstract class YeroonIntegrationTest extends {base-integration-test-fqn} {
+
+    protected static final String WEBHOOK_SECRET = "segredo-de-teste-do-webhook";
+
+    @DynamicPropertySource
+    static void yeroonDeTeste(DynamicPropertyRegistry registry) {
+        registry.add("yeroon.webhook-secret", () -> WEBHOOK_SECRET);
+    }
+
+    @Autowired
+    protected FakeYeroonClient yeroon;
+
+    @LocalServerPort
+    private int yeroonPort;
+
+    protected RestTestClient api;
+
+    @BeforeEach
+    void prepararYeroon() {
+        yeroon.reset();
+        // Cliente HTTP explícito: não depende do que a base do projeto expõe.
+        api = RestTestClient.bindToServer(new JdkClientHttpRequestFactory())
+                .baseUrl("http://localhost:" + yeroonPort)
+                .build();
+    }
+}

@@ -1,0 +1,45 @@
+package {base-package}.presenter.routes.video;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import {base-package}.support.FakeYeroonClient;
+import {base-package}.support.YeroonIntegrationTest;
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+
+class ListUploadedPartsRouteIT extends YeroonIntegrationTest {
+
+    @Autowired
+    private {video-entity}Repository videos;
+
+    @Test
+    void listaAsPartesJaEnviadasParaRetomar() {
+        UUID id = UUID.randomUUID();
+        videos.save({video-entity}.register(id, Instant.now()));
+
+        api.get().uri("{api-routes-prefix}/videos/{id}/upload/parts", id)
+                .exchange().expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.parts[0].partNumber").isEqualTo(1)
+                .jsonPath("$.parts[0].etag").isEqualTo(FakeYeroonClient.ETAG)
+                .jsonPath("$.parts[0].sizeBytes").isEqualTo(1024);
+    }
+
+    @Test
+    void idForaDaTabelaRetorna404SemChamarAV1() {
+        UUID id = UUID.randomUUID();
+
+        api.get().uri("{api-routes-prefix}/videos/{id}/upload/parts", id)
+                .exchange().expectStatus().isNotFound();
+        assertEquals(0, yeroon.calls());
+    }
+}

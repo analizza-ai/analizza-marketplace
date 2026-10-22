@@ -1,0 +1,173 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon.impl;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import {base-package}.infrastructure.configuration.YeroonProperties;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Unitário do cliente da /v1 contra um servidor HTTP local (JDK): confere
+ * caminho, método, Authorization e o mapa de erros. Nenhuma chamada à /v1 real.
+ */
+class YeroonClientImplTest {
+
+    private static final String KEY = "chave-de-teste-123";
+    private static final UUID ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+    private HttpServer server;
+    private volatile int status = 200;
+    private volatile String responseBody;
+    private final AtomicReference<String> method = new AtomicReference<>();
+    private final AtomicReference<String> path = new AtomicReference<>();
+    private final AtomicReference<String> auth = new AtomicReference<>();
+    private final AtomicReference<String> requestBody = new AtomicReference<>();
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+    private final Logger logger = (Logger) LoggerFactory.getLogger(YeroonClientImpl.class);
+
+    @BeforeEach
+    void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            method.set(exchange.getRequestMethod());
+            path.set(exchange.getRequestURI().getPath());
+            auth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] out = responseBody == null ? new byte[0] : responseBody.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type",
+                    status == 422 ? "application/problem+json" : "application/json");
+            exchange.sendResponseHeaders(status, out.length == 0 ? -1 : out.length);
+            if (out.length > 0) exchange.getResponseBody().write(out);
+            exchange.close();
+        });
+        server.start();
+        logs.start();
+        logger.addAppender(logs);
+    }
+
+    @AfterEach
+    void stop() {
+        logger.detachAppender(logs);
+        server.stop(0);
+    }
+
+    private YeroonClientImpl client() {
+        return client(URI.create("http://127.0.0.1:" + server.getAddress().getPort()));
+    }
+
+    private static YeroonClientImpl client(URI url) {
+        return new YeroonClientImpl(new YeroonProperties(url, KEY, "", Duration.ofSeconds(2)));
+    }
+
+    private String allLogs() {
+        return String.join("\n", logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList());
+    }
+
+    @Test
+    void initUploadMandaBearerECorpo() {
+        status = 201;
+        responseBody = "{\"videoId\":\"" + ID + "\",\"partSizeBytes\":8388608,\"partCount\":3}";
+
+        YeroonUpload upload = client().initUpload("a.mp4", "video/mp4", 20_000_000L);
+
+        assertThat(upload).isEqualTo(new YeroonUpload(ID, 8_388_608L, 3));
+        assertThat(method.get()).isEqualTo("POST");
+        assertThat(path.get()).isEqualTo("/v1/videos/uploads");
+        assertThat(auth.get()).isEqualTo("Bearer " + KEY);
+        assertThat(requestBody.get()).contains("\"fileName\":\"a.mp4\"").contains("\"sizeBytes\":20000000");
+    }
+
+    @Test
+    void playbackTokenTrazEmbedEHls() {
+        responseBody = "{\"videoId\":\"" + ID + "\",\"token\":\"tkn\",\"expiresAt\":\"2026-10-22T04:00:00Z\","
+                + "\"embedUrl\":\"https://play.example/embed/tkn\","
+                + "\"hlsUrl\":\"https://play.example/api/play/tkn/master.m3u8\"}";
+
+        YeroonPlayback playback = client().playbackToken(ID);
+
+        assertThat(path.get()).isEqualTo("/v1/videos/" + ID + "/playback-token");
+        assertThat(playback.embedUrl()).hasToString("https://play.example/embed/tkn");
+        assertThat(playback.hlsUrl()).hasToString("https://play.example/api/play/tkn/master.m3u8");
+    }
+
+    @Test
+    void listaIgnoraCamposDesconhecidos() {
+        responseBody = "{\"videos\":[{\"videoId\":\"" + ID + "\",\"fileName\":\"a.mp4\",\"status\":\"PRONTO\","
+                + "\"createdAt\":\"2026-10-22T04:00:00Z\",\"thumbnailUrl\":null,\"sizeBytes\":10,\"novo\":1}]}";
+
+        assertThat(client().list()).singleElement().extracting(YeroonVideoSummary::videoId).isEqualTo(ID);
+        assertThat(path.get()).isEqualTo("/v1/videos");
+    }
+
+    @Test
+    void deleteUsaODeleteDoVideo() {
+        status = 204;
+
+        client().delete(ID);
+
+        assertThat(method.get()).isEqualTo("DELETE");
+        assertThat(path.get()).isEqualTo("/v1/videos/" + ID);
+    }
+
+    @Test
+    void erro422RepassaOsCodigos() {
+        status = 422;
+        responseBody = "{\"type\":\"about:blank\",\"status\":422,"
+                + "\"errors\":[{\"code\":\"video.deletable\",\"message\":\"nao pode\"}]}";
+
+        assertThatThrownBy(() -> client().delete(ID))
+                .isInstanceOfSatisfying(YeroonRejectedException.class, e ->
+                        assertThat(e.errors()).containsExactly(new YeroonError("video.deletable", "nao pode")));
+    }
+
+    @Test
+    void erro404E409() {
+        status = 404;
+        assertThatThrownBy(() -> client().get(ID)).isInstanceOf(YeroonNotFoundException.class);
+        status = 409;
+        assertThatThrownBy(() -> client().playbackToken(ID)).isInstanceOf(YeroonConflictException.class);
+    }
+
+    @Test
+    void chaveRecusadaViraIndisponivelELogaSoOPrefixo() {
+        status = 401;
+
+        assertThatThrownBy(() -> client().list()).isInstanceOf(YeroonUnavailableException.class);
+        assertThat(allLogs()).contains(KEY.substring(0, 7)).doesNotContain(KEY);
+    }
+
+    @Test
+    void erro5xxViraIndisponivel() {
+        status = 503;
+        assertThatThrownBy(() -> client().list()).isInstanceOf(YeroonUnavailableException.class);
+    }
+
+    @Test
+    void redeForaDoArViraIndisponivel() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+
+        assertThatThrownBy(() -> client(URI.create("http://127.0.0.1:" + closedPort)).list())
+                .isInstanceOf(YeroonUnavailableException.class);
+        assertThat(allLogs()).doesNotContain(KEY);
+    }
+}

@@ -1,0 +1,36 @@
+package {base-package}.infrastructure.repositories;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.stereotype.Repository;
+
+@Repository
+class {video-entity}RepositoryImpl implements {video-entity}Repository {
+    private final {video-entity}JpaRepository jpa;
+
+    {video-entity}RepositoryImpl({video-entity}JpaRepository jpa) {
+        this.jpa = jpa;
+    }
+
+    @Override
+    public void save({video-entity} video) {
+        jpa.save({video-entity}JpaEntity.fromDomain(video));
+    }
+
+    @Override
+    public boolean existsById(UUID id) {
+        return jpa.existsById(id);
+    }
+
+    @Override
+    public Set<UUID> findAllIds() {
+        return jpa.findAllIds();
+    }
+
+    @Override
+    public void deleteById(UUID id) {
+        jpa.deleteById(id);
+    }
+}
