@@ -26,6 +26,8 @@ def fake():
         def do_POST(self):
             n = int(self.headers.get("Content-Length", 0))
             state["requests"].append((self.path, json.loads(self.rfile.read(n))))
+            if state.get("on_request"):
+                state["on_request"]()
             self.send_response(state["status"])
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -131,3 +133,64 @@ def test_falha_de_rede(repo):
         port = s.getsockname()[1]
     r = run(repo, f"http://127.0.0.1:{port}")
     assert r.returncode == 6
+
+
+@pytest.mark.parametrize("linha", ["export YEROON_API_KEY=antiga", "YEROON_API_KEY = antiga",
+                                   "  export  YEROON_WEBHOOK_SECRET =x"])
+def test_chave_existente_com_export_nao_e_sobrescrita(repo, fake, linha):
+    (repo / ".env").write_text(linha + "\n")
+    r = run(repo, fake["url"])
+    assert r.returncode == 5
+    assert fake["requests"] == []
+
+
+def test_force_substitui_linha_com_export(repo, fake):
+    (repo / ".env").write_text("A=1\nexport YEROON_API_KEY=antiga\nYEROON_WEBHOOK_SECRET = velho\n")
+    r = run(repo, fake["url"], INPUT, "--force")
+    assert r.returncode == 0, r.stderr
+    lines = (repo / ".env").read_text().splitlines()
+    assert sum("YEROON_API_KEY" in l for l in lines) == 1
+    assert sum("YEROON_WEBHOOK_SECRET" in l for l in lines) == 1
+    assert f"YEROON_API_KEY={KEY}" in lines and "A=1" in lines
+
+
+def test_env_somente_leitura_para_antes_da_api(repo, fake):
+    (repo / ".env").write_text("A=1\n")
+    os.chmod(repo / ".env", 0o400)
+    r = run(repo, fake["url"])
+    assert r.returncode == 1
+    assert fake["requests"] == []
+
+
+def test_env_diretorio_para_antes_da_api(repo, fake):
+    (repo / ".env").mkdir()
+    r = run(repo, fake["url"])
+    assert r.returncode == 1
+    assert fake["requests"] == []
+
+
+def test_201_sem_chave_mensagem_propria(repo, fake):
+    fake["body"] = {"tenantId": "t1"}
+    r = run(repo, fake["url"])
+    assert r.returncode == 7
+    assert "apiKey" in r.stderr
+
+
+def test_falha_na_gravacao_salva_fallback_fora_do_repo(repo, fake, tmp_path_factory):
+    # Simula a corrida: o .env fica nao gravavel so depois da checagem (servidor o tranca).
+    env = repo / ".env"
+    env.write_text("A=1\n")
+    home = tmp_path_factory.mktemp("home")
+    def lock(*_):
+        os.chmod(env, 0o400)
+    # a primeira requisicao tranca o .env antes de a resposta ser gravada
+    fake["on_request"] = lock
+    r = subprocess.run(["bash", str(SCRIPT), "--api", fake["url"]], cwd=repo, input=INPUT,
+                       capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "HOME": str(home), "XDG_STATE_HOME": ""})
+    assert r.returncode == 7, r.stderr
+    files = list((home / ".local/state/yeroon-play").glob("chave-*.env"))
+    assert len(files) == 1 and (os.stat(files[0]).st_mode & 0o777) == 0o600
+    assert f"YEROON_API_KEY={KEY}" in files[0].read_text()
+    assert str(files[0]) in r.stderr and KEY not in r.stdout + r.stderr
+    assert (os.stat(files[0].parent).st_mode & 0o777) == 0o700

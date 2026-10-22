@@ -47,9 +47,21 @@ fi
 
 # 2. Nao criar conta nova se ja ha chave, a menos que --force.
 if [ "$FORCE" -eq 0 ] && [ -f "$ENV_FILE" ] \
-  && grep -Eq '^(YEROON_API_KEY|YEROON_WEBHOOK_SECRET)=' "$ENV_FILE"; then
+  && grep -Eq '^[[:space:]]*(export[[:space:]]+)?(YEROON_API_KEY|YEROON_WEBHOOK_SECRET)[[:space:]]*=' "$ENV_FILE"; then
   die 5 "$ENV_FILE ja tem YEROON_API_KEY/YEROON_WEBHOOK_SECRET. Use --force para substituir."
 fi
+
+# 2b. O .env precisa ser gravavel ANTES de criar a conta (a chave so aparece uma vez).
+if [ -e "$ENV_FILE" ]; then
+  [ -f "$ENV_FILE" ] || die 1 "$ENV_FILE existe mas nao e um arquivo comum."
+  [ -w "$ENV_FILE" ] || die 1 "$ENV_FILE nao tem permissao de escrita. Ajuste e rode de novo."
+else
+  [ -d "$ENV_DIR" ] && [ -w "$ENV_DIR" ] || die 1 "Nao consigo criar $ENV_FILE: a pasta nao existe ou nao tem permissao de escrita."
+fi
+case "$API" in
+  http://localhost*|http://127.0.0.1*|http://\[::1\]*) ;;
+  http://*) printf 'Aviso: --api usa http:// puro para um host que nao e local; a senha e a chave trafegam sem criptografia.\n' >&2 ;;
+esac
 
 # 3. Perguntas (a senha nao aparece na tela).
 printf 'Nome da conta: ' >&2; IFS= read -r NAME || NAME=""
@@ -63,8 +75,10 @@ esac
 [ -n "$NAME" ] && [ -n "$EMAIL" ] && [ -n "$PASSWORD" ] || die 1 "Nome, e-mail e senha sao obrigatorios."
 
 # 4. Corpo JSON montado sem interpolar texto (aspas na senha, etc.).
+umask 077
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+trap 'exit 130' INT TERM
 Y_NAME="$NAME" Y_EMAIL="$EMAIL" Y_PASSWORD="$PASSWORD" Y_ORIGIN="$ORIGIN" Y_WEBHOOK="$WEBHOOK" \
 python3 -c '
 import json, os
@@ -109,18 +123,24 @@ for x in errs:
 esac
 
 # 5. Grava no .env sem passar a chave por argumentos nem pelo terminal.
-Y_BODY="$TMP/resp.json" Y_ENV="$ENV_FILE" python3 -c '
+FALLBACK_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/yeroon-play"
+FALLBACK="$FALLBACK_DIR/chave-$(date +%s).env"
+rc=0
+Y_BODY="$TMP/resp.json" Y_ENV="$ENV_FILE" Y_FB_DIR="$FALLBACK_DIR" Y_FB="$FALLBACK" python3 -c '
 import json, os, sys
 d = json.load(open(os.environ["Y_BODY"]))
 key, sec = d.get("apiKey"), d.get("webhookSecret")
 if not key or not sec:
-    print("Resposta sem apiKey/webhookSecret.", file=sys.stderr); sys.exit(7)
+    print("O yeroon respondeu 201 mas sem apiKey/webhookSecret; nada foi gravado.", file=sys.stderr); sys.exit(7)
 path = os.environ["Y_ENV"]
 new = {"YEROON_API_KEY": key, "YEROON_WEBHOOK_SECRET": sec}
 lines = open(path).read().splitlines() if os.path.exists(path) else []
 out, seen = [], set()
 for l in lines:
-    name = l.split("=", 1)[0]
+    t = l.strip()
+    if t.startswith("export") and t[6:7].isspace():
+        t = t[6:].lstrip()
+    name = t.split("=", 1)[0].strip() if "=" in t else ""
     if name in new:
         if name not in seen:
             out.append(name + "=" + new[name]); seen.add(name)
@@ -130,14 +150,26 @@ for name, v in new.items():
     if name not in seen:
         out.append(name + "=" + v)
 data = "\n".join(out) + "\n"
-if os.path.exists(path):
-    with open(path, "w") as f:
-        f.write(data)
-else:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    if os.path.exists(path):
+        with open(path, "w") as f:
+            f.write(data)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(data)
+except OSError as err:
+    os.makedirs(os.environ["Y_FB_DIR"], mode=0o700, exist_ok=True)
+    os.chmod(os.environ["Y_FB_DIR"], 0o700)
+    fd = os.open(os.environ["Y_FB"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        f.write(data)
-print(key[:7] + "…")' > "$TMP/prefix.txt" || die 7 "Nao consegui gravar a chave em $ENV_FILE."
+        f.write("".join(n + "=" + v + "\n" for n, v in new.items()))
+    print("A conta foi criada mas nao consegui gravar em " + path + " (" + err.strerror + ").", file=sys.stderr)
+    print("A chave e o segredo foram salvos em " + os.environ["Y_FB"] + " (modo 600, fora do repositorio).", file=sys.stderr)
+    print("Mova as duas linhas desse arquivo para o .env do back-end e apague o arquivo.", file=sys.stderr)
+    sys.exit(7)
+print(key[:7] + "…")' > "$TMP/prefix.txt" || rc=$?
+[ "$rc" -eq 0 ] || exit "$rc"
 
 printf 'Conta criada. Chave gravada em %s (prefixo %s).\n' "$ENV_FILE" "$(cat "$TMP/prefix.txt")"
 printf 'Lembrete: a chave e o segredo do webhook ficam so no .env do back-end; nunca no front, no app, em log ou no git.\n'
