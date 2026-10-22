@@ -68,3 +68,14 @@ _(vazio: preencher depois de cada conferência, com data e o achado real)_
 ## Manutenção
 
 Mudou a v1 → atualizar `references/contrato.md` e os moldes em `templates/`.
+
+`make check` **não** renderiza nem compila os moldes: só roda os testes dos
+validadores e a guarda (marcadores declarados, nenhuma chave literal, nenhuma
+referência privada). Toda edição em `templates/` precisa ser provada de novo
+num projeto descartável, com os marcadores trocados e o resultado gravado no
+layout do projeto:
+
+- back (Java ou Kotlin): `./gradlew test integrationTest` (Docker no ar);
+- web Next: `npm test` (e `npm run typecheck`, se houver);
+- Expo: `npm test`;
+- Flutter: `flutter test`.

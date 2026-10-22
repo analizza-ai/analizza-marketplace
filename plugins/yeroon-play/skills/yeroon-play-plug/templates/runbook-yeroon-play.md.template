@@ -11,8 +11,11 @@ projeto manda.
 ## Preparação
 
 - Back (`{api-module}`) e front no ar: o back em `{back-public-url}` ou na porta local; o web em `{front-origin}`.
-- `{api-module}/.env` com `YEROON_API_KEY` e `YEROON_WEBHOOK_SECRET`, gravados por `scripts/yeroon-key.sh` (rodado por você, com a sua senha). Confira só a presença, sem abrir o arquivo:
-  `grep -c '^YEROON_API_KEY=.' {api-module}/.env` dá `1`.
+- `{back-env-file}` com `YEROON_API_KEY` e `YEROON_WEBHOOK_SECRET`, gravados por `scripts/yeroon-key.sh` (rodado por você, com a sua senha). Confira só a presença, sem abrir o arquivo — cada linha dá `1`:
+  ```bash
+  grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_API_KEY[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {back-env-file}
+  grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_WEBHOOK_SECRET[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {back-env-file}
+  ```
 - `{back-url-env}` apontando para o back no front e no app.
 - App: aberto no simulador ou aparelho, falando com o mesmo back.
 - Webhook (opcional): túnel para o back (`cloudflared tunnel --url http://localhost:<porta-do-back>`); a URL do webhook é `<url do túnel>{context-path}{api-routes-prefix}/webhooks/yeroon` e foi informada ao `yeroon-key.sh`. Sem webhook, o status chega pela consulta.
@@ -35,7 +38,7 @@ projeto manda.
 
 ### Webhook (se houver túnel)
 
-- [ ] Ao ficar `PRONTO`, o back registra um recebimento em `webhook_receipt` (conte as linhas; um aviso repetido não cria linha nova).
+- [ ] Ao ficar `PRONTO`, o back registra um recebimento em `{webhook-table}` (conte as linhas; um aviso repetido não cria linha nova).
 
 ### Chave fora do front
 
@@ -57,7 +60,7 @@ projeto manda.
 ## 3. O que não está na lista
 
 Estranhe qualquer dado que o cliente guarde além de `{video-table}` (`id`,
-`created_at`) e `webhook_receipt`: status, URL de mídia ou token no banco do
+`created_at`) e `{webhook-table}`: status, URL de mídia ou token no banco do
 projeto são sinal de que a plataforma de vídeo vazou para dentro dele.
 
 ## 4. O que este checkpoint já pegou

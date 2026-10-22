@@ -66,7 +66,9 @@ número entre parênteses é a seção de `detectar-stack.md`.
 | `{migration-version}` | próxima versão Flyway, seguindo a numeração atual (3). Em Liquibase, o id do novo changeset no padrão do changelog |
 | `{video-entity}` | `Video`, ou o nome confirmado com a pessoa se houver conflito (5) |
 | `{video-table}` | `video`, ou o nome confirmado com a pessoa se houver conflito (5) |
-| `{back-url-env}` | nome da variável que o front/app já usa para a URL do back, sem `NEXT_PUBLIC_`/`EXPO_PUBLIC_` (7); sem nenhuma, `BACK_URL`. No Expo vira `EXPO_PUBLIC_{back-url-env}`; no Flutter, `--dart-define` |
+| `{webhook-table}` | `webhook_receipt`, ou o nome confirmado com a pessoa se houver conflito (5) |
+| `{back-env-file}` | o `.env` que o back de fato lê, achado no Passo 1 (1, 6); padrão `{api-module}/.env` |
+| `{back-url-env}` | nome da variável que o front/app já usa para a URL do back, sem `NEXT_PUBLIC_`/`EXPO_PUBLIC_` (7); sem nenhuma, `BACK_URL`. Se o valor documentado dela já traz o `{context-path}`/`{api-routes-prefix}` (ex.: `http://host/api`), diga no plano: a constante de prefixo do front/app fica vazia (7). No Expo vira `EXPO_PUBLIC_{back-url-env}`; no Flutter, `--dart-define` |
 | `{flutter-package}` | `name:` do `pubspec.yaml` do app Flutter (2); entra nos imports `package:{flutter-package}/yeroon/...` dos testes |
 | `{front-origin}` | `http://localhost:` + porta do Next (4); sem Next, `http://localhost:3000` |
 | `{back-public-url}` | URL pública do back publicado, perguntada à pessoa; sem resposta, "a definir" |
@@ -86,7 +88,7 @@ Flyway ou Liquibase e, opcionalmente, front Next.js, app Expo ou app Flutter;
 `git`, `curl` e `python3` na máquina da pessoa; o `.env` do back no
 `.gitignore`. Sai: cliente da `/v1` atrás de uma interface, rotas de repasse no
 back, webhook `POST {context-path}{api-routes-prefix}/webhooks/yeroon` assinado, tabelas
-`{video-table}` e `webhook_receipt`, telas de enviar/listar/assistir no web e
+`{video-table}` e `{webhook-table}`, telas de enviar/listar/assistir no web e
 no app, testes com dublê, runbook se o projeto exigir, e o norte preenchido.
 
 ### Passo 1 — Detectar
@@ -97,28 +99,35 @@ do *Vocabulário*. As paradas vêm antes de qualquer outra coisa:
 
 - **Back não é Spring Boot** → pare, diga o que achou, não escreva arquivo algum.
 - **Sem Flyway nem Liquibase** → pare e pergunte como o projeto cria tabelas; não crie `db/migration`.
-- **Nome `video` (ou `webhook_receipt`) já usado** → proponha outro nome e confirme.
+- **Nome `video` (ou `webhook_receipt`) já usado** → proponha outro nome e confirme; ele vira `{video-entity}`/`{video-table}` (ou `{webhook-table}`).
 - **Front não reconhecido** → avise qual pasta será pulada e siga com o resto.
 - **Dúvida entre duas opções** (linguagem empatada, várias `@SpringBootApplication`) → pergunte, uma pergunta por vez, com o detectado como padrão.
 
 Veja também como o back carrega o `.env` (dependência de dotenv,
 `spring.config.import=optional:file:.env[.properties]`, ou o que o
-`CLAUDE.md`/`AGENTS.md` disser) — sem abrir o `.env`. Se não carrega, a
+`CLAUDE.md`/`AGENTS.md` disser) — sem abrir o `.env`. O arquivo que ele lê é
+`{back-env-file}` (padrão `{api-module}/.env`); se não carrega nenhum, a
 ligação entra no plano.
+
+Veja também como as rotas do back se autenticam hoje (`spring-boot-starter-security`
+no build, `SecurityFilterChain`, filtro de sessão/cookie ou de JWT, ou o que o
+`CLAUDE.md`/`AGENTS.md` disser): as rotas de vídeo vão ficar atrás disso.
 
 ### Passo 2 — Mostrar o plano e esperar o ok
 
 **Nenhum arquivo é escrito antes do ok explícito da pessoa** — nem o script do
-Passo 3. Mostre:
+Passo 3. Antes de montar o plano, leia o `README.md` de cada pasta de
+`templates/` que vai usar; o que ele manda avisar entra no plano. Mostre:
 
 1. **Stack:** linguagem e build do back, módulos (`{api-module}`, `{core-module}`, `{it-module}`), fronts reconhecidos e pulados.
 2. **Arquivos por camada:** o que entra em cada módulo/pasta, a partir dos moldes adaptados ao layout do projeto, e o que muda em arquivo existente (handler global de exceção, `application.properties`/`.yml`, `.env.example`, `.gitignore`).
-3. **Migration:** arquivo e versão (`{migration-dir}`, `{migration-version}`), tabelas `{video-table}` e `webhook_receipt`.
-4. **Variáveis novas:** `YEROON_API_URL` (padrão `https://api.dev.play.yeroon.video`), `YEROON_API_KEY` e `YEROON_WEBHOOK_SECRET` no `.env` do back; `{back-url-env}` no front/app (só a URL do back). Documentadas onde o projeto documenta variáveis, com valor vazio.
-5. **Testes:** quais e onde; nenhum chama a `/v1`.
-6. **Runbook:** só se o `CLAUDE.md`/`AGENTS.md` do projeto exigir runbook por funcionalidade; diga o caminho que a regra manda.
-7. **Script da chave:** `scripts/yeroon-key.sh` no projeto. Se já existir, compare com o desta skill (`cmp`) e, se diferir, pergunte antes de sobrescrever.
-8. **Avisos:** porta do Next diferente de 3000 (o upload pelo navegador falha no CORS do R2 do yeroon; recomende a 3000 em dev); nome trocado por conflito; ausência de classe base de IT; `.env` fora do `.gitignore`.
+3. **Migration:** arquivo e versão (`{migration-dir}`, `{migration-version}`), tabelas `{video-table}` e `{webhook-table}`.
+4. **Variáveis novas:** `YEROON_API_URL` (padrão `https://api.dev.play.yeroon.video`), `YEROON_API_KEY` e `YEROON_WEBHOOK_SECRET` em `{back-env-file}`; `{back-url-env}` no front/app (só a URL do back — se o valor documentado dela já inclui o `{context-path}`/`{api-routes-prefix}`, diga e deixe vazia a constante de prefixo do front/app). Documentadas onde o projeto documenta variáveis, com valor vazio.
+5. **Como as rotas de vídeo se autenticam:** o mecanismo detectado no Passo 1 (Spring Security? sessão/cookie? JWT?) e como o web (`repasse` leva `authorization` e `cookie`) e o app (cabeçalho injetado no cliente HTTP) mandam a credencial. **Sem nenhum:** avise que `{api-routes-prefix}/videos/**` fica aberto a qualquer um e pode consumir a cota da conta de teste — protegê-lo antes de produção vai no norte.
+6. **Testes:** quais e onde; nenhum chama a `/v1`.
+7. **Runbook:** só se o `CLAUDE.md`/`AGENTS.md` do projeto exigir runbook por funcionalidade; diga o caminho que a regra manda.
+8. **Script da chave:** `scripts/yeroon-key.sh` no projeto. Se já existir, compare com o desta skill (`cmp`) e, se diferir, pergunte antes de sobrescrever.
+9. **Avisos:** porta do Next diferente de 3000 (o upload pelo navegador falha no CORS do R2 do yeroon; recomende a 3000 em dev); nome trocado por conflito; ausência de classe base de IT; `.env` fora do `.gitignore`; rotas de vídeo sem autenticação; o que os `README.md` dos moldes mandam avisar.
 
 Espere um ok claro. Pedido de mudança → refaça o plano e mostre de novo.
 
@@ -132,10 +141,10 @@ yeroon para este projeto.
 dela, da raiz do projeto:
 
 ```bash
-bash scripts/yeroon-key.sh --env {api-module}/.env --origin {front-origin}
+bash scripts/yeroon-key.sh --env {back-env-file} --origin {front-origin}
 ```
 
-- `--env`: o `.env` que o back de fato lê (Passo 1); omita se for `./.env`.
+- `--env`: `{back-env-file}`, o `.env` que o back de fato lê (Passo 1); omita se for `./.env`.
 - `--origin`: uma origem só, sem caminho — **não há rota para trocar depois**.
 - `--webhook URL`: só se a pessoa já tiver endereço público:
   `{back-public-url}{context-path}{api-routes-prefix}/webhooks/yeroon`, ou
@@ -165,9 +174,9 @@ repita o valor e recomende pedir chave nova.
 **Conferir presença, sem ver valor:**
 
 ```bash
-git check-ignore -q {api-module}/.env && echo ignorado
-grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_API_KEY[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {api-module}/.env
-grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_WEBHOOK_SECRET[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {api-module}/.env
+git check-ignore -q {back-env-file} && echo ignorado
+grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_API_KEY[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {back-env-file}
+grep -cE "^[[:space:]]*(export[[:space:]]+)?YEROON_WEBHOOK_SECRET[[:space:]]*=[[:space:]]*[\"']?[^\"'[:space:]#]" {back-env-file}
 ```
 
 Tem que dar `ignorado`, `1` e `1`. Qualquer outra coisa → volte à tabela.
@@ -178,7 +187,9 @@ configuração.
 
 Uma fatia por vez, nesta ordem. Ao fim de cada uma, rode a suíte **do projeto**
 (a que ele já usa: `./gradlew test integrationTest`, `mvn verify`, `npm test`,
-`flutter test`…) e só passe à próxima com ela verde. Os moldes são ponto de
+`flutter test`…) e só passe à próxima com ela verde. Antes de cada fatia, leia o
+`README.md` de cada pasta de `templates/` que vai usar; o que ele manda avisar
+entra no plano (e, se não estava, diga à pessoa antes de seguir). Os moldes são ponto de
 partida: leve pastas e pacotes para o layout do projeto, siga o estilo de
 código e de teste que já existe e substitua todos os marcadores.
 

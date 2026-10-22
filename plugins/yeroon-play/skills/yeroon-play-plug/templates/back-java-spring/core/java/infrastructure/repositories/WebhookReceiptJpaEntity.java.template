@@ -14,7 +14,7 @@ import org.springframework.data.domain.Persistable;
  * primária — é assim que o dedupe funciona em qualquer banco.
  */
 @Entity
-@Table(name = "webhook_receipt")
+@Table(name = "{webhook-table}")
 public class WebhookReceiptJpaEntity implements Persistable<String> {
     @Id
     @Column(name = "delivery_id")

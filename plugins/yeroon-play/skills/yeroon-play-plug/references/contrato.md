@@ -106,6 +106,7 @@ X-Yeroon-Signature: t=<epoch>,v1=<hex>
 | Janela | Recomendação do cliente (não faz parte do texto da v1): recusar (`401`) se `epoch` tiver mais de 5 minutos de diferença (±5 min) |
 | Sem segredo | Recomendação do cliente: recusar tudo (`401`) |
 | Dedupe | O mesmo aviso pode chegar mais de uma vez: deduplicar por `X-Yeroon-Delivery` |
+| `id` do corpo | É o mesmo valor de `X-Yeroon-Delivery`. Os moldes deduplicam pelo `id` (que está sob a assinatura) e respondem `400` quando ele difere do cabeçalho, ou quando `id`, `type` ou `data.videoId` faltam |
 | Resposta | Qualquer `2xx` em até 10 s |
 | Retentativas | Fora disso, o aviso volta com espera crescente (30 s, 1 min, 2 min… até 6 h), no máximo 8 vezes |
 

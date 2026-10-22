@@ -43,7 +43,9 @@ grep -E '<module>' pom.xml 2>/dev/null
 | Nenhum dos dois | **Parar** (ver "Quando não reconhece") |
 
 O módulo do back é o que contém a classe `@SpringBootApplication` (ou o `-api`). O `.env` e o
-`application.yml` que valem são os dele.
+`application.yml` que valem são os dele: `{back-env-file}` é, por padrão, `{api-module}/.env`. Se
+o projeto lê outro arquivo (`spring.config.import=optional:file:../.env[.properties]`, dotenv com
+caminho próprio, o que o `CLAUDE.md`/`AGENTS.md` disser), `{back-env-file}` é esse.
 
 ## 2. Front e mobile
 
@@ -81,7 +83,7 @@ ls $(find . -type d -path '*/db/migration' -not -path '*/build/*' | head -1) 2>/
 
 | Achado | Decisão |
 |---|---|
-| Flyway (dependência ou `db/migration`) | `V{próxima}__video.sql` na pasta existente, seguindo a numeração e o padrão de nome atuais |
+| Flyway (dependência ou `db/migration`) | `V{migration-version}__yeroon_video_e_webhook.sql` (o nome do molde) na pasta existente; `{migration-version}` segue a numeração atual e, se o projeto tem outro padrão de nome, siga o dele |
 | Liquibase (dependência ou `db/changelog`) | Novo changeset no changelog mestre existente |
 | Nenhum dos dois | **Parar e perguntar** como o projeto cria tabelas. Nunca criar um `db/migration` solto |
 
@@ -122,7 +124,9 @@ grep -rniE 'webhook_receipt' . --exclude-dir=node_modules --exclude-dir=build --
 | Já existe entidade ou tabela `video` | **Propor outro nome e confirmar com a pessoa** (ex.: `HostedVideo` / `hosted_video`, `YeroonVideo` / `yeroon_video`). Nunca reaproveitar nem alterar a tabela existente |
 
 Guarde a decisão em `{video-entity}` e `{video-table}` e use nos moldes. Mesma checagem para
-`webhook_receipt`.
+`webhook_receipt` (a última linha acima): se já existe, proponha outro nome (ex.:
+`yeroon_webhook_receipt`), confirme e guarde em `{webhook-table}` — ele entra na migration, no
+`@Table` de `WebhookReceiptJpaEntity` e nos ITs do webhook.
 
 ## 6. Convenções da casa
 
@@ -158,6 +162,7 @@ grep -rnoE "String\.fromEnvironment\('[A-Z_]+'" --include='*.dart' . 2>/dev/null
 | As rotas existentes começam todas com o mesmo trecho (ex.: `/api`) no `@RequestMapping` | `{api-routes-prefix}` = esse trecho; os moldes escrevem as rotas novas sob ele |
 | Rotas sem prefixo comum, ou nenhuma rota | `{api-routes-prefix}` vazio |
 | Front/app já lê uma variável com a URL do back | `{back-url-env}` = o nome dela, sem `NEXT_PUBLIC_`/`EXPO_PUBLIC_` |
+| O valor documentado dela (`.env.example`, README) já traz caminho (ex.: `API_URL=http://host/api`) | Diga no plano. Se o caminho é o `{context-path}`/`{api-routes-prefix}`, a constante de prefixo do front/app (`BACK_PREFIX` no `repasse.ts`, `API_BASE` no Expo, `_backPrefix` no Flutter) fica **vazia** — senão vira `/api/api/videos`. Se é outro caminho, pergunte |
 | Nenhuma | `{back-url-env}` = `BACK_URL` |
 
 A URL do webhook, em qualquer ambiente, é `{back-public-url}{context-path}{api-routes-prefix}/webhooks/yeroon`

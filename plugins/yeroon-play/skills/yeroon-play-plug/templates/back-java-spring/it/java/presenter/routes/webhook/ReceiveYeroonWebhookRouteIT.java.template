@@ -28,7 +28,7 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
 
     @BeforeEach
     void limparRecibos() throws Exception {
-        try (Connection c = dataSource.getConnection(); PreparedStatement st = c.prepareStatement("delete from webhook_receipt")) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement st = c.prepareStatement("delete from {webhook-table}")) {
             st.executeUpdate();
         }
     }
@@ -69,7 +69,7 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
 
     private int recibos() throws Exception {
         try (Connection c = dataSource.getConnection();
-             PreparedStatement st = c.prepareStatement("select count(*) from webhook_receipt");
+             PreparedStatement st = c.prepareStatement("select count(*) from {webhook-table}");
              ResultSet rs = st.executeQuery()) {
             rs.next();
             return rs.getInt(1);
@@ -78,7 +78,7 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
 
     private UUID videoDoRecibo(String deliveryId) throws Exception {
         try (Connection c = dataSource.getConnection();
-             PreparedStatement st = c.prepareStatement("select video_id from webhook_receipt where delivery_id = ?")) {
+             PreparedStatement st = c.prepareStatement("select video_id from {webhook-table} where delivery_id = ?")) {
             st.setString(1, deliveryId);
             try (ResultSet rs = st.executeQuery()) {
                 rs.next();
@@ -201,7 +201,7 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
 
     private String tipoDoRecibo(String deliveryId) throws Exception {
         try (Connection c = dataSource.getConnection();
-             PreparedStatement st = c.prepareStatement("select event_type from webhook_receipt where delivery_id = ?")) {
+             PreparedStatement st = c.prepareStatement("select event_type from {webhook-table} where delivery_id = ?")) {
             st.setString(1, deliveryId);
             try (ResultSet rs = st.executeQuery()) {
                 rs.next();

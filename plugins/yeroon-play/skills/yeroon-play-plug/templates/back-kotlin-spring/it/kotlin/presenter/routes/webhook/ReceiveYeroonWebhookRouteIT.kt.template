@@ -21,7 +21,7 @@ class ReceiveYeroonWebhookRouteIT : YeroonIntegrationTest() {
 
     @BeforeEach
     fun limparRecibos() {
-        dataSource.connection.use { c -> c.prepareStatement("delete from webhook_receipt").use { it.executeUpdate() } }
+        dataSource.connection.use { c -> c.prepareStatement("delete from {webhook-table}").use { it.executeUpdate() } }
     }
 
     private fun sign(body: ByteArray, secret: String = WEBHOOK_SECRET, t: Long = Instant.now().epochSecond): String {
@@ -50,7 +50,7 @@ class ReceiveYeroonWebhookRouteIT : YeroonIntegrationTest() {
     }
 
     private fun recibos(): Int = dataSource.connection.use { c ->
-        c.prepareStatement("select count(*) from webhook_receipt").use { st ->
+        c.prepareStatement("select count(*) from {webhook-table}").use { st ->
             st.executeQuery().use { rs ->
                 rs.next()
                 rs.getInt(1)
@@ -60,7 +60,7 @@ class ReceiveYeroonWebhookRouteIT : YeroonIntegrationTest() {
 
     private fun <T> colunaDoRecibo(deliveryId: String, coluna: String, ler: (java.sql.ResultSet) -> T): T =
         dataSource.connection.use { c ->
-            c.prepareStatement("select $coluna from webhook_receipt where delivery_id = ?").use { st ->
+            c.prepareStatement("select $coluna from {webhook-table} where delivery_id = ?").use { st ->
                 st.setString(1, deliveryId)
                 st.executeQuery().use { rs ->
                     rs.next()
