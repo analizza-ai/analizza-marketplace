@@ -71,6 +71,32 @@ def test_segredo_de_webhook_literal(tmp_path: Path):
     assert verificar_skill(pasta) != []
 
 
+def test_chave_com_hifen_e_sublinhado(tmp_path: Path):
+    # base64url: a chave real pode trazer '-' e '_' depois do prefixo
+    pasta = criar_skill(tmp_path)
+    escrever(pasta, "references/a.md", "YEROON_API_KEY=yk_ab-cd_efgh12\n")
+    erros = "\n".join(verificar_skill(pasta))
+    assert "references/a.md" in erros
+
+
+def test_segredo_com_hifen_e_sublinhado(tmp_path: Path):
+    pasta = criar_skill(tmp_path)
+    escrever(pasta, "a.txt", "whsec_-_AbCd-123_x\n")
+    assert verificar_skill(pasta) != []
+
+
+def test_placeholder_com_reticencias_e_aceito(tmp_path: Path):
+    pasta = criar_skill(tmp_path)
+    escrever(pasta, "a.md", "Authorization: Bearer yk_… e o segredo whsec_…\n")
+    assert verificar_skill(pasta) == []
+
+
+def test_expressao_documentada_nao_casa_consigo(tmp_path: Path):
+    pasta = criar_skill(tmp_path)
+    escrever(pasta, "a.md", "git grep -lE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}'\n")
+    assert verificar_skill(pasta) == []
+
+
 def test_prefixo_curto_de_chave_e_aceito(tmp_path: Path):
     pasta = criar_skill(tmp_path)
     escrever(pasta, "a.md", "chaves comecam com yk_ e whsec_\n")

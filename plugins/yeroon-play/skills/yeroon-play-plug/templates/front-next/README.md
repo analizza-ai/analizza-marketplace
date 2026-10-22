@@ -98,4 +98,4 @@ de gravar o arquivo (o marcador já foi trocado), se quiser.
 ## Dois cuidados
 
 - **CORS do storage:** o `PUT` das partes sai do navegador direto para o R2 do yeroon, que hoje só libera `http://localhost:3000` em dev. Porta diferente de 3000 → upload falha no navegador (avise no plano; veja `references/contrato.md`).
-- **Segredo no bundle:** depois de `next build`, `grep -rl 'yk_' .next/` e `grep -rl YEROON_ .next/static` têm de sair vazios (o Passo 4 já pede o primeiro); rode também `grep -rl <nome de {back-url-env}> .next/static`, com o nome que o projeto usa — a URL do back não pode estar no bundle.
+- **Segredo no bundle:** depois de `next build`, `grep -rlE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}' .next/` e `grep -rl YEROON_ .next/static` têm de sair vazios (o Passo 4 já pede o primeiro); rode também `grep -rl <nome de {back-url-env}> .next/static`, com o nome que o projeto usa — a URL do back não pode estar no bundle.

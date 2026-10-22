@@ -195,11 +195,12 @@ Antes de fechar o Passo 4, confira que a chave não vazou:
 
 ```bash
 git status --porcelain | grep -E '[ /]\.env$'               # vazio
-git grep -lE 'yk_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}'       # vazio; -l lista só o arquivo, nunca a linha
+git grep -lE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}'       # vazio; -l lista só o arquivo, nunca a linha
 ```
 
-Se houver build do web, `grep -rl 'yk_' .next/ out/ dist/ 2>/dev/null` também
-tem que sair vazio.
+Se houver build do web, `grep -rlE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}' .next/ out/ dist/ 2>/dev/null`
+também tem que sair vazio. A expressão cobre o alfabeto da chave (base64url,
+com `-` e `_`) e não casa com o prefixo sozinho (`yk_…`) que a documentação usa.
 
 ### Passo 5 — Norte
 

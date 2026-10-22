@@ -32,7 +32,7 @@ Conferência manual da skill `yeroon-play-plug` (plugin `yeroon-play`). Quem rod
 - [ ] Cada fatia termina com a suíte do projeto verde; nenhum teste chama a `/v1`.
 - [ ] Back e front no ar: no **web**, enviar, listar (status chega a `PRONTO`), assistir e excluir um vídeo.
 - [ ] No **app Expo**, o mesmo: enviar, listar, assistir.
-- [ ] `git grep -lE 'yk_|whsec_'` vazio; `grep -rl 'yk_' .next/ out/ dist/` vazio. Mostre só nomes de arquivo, nunca a linha.
+- [ ] `git grep -lE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}'` vazio; `grep -rlE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}' .next/ out/ dist/` vazio. Mostre só nomes de arquivo, nunca a linha.
 - [ ] O norte (checklist de produção) vem na resposta final com os valores do projeto.
 
 ### Execução B — Kotlin + Flutter

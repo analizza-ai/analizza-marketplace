@@ -40,9 +40,9 @@ projeto manda.
 ### Chave fora do front
 
 - [ ] `git status --porcelain | grep -E '[ /]\.env$'` vazio.
-- [ ] `git grep -lE 'yk_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}'` vazio (`-l` lista só o arquivo, nunca a linha).
-- [ ] Depois do build do web: `grep -rl 'yk_' .next/ out/ dist/ 2>/dev/null` vazio.
-- [ ] No app, o pacote/bundle não contém `yk_` (`grep -rl 'yk_'` na saída do build).
+- [ ] `git grep -lE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}'` vazio (`-l` lista só o arquivo, nunca a linha).
+- [ ] Depois do build do web: `grep -rlE 'yk_[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9_-]{8,}' .next/ out/ dist/ 2>/dev/null` vazio.
+- [ ] No app, o pacote/bundle não contém chave (`grep -rlE` com a mesma expressão na saída do build).
 
 ## 2. O que tentar para ver se quebra
 

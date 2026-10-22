@@ -5,7 +5,7 @@ from pathlib import Path
 
 MARCADOR = re.compile(r"(?<!\$)\{[a-z][a-z0-9-]*\}")
 MARCADORES_PERMITIDOS = {"{id}"}  # variável de rota do Spring, não é marcador
-CHAVE_LITERAL = re.compile(r"(?:yk_|whsec_)[A-Za-z0-9]{8,}")
+CHAVE_LITERAL = re.compile(r"(?:yk_|whsec_)[A-Za-z0-9_-]{8,}")
 TERMOS_PRIVADOS = ("bjjdream", "yeroon-stream-poc", "analizza-tube")
 CAMPOS_FRONTMATTER = {"name", "description"}
 
