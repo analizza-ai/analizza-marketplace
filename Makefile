@@ -49,10 +49,20 @@ validate: ## Valida os manifestos do marketplace, Claude e Codex
 		claude plugin validate plugins/$$p || exit 1; \
 	done && python3 tools/validate_plugin_manifests.py
 
+# PLUGIN=... na linha de comando (ou no ambiente) escolhe um plugin só; sem ele, todos.
+TAG_EXPLICIT := $(filter command line environment,$(origin PLUGIN))
+TAG_PLUGINS  := $(if $(TAG_EXPLICIT),$(PLUGIN),$(PLUGINS))
+
 .PHONY: tag
-tag: validate ## Cria a tag {plugin}--v{version} de cada plugin, validando os manifestos
-	for p in $(PLUGINS); do \
-		[ -d plugins/$$p ] || continue; \
+tag: validate ## Cria a tag {plugin}--v{version} (PLUGIN=... para um só; sem ele, todos, pulando as tags que já existem)
+	@for p in $(TAG_PLUGINS); do \
+		manifest=plugins/$$p/.claude-plugin/plugin.json; \
+		[ -f $$manifest ] || { echo "plugin $$p sem $$manifest" >&2; exit 1; }; \
+		version=$$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' $$manifest) || exit 1; \
+		tag="$$p--v$$version"; \
+		if [ -z "$(TAG_EXPLICIT)" ] && git rev-parse -q --verify "refs/tags/$$tag" >/dev/null; then \
+			echo "skip $$tag: a tag já existe"; continue; \
+		fi; \
 		claude plugin tag plugins/$$p || exit 1; \
 	done
 

@@ -101,8 +101,14 @@ Pré-requisito de `make check`: `pip install -r requirements-dev.txt`.
 ```bash
 make validate
 make check
-make tag        # cria a tag <plugin>--v{version} de cada plugin (ex.: yeroon-play--v0.1.0)
+make tag PLUGIN=yeroon-play   # cria a tag do plugin que mudou (ex.: yeroon-play--v0.1.0)
+make tag                      # sem PLUGIN: todos os plugins, pulando ("skip") os cuja tag já existe
 ```
+
+A versão sai de `plugins/<plugin>/.claude-plugin/plugin.json`. Com `PLUGIN=`, a
+tag é criada só para ele e falha se já existir (suba a `version` antes). Sem
+`PLUGIN`, cada plugin cuja tag `<plugin>--v{version}` já existe é pulado, e os
+outros são marcados.
 
 ## Estrutura
 
