@@ -1,0 +1,85 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { UploadRejectedError, uploadVideo } from "@/lib/upload";
+
+/**
+ * Escolhe o arquivo e envia em partes direto ao storage, com progresso, cancelamento e retomada.
+ * Um envio por vez. `onDone` recebe o `videoId` quando o upload termina (a conversão segue no servidor).
+ */
+export function UploadForm({ onDone }: { onDone?: (videoId: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<[number, number] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const controller = useRef<AbortController | null>(null);
+
+  const send = async () => {
+    if (!file || busy) return;
+    const ctrl = new AbortController();
+    controller.current = ctrl;
+    setBusy(true);
+    setError(null);
+    setProgress(null);
+    try {
+      const { videoId } = await uploadVideo(file, {
+        signal: ctrl.signal,
+        onProgress: (sent, total) => setProgress([sent, total]),
+      });
+      setFile(null);
+      onDone?.(videoId);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") setError(null);
+      else if (e instanceof UploadRejectedError) setError((e as Error).message);
+      else setError(`O envio de ${file.name} falhou. Envie de novo para retomar de onde parou.`);
+    } finally {
+      controller.current = null;
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
+  return (
+    <form
+      className="upload-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+    >
+      <label htmlFor="arquivo">Arquivo de vídeo</label>
+      <input
+        id="arquivo"
+        type="file"
+        accept="video/*"
+        disabled={ busy }
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+      />
+
+      {busy && (
+        <div role="status" aria-label="Envio em andamento">
+          {progress ? (
+            <>
+              <progress value={ progress[0] } max={ progress[1] } aria-label="Progresso do envio" />
+              <span>
+                {progress[0]} / {progress[1]} partes
+              </span>
+            </>
+          ) : (
+            <span>Preparando…</span>
+          )}
+        </div>
+      )}
+      {error && <p role="alert">{ error }</p>}
+
+      <button type="submit" disabled={!file || busy}>
+        Enviar
+      </button>
+      {busy && (
+        <button type="button" onClick={() => controller.current?.abort()}>
+          Cancelar
+        </button>
+      )}
+    </form>
+  );
+}
