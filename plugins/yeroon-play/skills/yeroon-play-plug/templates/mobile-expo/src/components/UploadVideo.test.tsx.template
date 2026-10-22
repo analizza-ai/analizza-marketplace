@@ -1,0 +1,54 @@
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { UploadVideo, type PickedVideo } from "@/components/UploadVideo";
+import type { uploadVideo } from "@/lib/upload";
+
+jest.mock("expo-document-picker", () => ({ getDocumentAsync: jest.fn() }));
+jest.mock("expo-file-system", () => ({ File: jest.fn(), Paths: {}, FileMode: { ReadOnly: "r" } }));
+
+const ID = "3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+const picked: PickedVideo = { uri: "file:///cache/a.mp4", name: "a.mp4", size: 25, mimeType: "video/mp4" };
+
+describe("UploadVideo", () => {
+  test("escolheOArquivoMostraOProgressoEAvisaNoFim", async () => {
+    const onDone = jest.fn();
+    let finish: (id: string) => void = () => {};
+    const upload = jest.fn(
+      (_file: PickedVideo, onProgress?: (sent: number, total: number) => void) =>
+        new Promise<string>((resolve) => {
+          onProgress?.(1, 4);
+          finish = resolve;
+        }),
+    ) as unknown as typeof uploadVideo;
+    await render(<UploadVideo onDone={ onDone } pick={async () => picked} upload={ upload } />);
+
+    await fireEvent.press(screen.getByText("Enviar vídeo"));
+    expect(await screen.findByText("Enviando a.mp4: 25%")).toBeTruthy();
+    expect(upload).toHaveBeenCalledWith(picked, expect.any(Function), expect.objectContaining({ signal: expect.anything() }));
+
+    await act(async () => finish(ID));
+    expect(onDone).toHaveBeenCalledWith(ID);
+  });
+
+  test("cancelarAbortaOEnvio", async () => {
+    let seen: AbortSignal | undefined;
+    const upload = jest.fn(
+      (_file: PickedVideo, _p: unknown, opts?: { signal?: AbortSignal }) =>
+        new Promise<string>((_resolve, reject) => {
+          seen = opts?.signal;
+          seen?.addEventListener("abort", () => reject(Object.assign(new Error("x"), { name: "AbortError" })));
+        }),
+    ) as unknown as typeof uploadVideo;
+    await render(<UploadVideo onDone={jest.fn()} pick={async () => picked} upload={ upload } />);
+    await fireEvent.press(screen.getByText("Enviar vídeo"));
+    await fireEvent.press(screen.getByText("Cancelar"));
+    expect(seen?.aborted).toBe(true);
+    expect(await screen.findByText("Envio cancelado.")).toBeTruthy();
+  });
+
+  test("selecaoCanceladaNaoEnvia", async () => {
+    const upload = jest.fn() as unknown as typeof uploadVideo;
+    await render(<UploadVideo onDone={jest.fn()} pick={async () => null} upload={ upload } />);
+    await fireEvent.press(screen.getByText("Enviar vídeo"));
+    expect(upload).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,93 @@
+import {
+  API_BASE,
+  ApiError,
+  InvalidVideoIdError,
+  deleteVideo,
+  getVideo,
+  isVideoId,
+  listVideos,
+  requestPlayback,
+  videoUrl,
+} from "@/lib/api";
+
+const ID = "3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
+function recorder(respond: (url: string, method: string) => Response) {
+  const calls: { url: string; method: string }[] = [];
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ url, method });
+    return respond(url, method);
+  }) as typeof fetch;
+  return { calls, fetchImpl };
+}
+
+describe("api do back", () => {
+  test("aBaseTerminaNoPrefixoDoBackSemBarraNoFim", () => {
+    expect(API_BASE.endsWith("{context-path}{api-routes-prefix}")).toBe(true);
+    expect(API_BASE.endsWith("/")).toBe(false);
+  });
+
+  test("aceitaSoUuidComoVideoId", () => {
+    expect(isVideoId(ID)).toBe(true);
+    expect(isVideoId(ID.toUpperCase())).toBe(true);
+    for (const bad of ["", "..", ".", "a/b", "v1", `${ID}/x`]) expect(isVideoId(bad)).toBe(false);
+  });
+
+  test("montaAUrlDoVideoSobABaseDoBack", () => {
+    expect(videoUrl(ID, "/playback")).toBe(`${API_BASE}/videos/${ID}/playback`);
+  });
+
+  test("idQueNaoEUuidNaoChegaAoBack", async () => {
+    const { calls, fetchImpl } = recorder(() => json({}));
+    expect(() => videoUrl("..")).toThrow(InvalidVideoIdError);
+    await expect(getVideo("..", fetchImpl)).rejects.toBeInstanceOf(InvalidVideoIdError);
+    await expect(deleteVideo("a/b", fetchImpl)).rejects.toBeInstanceOf(InvalidVideoIdError);
+    await expect(requestPlayback("x", fetchImpl)).rejects.toBeInstanceOf(InvalidVideoIdError);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("listaOsVideos", async () => {
+    const { calls, fetchImpl } = recorder(() =>
+      json({ videos: [{ videoId: ID, fileName: "a.mp4", status: "PRONTO", createdAt: "2026-10-22T00:00:00Z", thumbnailUrl: null }] }),
+    );
+    const videos = await listVideos(fetchImpl);
+    expect(videos.map((v) => v.fileName)).toEqual(["a.mp4"]);
+    expect(calls).toEqual([{ url: `${API_BASE}/videos`, method: "GET" }]);
+  });
+
+  test("excluiComDelete", async () => {
+    const { calls, fetchImpl } = recorder(() => new Response(null, { status: 204 }));
+    await deleteVideo(ID, fetchImpl);
+    expect(calls).toEqual([{ url: `${API_BASE}/videos/${ID}`, method: "DELETE" }]);
+  });
+
+  test("pedePlaybackComPostEDevolveOHlsUrl", async () => {
+    const { calls, fetchImpl } = recorder(() =>
+      json({ embedUrl: "https://play/embed/t", hlsUrl: "https://play/t/master.m3u8", expiresAt: "2026-10-22T06:00:00Z" }),
+    );
+    const playback = await requestPlayback(ID, fetchImpl);
+    expect(playback.hlsUrl).toBe("https://play/t/master.m3u8");
+    expect(calls).toEqual([{ url: `${API_BASE}/videos/${ID}/playback`, method: "POST" }]);
+  });
+
+  test("respostaDeErroViraApiErrorComStatusEMensagens", async () => {
+    const { fetchImpl } = recorder(() =>
+      new Response(JSON.stringify({ errors: [{ code: "video.deletable", message: "Ainda processando." }] }), {
+        status: 422,
+        headers: { "content-type": "application/problem+json" },
+      }),
+    );
+    const err = await deleteVideo(ID, fetchImpl).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(422);
+    expect((err as ApiError).messages).toEqual(["Ainda processando."]);
+  });
+});

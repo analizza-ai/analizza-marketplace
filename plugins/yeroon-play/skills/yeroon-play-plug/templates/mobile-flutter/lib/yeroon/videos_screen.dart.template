@@ -1,0 +1,36 @@
+import 'package:flutter/material.dart';
+
+import 'video_list.dart';
+import 'video_player_screen.dart';
+import 'video_upload_button.dart';
+
+/// Enviar e listar. Troque o `Scaffold` pelo contêiner de tela do projeto; com `go_router`,
+/// troque o `Navigator.push` por `context.push('/videos/$id')`.
+class VideosScreen extends StatefulWidget {
+  const VideosScreen({super.key});
+
+  @override
+  State<VideosScreen> createState() => _VideosScreenState();
+}
+
+class _VideosScreenState extends State<VideosScreen> {
+  int _refreshKey = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Vídeos')),
+      body: ListView(
+        children: [
+          VideoUploadButton(onDone: (_) => setState(() => _refreshKey++)),
+          VideoList(
+            refreshKey: _refreshKey,
+            onOpen: (id) => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => VideoPlayerScreen(videoId: id)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

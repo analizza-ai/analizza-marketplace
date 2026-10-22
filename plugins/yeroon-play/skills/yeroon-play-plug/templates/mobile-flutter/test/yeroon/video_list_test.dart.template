@@ -1,0 +1,100 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:{flutter-package}/yeroon/api.dart';
+import 'package:{flutter-package}/yeroon/video_list.dart';
+
+const a = '3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b';
+const b = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+const base = 'http://back.test/api';
+
+void main() {
+  late List<String> calls;
+  late int deleteStatus;
+
+  YeroonApi fakeApi() => YeroonApi(
+        baseUrl: base,
+        client: MockClient((r) async {
+          calls.add('${r.method} ${r.url}');
+          if (r.method == 'GET' && r.url.toString() == '$base/videos') {
+            return http.Response(
+              jsonEncode({
+                'videos': [
+                  {'videoId': a, 'fileName': 'aula-1.mp4', 'status': 'PRONTO', 'createdAt': '2026-10-22T00:00:00Z', 'thumbnailUrl': null},
+                  {'videoId': b, 'fileName': 'aula-2.mp4', 'status': 'FALHOU', 'createdAt': '2026-10-22T00:00:00Z', 'thumbnailUrl': null},
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          if (r.method == 'DELETE') return http.Response('', deleteStatus);
+          throw StateError('chamada inesperada ${r.method} ${r.url}');
+        }),
+      );
+
+  Future<void> show(WidgetTester tester, {ValueChanged<String>? onOpen, ValueChanged<String>? onDeleted}) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: VideoList(api: fakeApi(), onOpen: onOpen ?? (_) {}, onDeleted: onDeleted),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+  }
+
+  setUp(() {
+    calls = [];
+    deleteStatus = 204;
+  });
+
+  testWidgets('mostra os vídeos com o rótulo do status', (tester) async {
+    await show(tester);
+    expect(find.text('aula-1.mp4'), findsOneWidget);
+    expect(find.text('aula-2.mp4'), findsOneWidget);
+    expect(find.text('Pronto'), findsOneWidget);
+    expect(find.text('Falhou'), findsOneWidget);
+  });
+
+  testWidgets('tocar no vídeo abre a página dele', (tester) async {
+    String? opened;
+    await show(tester, onOpen: (id) => opened = id);
+    await tester.tap(find.text('aula-1.mp4'));
+    expect(opened, a);
+  });
+
+  testWidgets('excluir pede confirmação antes do DELETE', (tester) async {
+    String? deleted;
+    await show(tester, onDeleted: (id) => deleted = id);
+    await tester.tap(find.bySemanticsLabel('Excluir aula-1.mp4'));
+    await tester.pump();
+    expect(calls.any((c) => c.startsWith('DELETE')), isFalse);
+
+    await tester.tap(find.text('Manter'));
+    await tester.pump();
+    expect(calls.any((c) => c.startsWith('DELETE')), isFalse);
+
+    await tester.tap(find.bySemanticsLabel('Excluir aula-1.mp4'));
+    await tester.pump();
+    await tester.tap(find.text('Confirmar exclusão'));
+    await tester.pumpAndSettle();
+    expect(calls, contains('DELETE $base/videos/$a'));
+    expect(find.text('aula-1.mp4'), findsNothing);
+    expect(deleted, a);
+  });
+
+  testWidgets('exclusão recusada mostra aviso e mantém a linha', (tester) async {
+    deleteStatus = 422;
+    await show(tester);
+    await tester.tap(find.bySemanticsLabel('Excluir aula-1.mp4'));
+    await tester.pump();
+    await tester.tap(find.text('Confirmar exclusão'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Não foi possível excluir'), findsOneWidget);
+    expect(find.text('aula-1.mp4'), findsOneWidget);
+  });
+}

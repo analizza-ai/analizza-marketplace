@@ -67,6 +67,7 @@ número entre parênteses é a seção de `detectar-stack.md`.
 | `{video-entity}` | `Video`, ou o nome confirmado com a pessoa se houver conflito (5) |
 | `{video-table}` | `video`, ou o nome confirmado com a pessoa se houver conflito (5) |
 | `{back-url-env}` | nome da variável que o front/app já usa para a URL do back, sem `NEXT_PUBLIC_`/`EXPO_PUBLIC_` (7); sem nenhuma, `BACK_URL`. No Expo vira `EXPO_PUBLIC_{back-url-env}`; no Flutter, `--dart-define` |
+| `{flutter-package}` | `name:` do `pubspec.yaml` do app Flutter (2); entra nos imports `package:{flutter-package}/yeroon/...` dos testes |
 | `{front-origin}` | `http://localhost:` + porta do Next (4); sem Next, `http://localhost:3000` |
 | `{back-public-url}` | URL pública do back publicado, perguntada à pessoa; sem resposta, "a definir" |
 | `{api-routes-prefix}` | prefixo de **mapeamento** comum às rotas existentes (`@RequestMapping`, ex.: `/api`) (7); os moldes o escrevem nas rotas novas. Sem prefixo comum, vazio |

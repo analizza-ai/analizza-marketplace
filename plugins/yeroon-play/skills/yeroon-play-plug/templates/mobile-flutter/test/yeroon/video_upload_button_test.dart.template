@@ -1,0 +1,84 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:{flutter-package}/yeroon/upload.dart';
+import 'package:{flutter-package}/yeroon/video_upload_button.dart';
+
+const id = '3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b';
+
+void main() {
+  final picked = File('/tmp/a.mp4');
+
+  Future<void> show(WidgetTester tester, VideoUploadButton button) async {
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: button)));
+  }
+
+  testWidgets('escolhe o arquivo, mostra o progresso e avisa no fim', (tester) async {
+    final done = Completer<String>();
+    String? finished;
+    late UploadProgress progress;
+    await show(
+      tester,
+      VideoUploadButton(
+        onDone: (videoId) => finished = videoId,
+        pick: () async => picked,
+        upload: (file, onProgress, {cancelToken}) {
+          progress = onProgress!;
+          return done.future;
+        },
+      ),
+    );
+    await tester.tap(find.text('Enviar vídeo'));
+    await tester.pump();
+    progress(1, 4);
+    await tester.pump();
+    expect(find.text('Enviando a.mp4: 25%'), findsOneWidget);
+
+    done.complete(id);
+    await tester.pumpAndSettle();
+    expect(finished, id);
+  });
+
+  testWidgets('cancelar aborta o envio', (tester) async {
+    UploadCancelToken? seen;
+    final done = Completer<String>();
+    await show(
+      tester,
+      VideoUploadButton(
+        onDone: (_) {},
+        pick: () async => picked,
+        upload: (file, onProgress, {cancelToken}) {
+          seen = cancelToken;
+          return done.future;
+        },
+      ),
+    );
+    await tester.tap(find.text('Enviar vídeo'));
+    await tester.pump();
+    await tester.tap(find.text('Cancelar'));
+    expect(seen?.isCancelled, isTrue);
+    done.completeError(UploadCancelledException());
+    await tester.pumpAndSettle();
+    expect(find.text('Envio cancelado.'), findsOneWidget);
+  });
+
+  testWidgets('seleção cancelada não envia', (tester) async {
+    var called = false;
+    await show(
+      tester,
+      VideoUploadButton(
+        onDone: (_) {},
+        pick: () async => null,
+        upload: (file, onProgress, {cancelToken}) async {
+          called = true;
+          return id;
+        },
+      ),
+    );
+    await tester.tap(find.text('Enviar vídeo'));
+    await tester.pumpAndSettle();
+    expect(called, isFalse);
+  });
+}
