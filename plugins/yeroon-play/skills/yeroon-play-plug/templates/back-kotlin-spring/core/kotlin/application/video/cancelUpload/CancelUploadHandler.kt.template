@@ -1,0 +1,15 @@
+package {base-package}.application.video.cancelUpload
+
+import {base-package}.domain.{video-entity}NotFoundException
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient
+import org.springframework.stereotype.Component
+
+@Component
+class CancelUploadHandler(private val yeroon: YeroonClient, private val videos: {video-entity}Repository) {
+
+    fun handle(command: CancelUploadCommand) {
+        if (!videos.existsById(command.videoId)) throw {video-entity}NotFoundException()
+        yeroon.cancel(command.videoId)
+    }
+}

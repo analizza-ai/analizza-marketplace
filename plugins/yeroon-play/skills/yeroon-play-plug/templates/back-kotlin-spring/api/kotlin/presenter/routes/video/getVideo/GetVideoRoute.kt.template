@@ -1,0 +1,16 @@
+package {base-package}.presenter.routes.video.getVideo
+
+import {base-package}.application.video.getVideo.GetVideoHandler
+import {base-package}.application.video.getVideo.GetVideoQuery
+import {base-package}.application.video.getVideo.GetVideoResult
+import java.util.UUID
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.RestController
+
+@RestController
+class GetVideoRoute(private val handler: GetVideoHandler) {
+
+    @GetMapping("{api-routes-prefix}/videos/{id}")
+    fun handle(@PathVariable id: UUID): GetVideoResult = handler.handle(GetVideoQuery(id))
+}

@@ -1,0 +1,4 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+/** 409 da /v1: o estado do vídeo não permite a operação (ex.: playback antes de PRONTO). */
+class YeroonConflictException : RuntimeException("O estado do vídeo no yeroon play não permite a operação.")

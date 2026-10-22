@@ -1,0 +1,60 @@
+package {base-package}.presenter.routes.webhook.receiveYeroonWebhook
+
+import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventCommand
+import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventHandler
+import {base-package}.infrastructure.configuration.YeroonProperties
+import {base-package}.presenter.configuration.security.YeroonWebhookSignature
+import java.time.Instant
+import java.util.UUID
+import org.springframework.boot.json.JsonParserFactory
+import org.springframework.http.HttpStatus
+import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
+import org.springframework.web.bind.annotation.RestController
+
+/**
+ * Recebe os avisos do yeroon play. A URL pública que vai no cadastro da conta é
+ * a do back + context-path + esta rota. Sem login: a autenticação é a assinatura.
+ */
+@RestController
+class ReceiveYeroonWebhookRoute(
+    private val handler: ReceiveYeroonEventHandler,
+    private val properties: YeroonProperties,
+) {
+
+    @PostMapping("{api-routes-prefix}/webhooks/yeroon")
+    fun handle(
+        @RequestBody rawBody: ByteArray,
+        @RequestHeader("X-Yeroon-Signature", required = false) signature: String?,
+        @RequestHeader("X-Yeroon-Delivery", required = false) deliveryId: String?,
+        @RequestHeader("X-Yeroon-Event", required = false) eventType: String?,
+    ): ResponseEntity<Any> {
+        // Assinatura sobre os bytes brutos, antes de qualquer parse.
+        if (!YeroonWebhookSignature.verify(properties.webhookSecret, signature, rawBody, Instant.now())) {
+            return problem(HttpStatus.UNAUTHORIZED)
+        }
+        val root = runCatching { JsonParserFactory.getJsonParser().parseMap(rawBody.decodeToString()) }
+            .getOrNull() ?: return problem(HttpStatus.BAD_REQUEST)
+        val eventId = text(root["id"])
+        // Tipo do corpo; sem ele (nulo, ausente ou em branco), o do cabeçalho.
+        val type = text(root["type"]) ?: text(eventType)
+        val videoId = text((root["data"] as? Map<*, *>)?.get("videoId"))
+            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        // O id do corpo é assinado; os cabeçalhos não. Dedupe pelo id assinado, que
+        // é o mesmo valor do X-Yeroon-Delivery; divergência é recusada.
+        if (eventId == null || type == null || videoId == null || (deliveryId != null && deliveryId != eventId)) {
+            return problem(HttpStatus.BAD_REQUEST)
+        }
+        handler.handle(ReceiveYeroonEventCommand(eventId, type, videoId))
+        return ResponseEntity.ok().build()
+    }
+
+    private fun problem(status: HttpStatus): ResponseEntity<Any> =
+        ResponseEntity.status(status).body(ProblemDetail.forStatus(status))
+
+    /** Texto do JSON; null, ausente, não-texto ou em branco vira null (nunca a string "null"). */
+    private fun text(value: Any?): String? = (value as? String)?.trim()?.takeIf { it.isNotEmpty() }
+}

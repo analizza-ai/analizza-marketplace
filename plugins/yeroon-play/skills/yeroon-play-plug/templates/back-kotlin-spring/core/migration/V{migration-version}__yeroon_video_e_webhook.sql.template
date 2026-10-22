@@ -1,0 +1,14 @@
+-- yeroon play: o projeto guarda só o videoId e os recibos do webhook.
+-- Tipos em PostgreSQL; em outro banco, troque uuid/timestamptz pelos equivalentes
+-- (Oracle: raw(16)/timestamp with time zone; MySQL: binary(16) ou char(36)/timestamp(6)).
+create table {video-table} (
+    id         uuid        primary key,
+    created_at timestamptz not null
+);
+
+create table webhook_receipt (
+    delivery_id varchar(100) primary key,
+    event_type  varchar(50)  not null,
+    video_id    uuid,
+    received_at timestamptz  not null
+);

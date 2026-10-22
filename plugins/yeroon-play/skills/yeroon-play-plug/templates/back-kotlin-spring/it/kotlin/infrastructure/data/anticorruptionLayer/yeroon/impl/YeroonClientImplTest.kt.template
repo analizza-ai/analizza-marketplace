@@ -1,0 +1,176 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon.impl
+
+import {base-package}.infrastructure.configuration.YeroonProperties
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.URI
+import java.time.Duration
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
+
+/**
+ * Unitário do cliente da /v1 contra um servidor HTTP local (JDK): confere
+ * caminho, método, Authorization e o mapa de erros. Nenhuma chamada à /v1 real.
+ */
+class YeroonClientImplTest {
+
+    private lateinit var server: HttpServer
+
+    @Volatile
+    private var status = 200
+
+    @Volatile
+    private var responseBody: String? = null
+    private val method = AtomicReference<String>()
+    private val path = AtomicReference<String>()
+    private val auth = AtomicReference<String>()
+    private val requestBody = AtomicReference<String>()
+    private val logs = ListAppender<ILoggingEvent>()
+    private val logger = LoggerFactory.getLogger(YeroonClientImpl::class.java) as Logger
+
+    @BeforeEach
+    fun start() {
+        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            method.set(exchange.requestMethod)
+            path.set(exchange.requestURI.path)
+            auth.set(exchange.requestHeaders.getFirst("Authorization"))
+            requestBody.set(exchange.requestBody.readAllBytes().decodeToString())
+            val out = responseBody?.toByteArray() ?: ByteArray(0)
+            exchange.responseHeaders.add(
+                "Content-Type",
+                if (status == 422) "application/problem+json" else "application/json",
+            )
+            exchange.sendResponseHeaders(status, if (out.isEmpty()) -1 else out.size.toLong())
+            if (out.isNotEmpty()) exchange.responseBody.write(out)
+            exchange.close()
+        }
+        server.start()
+        logs.start()
+        logger.addAppender(logs)
+    }
+
+    @AfterEach
+    fun stop() {
+        logger.detachAppender(logs)
+        server.stop(0)
+    }
+
+    private fun client(url: URI = URI.create("http://127.0.0.1:${server.address.port}"), key: String = KEY) =
+        YeroonClientImpl(YeroonProperties(apiUrl = url, apiKey = key, webhookSecret = "", timeout = Duration.ofSeconds(2)))
+
+    private fun allLogs(): String = logs.list.joinToString("\n") { it.formattedMessage }
+
+    @Test
+    fun initUploadMandaBearerECorpo() {
+        status = 201
+        responseBody = """{"videoId":"$ID","partSizeBytes":8388608,"partCount":3}"""
+
+        val upload = client().initUpload("a.mp4", "video/mp4", 20_000_000L)
+
+        assertThat(upload).isEqualTo(YeroonUpload(ID, 8_388_608L, 3))
+        assertThat(method.get()).isEqualTo("POST")
+        assertThat(path.get()).isEqualTo("/v1/videos/uploads")
+        assertThat(auth.get()).isEqualTo("Bearer $KEY")
+        assertThat(requestBody.get()).contains("\"fileName\":\"a.mp4\"").contains("\"sizeBytes\":20000000")
+    }
+
+    @Test
+    fun playbackTokenTrazEmbedEHls() {
+        responseBody = """{"videoId":"$ID","token":"tkn","expiresAt":"2026-10-22T04:00:00Z",""" +
+            """"embedUrl":"https://play.example/embed/tkn",""" +
+            """"hlsUrl":"https://play.example/api/play/tkn/master.m3u8"}"""
+
+        val playback = client().playbackToken(ID)
+
+        assertThat(path.get()).isEqualTo("/v1/videos/$ID/playback-token")
+        assertThat(playback.embedUrl).hasToString("https://play.example/embed/tkn")
+        assertThat(playback.hlsUrl).hasToString("https://play.example/api/play/tkn/master.m3u8")
+    }
+
+    @Test
+    fun listaIgnoraCamposDesconhecidos() {
+        responseBody = """{"videos":[{"videoId":"$ID","fileName":"a.mp4","status":"PRONTO",""" +
+            """"createdAt":"2026-10-22T04:00:00Z","thumbnailUrl":null,"sizeBytes":10,"novo":1}]}"""
+
+        assertThat(client().list().map { it.videoId }).containsExactly(ID)
+        assertThat(path.get()).isEqualTo("/v1/videos")
+    }
+
+    @Test
+    fun deleteUsaODeleteDoVideo() {
+        status = 204
+
+        client().delete(ID)
+
+        assertThat(method.get()).isEqualTo("DELETE")
+        assertThat(path.get()).isEqualTo("/v1/videos/$ID")
+    }
+
+    @Test
+    fun erro422RepassaOsCodigos() {
+        status = 422
+        responseBody = """{"type":"about:blank","status":422,""" +
+            """"errors":[{"code":"video.deletable","message":"nao pode"}]}"""
+
+        assertThatThrownBy { client().delete(ID) }
+            .isInstanceOfSatisfying(YeroonRejectedException::class.java) { e ->
+                assertThat(e.errors).containsExactly(YeroonError("video.deletable", "nao pode"))
+            }
+    }
+
+    @Test
+    fun erro404E409() {
+        status = 404
+        assertThatThrownBy { client().get(ID) }.isInstanceOf(YeroonNotFoundException::class.java)
+        status = 409
+        assertThatThrownBy { client().playbackToken(ID) }.isInstanceOf(YeroonConflictException::class.java)
+    }
+
+    @Test
+    fun chaveRecusadaViraIndisponivelELogaSoOPrefixo() {
+        status = 401
+
+        assertThatThrownBy { client().list() }.isInstanceOf(YeroonUnavailableException::class.java)
+        assertThat(allLogs()).contains(KEY.take(7)).doesNotContain(KEY)
+    }
+
+    @Test
+    fun chaveCurtaRecusadaLogaSoOTamanho() {
+        status = 401
+
+        assertThatThrownBy { client(key = "k-123").list() }.isInstanceOf(YeroonUnavailableException::class.java)
+        assertThat(allLogs()).contains("(5 caracteres)").doesNotContain("k-123")
+    }
+
+    @Test
+    fun erro5xxViraIndisponivel() {
+        status = 503
+        assertThatThrownBy { client().list() }.isInstanceOf(YeroonUnavailableException::class.java)
+    }
+
+    @Test
+    fun redeForaDoArViraIndisponivel() {
+        val closedPort = ServerSocket(0).use { it.localPort }
+
+        assertThatThrownBy { client(URI.create("http://127.0.0.1:$closedPort")).list() }
+            .isInstanceOf(YeroonUnavailableException::class.java)
+        assertThat(allLogs()).doesNotContain(KEY)
+    }
+
+    private companion object {
+        const val KEY = "chave-de-teste-123"
+        val ID: UUID = UUID.fromString("11111111-1111-1111-1111-111111111111")
+    }
+}

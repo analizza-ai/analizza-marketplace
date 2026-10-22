@@ -1,0 +1,59 @@
+package {base-package}.presenter.routes.video
+
+import {base-package}.domain.{video-entity}
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import {base-package}.support.FakeYeroonClient
+import {base-package}.support.YeroonIntegrationTest
+import java.net.URI
+import java.time.Instant
+import java.util.UUID
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.MediaType
+
+class PresignUploadPartsRouteIT : YeroonIntegrationTest() {
+
+    @Autowired
+    private lateinit var videos: {video-entity}Repository
+
+    private fun registrado(): UUID = UUID.randomUUID().also { videos.save({video-entity}.register(it, Instant.now())) }
+
+    @Test
+    fun devolveUmaUrlAssinadaPorParte() {
+        val id = registrado()
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/upload/part-urls", id).contentType(MediaType.APPLICATION_JSON)
+            .body(mapOf("partNumbers" to listOf(1, 2)))
+            .exchange().expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.urls[0].partNumber").isEqualTo(1)
+            .jsonPath("$.urls[1].url").isEqualTo("https://storage.example/$id/2")
+    }
+
+    @Test
+    fun idForaDaTabelaRetorna404SemChamarAV1() {
+        val id = UUID.randomUUID()
+
+        val body = api.post().uri("{api-routes-prefix}/videos/{id}/upload/part-urls", id)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(mapOf("partNumbers" to listOf(1)))
+            .exchange().expectStatus().isNotFound()
+            .expectBody().returnResult().responseBody?.decodeToString().orEmpty()
+        assertEquals(0, yeroon.calls())
+        assertFalse(body.contains(id.toString()))
+    }
+
+    @Test
+    fun partNumbersAusenteVira422() {
+        val id = registrado()
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/upload/part-urls", id).contentType(MediaType.APPLICATION_JSON)
+            .body(emptyMap<String, Any>())
+            .exchange().expectStatus().isEqualTo(422)
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("required.partNumbers")
+    }
+}

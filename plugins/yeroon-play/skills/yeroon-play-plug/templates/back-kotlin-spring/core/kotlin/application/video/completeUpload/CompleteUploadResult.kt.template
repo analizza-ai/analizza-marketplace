@@ -1,0 +1,5 @@
+package {base-package}.application.video.completeUpload
+
+import java.util.UUID
+
+data class CompleteUploadResult(val videoId: UUID, val status: String)

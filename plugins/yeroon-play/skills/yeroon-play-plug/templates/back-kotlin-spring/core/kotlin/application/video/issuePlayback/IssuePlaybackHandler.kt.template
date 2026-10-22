@@ -1,0 +1,17 @@
+package {base-package}.application.video.issuePlayback
+
+import {base-package}.domain.{video-entity}NotFoundException
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient
+import org.springframework.stereotype.Component
+
+@Component
+class IssuePlaybackHandler(private val yeroon: YeroonClient, private val videos: {video-entity}Repository) {
+
+    /** Um token novo a cada abertura do vídeo; nada é guardado. */
+    fun handle(command: IssuePlaybackCommand): IssuePlaybackResult {
+        if (!videos.existsById(command.videoId)) throw {video-entity}NotFoundException()
+        val playback = yeroon.playbackToken(command.videoId)
+        return IssuePlaybackResult(playback.embedUrl.toString(), playback.hlsUrl?.toString(), playback.expiresAt)
+    }
+}

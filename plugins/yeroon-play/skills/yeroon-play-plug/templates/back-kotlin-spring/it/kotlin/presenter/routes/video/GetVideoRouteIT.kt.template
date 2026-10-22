@@ -1,0 +1,57 @@
+package {base-package}.presenter.routes.video
+
+import {base-package}.domain.{video-entity}
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import {base-package}.support.FakeYeroonClient
+import {base-package}.support.YeroonIntegrationTest
+import java.net.URI
+import java.time.Instant
+import java.util.UUID
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.MediaType
+
+class GetVideoRouteIT : YeroonIntegrationTest() {
+
+    @Autowired
+    private lateinit var videos: {video-entity}Repository
+
+    private fun registrado(): UUID = UUID.randomUUID().also { videos.save({video-entity}.register(it, Instant.now())) }
+
+    @Test
+    fun devolveOEstadoDaV1() {
+        val id = registrado()
+        yeroon.videos[id] = YeroonVideo(id, "a.mp4", "FALHOU", "codec", listOf("720p", "480p"),
+            URI.create("https://cdn.example/a.jpg"))
+
+        api.get().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.videoId").isEqualTo(id.toString())
+            .jsonPath("$.fileName").isEqualTo("a.mp4")
+            .jsonPath("$.status").isEqualTo("FALHOU")
+            .jsonPath("$.failureReason").isEqualTo("codec")
+            .jsonPath("$.renditions[1]").isEqualTo("480p")
+            .jsonPath("$.thumbnailUrl").isEqualTo("https://cdn.example/a.jpg")
+    }
+
+    @Test
+    fun idForaDaTabelaRetorna404SemChamarAV1() {
+        val id = UUID.randomUUID()
+
+        val body = api.get().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isNotFound()
+            .expectBody().returnResult().responseBody?.decodeToString().orEmpty()
+        assertEquals(0, yeroon.calls())
+        assertFalse(body.contains(id.toString()))
+    }
+
+    @Test
+    fun naoExisteNaV1Retorna404() {
+        val id = registrado()
+
+        api.get().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isNotFound()
+    }
+}

@@ -1,0 +1,6 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class YeroonUploadedPart(val partNumber: Int, val etag: String, val sizeBytes: Long)

@@ -1,0 +1,5 @@
+package {base-package}.application.video.presignParts
+
+data class PresignPartsResult(val urls: List<PartUrl>) {
+    data class PartUrl(val partNumber: Int, val url: String)
+}

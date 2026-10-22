@@ -1,0 +1,4 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+/** 401 da /v1 (chave), 5xx, rede ou timeout: vira 502 genérico, sem detalhe. */
+class YeroonUnavailableException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

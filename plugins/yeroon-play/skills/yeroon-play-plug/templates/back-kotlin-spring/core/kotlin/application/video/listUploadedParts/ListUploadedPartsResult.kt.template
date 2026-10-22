@@ -1,0 +1,5 @@
+package {base-package}.application.video.listUploadedParts
+
+data class ListUploadedPartsResult(val parts: List<Part>) {
+    data class Part(val partNumber: Int, val etag: String, val sizeBytes: Long)
+}

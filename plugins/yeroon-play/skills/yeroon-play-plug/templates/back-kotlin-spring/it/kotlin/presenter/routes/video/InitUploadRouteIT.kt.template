@@ -1,0 +1,74 @@
+package {base-package}.presenter.routes.video
+
+import {base-package}.domain.{video-entity}
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import {base-package}.support.FakeYeroonClient
+import {base-package}.support.YeroonIntegrationTest
+import java.net.URI
+import java.time.Instant
+import java.util.UUID
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.MediaType
+
+class InitUploadRouteIT : YeroonIntegrationTest() {
+
+    @Autowired
+    private lateinit var videos: {video-entity}Repository
+
+    private fun registrado(): UUID = UUID.randomUUID().also { videos.save({video-entity}.register(it, Instant.now())) }
+
+    @Test
+    fun criaOUploadNaV1EGuardaSoOVideoId() {
+        val body = api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+            .body(mapOf("fileName" to "aula.mp4", "contentType" to "video/mp4", "sizeBytes" to 20_000_000))
+            .exchange().expectStatus().isCreated()
+            .expectBody()
+            .jsonPath("$.partSizeBytes").isEqualTo(8388608)
+            .jsonPath("$.partCount").isEqualTo(3)
+            .returnResult().responseBody?.decodeToString().orEmpty()
+        val id = yeroon.videos.keys.single()
+        assertTrue(body.contains("\"videoId\":\"$id\""))
+        assertTrue(videos.existsById(id))
+    }
+
+    @Test
+    fun rejeicaoDaV1Vira422ComOsCodigosESemLinhaNova() {
+        val antes = videos.findAllIds()
+        yeroon.failNext(YeroonRejectedException(listOf(YeroonError("trial.video-limit", "limite"))))
+
+        api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+            .body(mapOf("fileName" to "aula.mp4", "contentType" to "video/mp4", "sizeBytes" to 1))
+            .exchange().expectStatus().isEqualTo(422)
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("trial.video-limit")
+        assertEquals(antes, videos.findAllIds())
+    }
+
+    @Test
+    fun camposAusentesViram422SemChamarAV1() {
+        api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+            .body(emptyMap<String, Any>())
+            .exchange().expectStatus().isEqualTo(422)
+            .expectBody()
+            .jsonPath("$.errors.length()").isEqualTo(3)
+            .jsonPath("$.errors[?(@.code=='required.fileName')]").exists()
+            .jsonPath("$.errors[?(@.code=='required.contentType')]").exists()
+            .jsonPath("$.errors[?(@.code=='required.sizeBytes')]").exists()
+        assertEquals(0, yeroon.calls())
+    }
+
+    @Test
+    fun v1IndisponivelVira502Generico() {
+        yeroon.failNext(YeroonUnavailableException("falha de rede"))
+
+        val body = api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+            .body(mapOf("fileName" to "aula.mp4", "contentType" to "video/mp4", "sizeBytes" to 1))
+            .exchange().expectStatus().isEqualTo(502)
+            .expectBody().returnResult().responseBody?.decodeToString().orEmpty()
+        assertFalse(body.contains("falha de rede"))
+    }
+}

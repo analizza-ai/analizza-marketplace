@@ -1,0 +1,31 @@
+package {base-package}.application.video.initUpload
+
+import {base-package}.domain.{video-entity}
+import {base-package}.domain.{video-entity}RequestInvalidException
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient
+import java.time.Instant
+import org.springframework.stereotype.Component
+
+@Component
+class InitUploadHandler(private val yeroon: YeroonClient, private val videos: {video-entity}Repository) {
+
+    fun handle(command: InitUploadCommand): InitUploadResult {
+        val fileName = command.fileName?.takeIf { it.isNotBlank() }
+        val contentType = command.contentType?.takeIf { it.isNotBlank() }
+        val sizeBytes = command.sizeBytes
+        if (fileName == null || contentType == null || sizeBytes == null) {
+            throw {video-entity}RequestInvalidException(
+                listOfNotNull(
+                    "fileName".takeIf { fileName == null },
+                    "contentType".takeIf { contentType == null },
+                    "sizeBytes".takeIf { sizeBytes == null },
+                ),
+            )
+        }
+        val upload = yeroon.initUpload(fileName, contentType, sizeBytes)
+        // Só depois que a /v1 aceitou: uma recusa (422) não deixa linha órfã.
+        videos.save({video-entity}.register(upload.videoId, Instant.now()))
+        return InitUploadResult(upload.videoId, upload.partSizeBytes, upload.partCount)
+    }
+}

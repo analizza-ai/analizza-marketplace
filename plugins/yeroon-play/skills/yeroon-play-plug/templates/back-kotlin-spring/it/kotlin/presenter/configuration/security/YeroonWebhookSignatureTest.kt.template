@@ -1,0 +1,64 @@
+package {base-package}.presenter.configuration.security
+
+import java.time.Instant
+import java.util.HexFormat
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/** Unitário (sem Spring, sem banco): roda no `test`, não no `integrationTest`. */
+class YeroonWebhookSignatureTest {
+
+    private fun header(secret: String, t: Long, body: ByteArray): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
+        mac.update("$t.".toByteArray())
+        return "t=$t,v1=" + HexFormat.of().formatHex(mac.doFinal(body))
+    }
+
+    @Test
+    fun assinaturaValidaPassa() {
+        assertTrue(YeroonWebhookSignature.verify(SECRET, header(SECRET, T, BODY), BODY, Instant.ofEpochSecond(T)))
+    }
+
+    @Test
+    fun umByteAMaisNoCorpoFalha() {
+        val alterado = BODY + " ".toByteArray()
+        assertFalse(YeroonWebhookSignature.verify(SECRET, header(SECRET, T, BODY), alterado, Instant.ofEpochSecond(T)))
+    }
+
+    @Test
+    fun janelaDeCincoMinutosParaCadaLado() {
+        val h = header(SECRET, T, BODY)
+        assertTrue(YeroonWebhookSignature.verify(SECRET, h, BODY, Instant.ofEpochSecond(T + 300)))
+        assertTrue(YeroonWebhookSignature.verify(SECRET, h, BODY, Instant.ofEpochSecond(T - 300)))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, h, BODY, Instant.ofEpochSecond(T + 301)))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, h, BODY, Instant.ofEpochSecond(T - 301)))
+    }
+
+    @Test
+    fun cabecalhoMalformadoFalha() {
+        val now = Instant.ofEpochSecond(T)
+        assertFalse(YeroonWebhookSignature.verify(SECRET, "v1=abc", BODY, now))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, "", BODY, now))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, null, BODY, now))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, "t=abc,v1=zz", BODY, now))
+        assertFalse(YeroonWebhookSignature.verify(SECRET, "t=$T,v1=zz", BODY, now))
+    }
+
+    @Test
+    fun semSegredoRecusaTudo() {
+        val now = Instant.ofEpochSecond(T)
+        assertFalse(YeroonWebhookSignature.verify("", header(SECRET, T, BODY), BODY, now))
+        assertFalse(YeroonWebhookSignature.verify(null, header(SECRET, T, BODY), BODY, now))
+        assertFalse(YeroonWebhookSignature.verify("  ", header(SECRET, T, BODY), BODY, now))
+    }
+
+    private companion object {
+        const val SECRET = "segredo-de-teste"
+        val BODY = """{"id":"1","type":"video.ready"}""".toByteArray()
+        const val T = 1_700_000_000L
+    }
+}

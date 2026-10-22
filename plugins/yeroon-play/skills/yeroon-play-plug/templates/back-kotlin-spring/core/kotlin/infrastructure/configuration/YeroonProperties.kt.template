@@ -1,0 +1,21 @@
+package {base-package}.infrastructure.configuration
+
+import java.net.URI
+import java.time.Duration
+import org.springframework.boot.context.properties.ConfigurationProperties
+
+/**
+ * yeroon.api-url, yeroon.api-key, yeroon.webhook-secret e yeroon.timeout. Os
+ * valores vêm de YEROON_API_URL, YEROON_API_KEY e YEROON_WEBHOOK_SECRET (só no
+ * .env do back); nenhum valor de segredo mora no código nem no git.
+ *
+ * Classe comum, não data class: o toString() de uma data class imprimiria a
+ * chave e o segredo em qualquer log que mostrasse o objeto.
+ */
+@ConfigurationProperties("yeroon")
+class YeroonProperties(
+    val apiUrl: URI = URI.create("https://api.dev.play.yeroon.video"),
+    val apiKey: String? = null,
+    val webhookSecret: String? = null,
+    val timeout: Duration = Duration.ofSeconds(10),
+)

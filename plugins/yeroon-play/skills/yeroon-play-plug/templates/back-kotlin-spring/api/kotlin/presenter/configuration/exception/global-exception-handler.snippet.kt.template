@@ -1,0 +1,57 @@
+// TRECHO — vai para o handler global de exceção do projeto (@RestControllerAdvice).
+//   Já existe um: copie os imports e as funções marcadas "yeroon play" para ele.
+//   Não existe: grave esta classe como presenter/configuration/exception/GlobalExceptionHandler.kt.
+//   Um advice separado não basta se o do projeto tiver @ExceptionHandler(Exception::class):
+//   ele ganharia destas.
+package {base-package}.presenter.configuration.exception
+
+import {base-package}.domain.{video-entity}NotFoundException
+import {base-package}.domain.{video-entity}RequestInvalidException
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonConflictException
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonNotFoundException
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonRejectedException
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonUnavailableException
+import java.net.URI
+import org.springframework.http.HttpStatus
+import org.springframework.http.ProblemDetail
+import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.annotation.RestControllerAdvice
+
+@RestControllerAdvice
+class GlobalExceptionHandler {
+
+    // yeroon play: campos obrigatórios ausentes -> 422 com um errors[] por campo.
+    @ExceptionHandler({video-entity}RequestInvalidException::class)
+    fun yeroonRequestInvalid(ex: {video-entity}RequestInvalidException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "Uma ou mais regras foram quebradas.").apply {
+            setProperty(
+                "errors",
+                ex.missingFields.map { mapOf("code" to "required.$it", "message" to "O campo '$it' é obrigatório.") },
+            )
+        }
+
+    // yeroon play: 422 da /v1 -> 422 com os mesmos errors[].code.
+    @ExceptionHandler(YeroonRejectedException::class)
+    fun yeroonRejected(ex: YeroonRejectedException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "Uma ou mais regras foram quebradas.").apply {
+            setProperty("errors", ex.errors.map { mapOf("code" to it.code.orEmpty(), "message" to it.message.orEmpty()) })
+        }
+
+    // yeroon play: id fora da tabela, ou 404 da /v1 -> 404 que não ecoa o id.
+    @ExceptionHandler({video-entity}NotFoundException::class, YeroonNotFoundException::class)
+    fun yeroonVideoNotFound(ex: RuntimeException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Vídeo não encontrado.").apply {
+            // Sem isto o Spring põe o path (com o id) em "instance".
+            instance = URI.create("about:blank")
+        }
+
+    // yeroon play: 409 da /v1 (ex.: playback antes de PRONTO).
+    @ExceptionHandler(YeroonConflictException::class)
+    fun yeroonConflict(ex: YeroonConflictException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "O vídeo não está pronto para esta operação.")
+
+    // yeroon play: chave recusada, 5xx, rede ou timeout -> 502 genérico, sem detalhe.
+    @ExceptionHandler(YeroonUnavailableException::class)
+    fun yeroonUnavailable(ex: YeroonUnavailableException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, "Serviço de vídeo indisponível.")
+}
