@@ -114,19 +114,20 @@ def test_manifesto_json_valido_mas_nao_objeto_e_reportado(tmp_path: Path, capsys
 
 def test_manifestos_reais_respeitam_o_contrato():
     raiz = Path(__file__).resolve().parents[2]
-    plugin_dir = raiz / "plugins/analizza-skills"
-    claude = json.loads(
-        (plugin_dir / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
-    )
-    codex = json.loads(
-        (plugin_dir / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
-    )
-    assert validar_manifestos(claude, codex, plugin_dir) == []
+    assert validar_marketplace(raiz) == []
 
-    skills_dir = plugin_dir / "skills"
-    assert skills_dir.is_dir()
-    assert not skills_dir.is_symlink()
-    assert len(list(plugin_dir.rglob("SKILL.md"))) == 5
+    marketplace = json.loads(
+        (raiz / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+    )
+    assert marketplace["plugins"]
+    for entrada in marketplace["plugins"]:
+        plugin_dir = raiz / entrada["source"]
+        skills_dir = plugin_dir / "skills"
+        assert skills_dir.is_dir()
+        assert not skills_dir.is_symlink()
+        pastas = [p for p in skills_dir.iterdir() if p.is_dir()]
+        assert pastas
+        assert len(list(skills_dir.glob("*/SKILL.md"))) == len(pastas)
 
 
 def test_readme_documenta_claude_e_codex_sem_comando_inventado():

@@ -16,6 +16,16 @@
       },
       "source": "./plugins/analizza-skills",
       "category": "development"
+    },
+    {
+      "name": "yeroon-play",
+      "description": "Pluga o yeroon play (hospedagem de vídeo) num projeto Spring Boot com Next.js, Expo ou Flutter, com a skill yeroon-play-plug.",
+      "author": {
+        "name": "Diego Lirio",
+        "email": "diegolirio.dl@gmail.com"
+      },
+      "source": "./plugins/yeroon-play",
+      "category": "development"
     }
   ]
 }
