@@ -10,10 +10,14 @@ abaixo não decidir, pergunte à pessoa em vez de supor.
 find . -type f \( -name build.gradle -o -name build.gradle.kts -o -name pom.xml \) \
   -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/target/*'
 
-# Qual deles usa Spring Boot
-grep -lE 'org\.springframework\.boot|spring-boot' \
-  $(find . -type f \( -name build.gradle -o -name build.gradle.kts -o -name pom.xml \) \
-    -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/target/*')
+# Spring Boot: no build, no catálogo de versões, em plugins de convenção
+FONTES=$(find . -type f \( -name build.gradle -o -name build.gradle.kts -o -name pom.xml -o -path '*/gradle/*.toml' \
+    -o -path './buildSrc/*' -o -path './build-logic/*' \) \
+    -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/target/*' \
+    \( -name '*.gradle' -o -name '*.kts' -o -name '*.toml' -o -name pom.xml \))
+[ -n "$FONTES" ] && echo "$FONTES" | tr '\n' '\0' | xargs -0 grep -lE 'org\.springframework\.boot|spring-boot|spring\.boot|springBoot'
+# ...ou direto no fonte (basta um dos dois)
+grep -rlE '@SpringBootApplication' --include='*.java' --include='*.kt' . 2>/dev/null | grep -v '/build/' | head -3
 
 # Linguagem: maioria dos fontes em src/main
 echo "java: $(find . -path '*/src/main/*' -name '*.java' | wc -l)  kotlin: $(find . -path '*/src/main/*' -name '*.kt' | wc -l)"
@@ -22,9 +26,6 @@ echo "java: $(find . -path '*/src/main/*' -name '*.java' | wc -l)  kotlin: $(fin
 cat settings.gradle settings.gradle.kts 2>/dev/null | grep -E 'include'
 # Módulos Maven
 grep -E '<module>' pom.xml 2>/dev/null
-
-# Onde está a classe @SpringBootApplication
-grep -rlE '@SpringBootApplication' --include='*.java' --include='*.kt' . | grep -v '/build/'
 ```
 
 | Achado | Decisão |
@@ -38,7 +39,8 @@ grep -rlE '@SpringBootApplication' --include='*.java' --include='*.kt' . | grep 
 | Módulos `{base}-api` e `{base}-core` | Rotas e webhook no `-api`; cliente da `/v1`, entidade e migration no `-core` (Spring é permitido lá). Respeite o que o `-api` e o `-core` já fazem |
 | Módulo único | Tudo nele, nas pastas que já existem. Não crie `presenter/application/domain` se o projeto não tem |
 | Vários módulos com `@SpringBootApplication` | Perguntar em qual plugar |
-| Nenhum build com Spring Boot | **Parar** (ver "Quando não reconhece") |
+| Build com Spring Boot (inclui `libs.plugins.spring.boot` do catálogo, `buildSrc`, `build-logic`) **ou** `@SpringBootApplication` em `src/main` | É Spring Boot; um dos dois basta |
+| Nenhum dos dois | **Parar** (ver "Quando não reconhece") |
 
 O módulo do back é o que contém a classe `@SpringBootApplication` (ou o `-api`). O `.env` e o
 `application.yml` que valem são os dele.
@@ -92,23 +94,26 @@ grep -rnE '^PORT=' .env .env.local .env.development 2>/dev/null
 grep -rnE 'expo start.*--port' package.json
 ```
 
+A checagem de porta vale só para o front web (Next). **Expo e Flutter pulam este passo**: não há CORS nem porta de navegador para eles.
+
 Ordem: `next dev -p N` / `--port N` → `PORT=N` no `.env*` → padrão **3000**. A porta define a
 origem de dev: `http://localhost:{porta}`, a que vai no signup e em `{front-origin}`.
 
 | Porta | Aviso |
 |---|---|
 | 3000 | Nada |
-| Diferente de 3000 | **Avisar**: o CORS do R2 do yeroon só libera `http://localhost:3000`; o upload pelo navegador vai falhar. Recomendar rodar o front na 3000 em dev, ou pedir ao time do yeroon para incluir a origem. App Expo/Flutter não é afetado |
+| Diferente de 3000 (só Next) | **Avisar**: o CORS do R2 do yeroon só libera `http://localhost:3000`; o upload pelo navegador vai falhar. Recomendar rodar o front na 3000 em dev, ou pedir ao time do yeroon para incluir a origem. App Expo/Flutter não é afetado |
 
 ## 5. Conflito de nome `video`
 
 O molde cria uma entidade `Video` e a tabela `video` (mais `webhook_receipt`). Antes de planejar:
 
 ```bash
-grep -rniE 'create table( if not exists)? +"?video"?[ (]' --include='*.sql' --include='*.xml' --include='*.yml' .
-grep -rnE '@Table\(.*name *= *"video"' --include='*.java' --include='*.kt' .
+grep -rniE 'create table( if not exists)? +"?video"?([[:space:](]|$)' --include='*.sql' --include='*.xml' --include='*.yml' --include='*.yaml' --include='*.json' . | grep -v '/build/'
+grep -rniE 'tableName *(=|:) *"?video"?([[:space:]",>]|$)' --include='*.xml' --include='*.yml' --include='*.yaml' --include='*.json' . | grep -v '/build/'   # Liquibase
+grep -rnE '@Table\(.*name *= *"video"' --include='*.java' --include='*.kt' . | grep -v '/build/'
 grep -rnE '(class|data class) +Video\b' --include='*.java' --include='*.kt' . | grep -v '/build/'
-grep -rniE 'create table( if not exists)? +"?webhook_receipt"?' --include='*.sql' .
+grep -rniE 'webhook_receipt' . --exclude-dir=node_modules --exclude-dir=build --exclude-dir=target --exclude-dir=.git 2>/dev/null
 ```
 
 | Achado | Decisão |

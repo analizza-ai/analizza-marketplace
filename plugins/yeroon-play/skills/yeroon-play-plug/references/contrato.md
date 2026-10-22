@@ -103,8 +103,8 @@ X-Yeroon-Signature: t=<epoch>,v1=<hex>
 | Regra | O que fazer |
 |---|---|
 | Assinatura | `HMAC-SHA256(webhookSecret, "<epoch>.<corpo bruto>")` em hex; comparar com `v1` em tempo constante. Usar o corpo bruto, antes de qualquer parse |
-| Janela | Recusar (`401`) se `epoch` tiver mais de 5 minutos de diferença (±5 min) |
-| Sem segredo | Recusar tudo (`401`) |
+| Janela | Recomendação do cliente (não faz parte do texto da v1): recusar (`401`) se `epoch` tiver mais de 5 minutos de diferença (±5 min) |
+| Sem segredo | Recomendação do cliente: recusar tudo (`401`) |
 | Dedupe | O mesmo aviso pode chegar mais de uma vez: deduplicar por `X-Yeroon-Delivery` |
 | Resposta | Qualquer `2xx` em até 10 s |
 | Retentativas | Fora disso, o aviso volta com espera crescente (30 s, 1 min, 2 min… até 6 h), no máximo 8 vezes |
@@ -118,7 +118,8 @@ X-Yeroon-Signature: t=<epoch>,v1=<hex>
 | `422` | Regra quebrada, com `errors[].code` (ex.: `video.content-type`, `video.size`, `video.deletable`, `trial.video-limit`, `tenant.allowed-origins`) | Repassa `errors[]` |
 | `404` | Vídeo inexistente ou de outro cliente | `404` |
 | `409` | Playback antes de `PRONTO` | `409` |
-| `401` | Chave ausente/errada; também token de reprodução inválido ou vencido | `502` genérico, logando só o prefixo da chave |
+| `401` | Chave ausente/errada na chamada `/v1` | `502` genérico, logando só o prefixo da chave (mapeamento recomendado ao cliente, não é da v1) |
+| `401` do player | Token de reprodução inválido ou vencido: diz respeito ao player/`embedUrl`, não a uma chamada `/v1`. Resolva pedindo novo `playback-token` | — |
 | rede/timeout | — | `502` genérico |
 
 ## Conta de teste e cadastro
