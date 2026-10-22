@@ -22,6 +22,7 @@ app (`app/`, `lib/`, `components/`) e ajuste o alias nos imports.
 | `lib/repasse.ts.template` | `src/lib/repasse.ts` |
 | `lib/upload.ts.template` | `src/lib/upload.ts` |
 | `lib/videoStatus.ts.template` | `src/lib/videoStatus.ts` |
+| `lib/videoId.ts.template` | `src/lib/videoId.ts` — valida o `[id]` (UUID) antes do repasse |
 | `app/api/videos/route.ts.template` | `src/app/api/videos/route.ts` — `GET` da lista |
 | `app/api/videos/uploads/route.ts.template` | `POST` que inicia o upload |
 | `app/api/videos/[id]/route.ts.template` | `GET` do vídeo e `DELETE` (exclui) |
@@ -82,7 +83,19 @@ Os componentes e `lib/*` servem como estão (`next/link` funciona nos dois; o
 
 Avise a pessoa no plano antes de adaptar.
 
+## Segurança do repasse
+
+- Todo handler com `[id]` passa por `repasseVideo` (`lib/videoId.ts`): id que não é UUID responde `400` e o back não é chamado. Sem isso, `..` (que `encodeURIComponent` não altera) faria o `fetch` colapsar o caminho para outras rotas do back, com qualquer método.
+- `repasse` devolve o corpo do back só em respostas abaixo de 500; falha de rede vira `502` e erro `5xx` do back vira o mesmo status com corpo genérico.
+
+## Estilo dos moldes: `{ x }` com espaços
+
+Em JSX e em objetos, os moldes escrevem `src={ embedUrl }` e `{ error }` com
+espaços. É de propósito: a guarda dos moldes lê chaves com uma só palavra em minúsculas como
+marcador não declarado. Ao adaptar ao estilo do projeto, tire os espaços depois
+de gravar o arquivo (o marcador já foi trocado), se quiser.
+
 ## Dois cuidados
 
 - **CORS do storage:** o `PUT` das partes sai do navegador direto para o R2 do yeroon, que hoje só libera `http://localhost:3000` em dev. Porta diferente de 3000 → upload falha no navegador (avise no plano; veja `references/contrato.md`).
-- **Segredo no bundle:** depois de `next build`, `grep -rl 'yk_' .next/` e `grep -rl YEROON_ .next/static` têm de sair vazios (o Passo 4 já pede o primeiro).
+- **Segredo no bundle:** depois de `next build`, `grep -rl 'yk_' .next/` e `grep -rl YEROON_ .next/static` têm de sair vazios (o Passo 4 já pede o primeiro); rode também `grep -rl <nome de {back-url-env}> .next/static`, com o nome que o projeto usa — a URL do back não pode estar no bundle.

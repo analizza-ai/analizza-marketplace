@@ -95,7 +95,7 @@ export async function uploadVideo(
   };
 
   const resume = async (savedId: string) => {
-    const res = await api(`/api/videos/${savedId}/upload/parts`);
+    const res = await api(`/api/videos/${encodeURIComponent(savedId)}/upload/parts`);
     if (res.status === 404 || res.status === 422) {
       clearKeys();
       return null;
@@ -115,7 +115,7 @@ export async function uploadVideo(
     if (!partSize) partSize = Math.max(0, ...body.parts.map((p) => p.sizeBytes));
     if (!partSize) {
       // Nada enviado e plano desconhecido: descarta e recomeça.
-      await api(`/api/videos/${savedId}/upload`, { method: "DELETE" });
+      await api(`/api/videos/${encodeURIComponent(savedId)}/upload`, { method: "DELETE" });
       clearKeys();
       return null;
     }
@@ -137,7 +137,7 @@ export async function uploadVideo(
 
   const cancel = async () => {
     try {
-      await doFetch(`/api/videos/${videoId}/upload`, { method: "DELETE" });
+      await doFetch(`/api/videos/${encodeURIComponent(videoId)}/upload`, { method: "DELETE" });
     } finally {
       clearKeys();
     }
@@ -177,7 +177,7 @@ export async function uploadVideo(
       const batch = missing.slice(i, i + URL_BATCH);
       const res = await mustOk(
         await api(
-          `/api/videos/${videoId}/upload/part-urls`,
+          `/api/videos/${encodeURIComponent(videoId)}/upload/part-urls`,
           jsonInit("POST", { partNumbers: batch }),
         ),
         "URLs das partes",
@@ -198,7 +198,7 @@ export async function uploadVideo(
     if (signal?.aborted) throw abortError();
     await mustOk(
       await api(
-        `/api/videos/${videoId}/upload/complete`,
+        `/api/videos/${encodeURIComponent(videoId)}/upload/complete`,
         jsonInit("POST", {
           parts: [...parts.entries()]
             .sort(([a], [b]) => a - b)

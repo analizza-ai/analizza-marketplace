@@ -1,0 +1,30 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { repasseVideo } from "./videoId";
+
+afterEach(() => vi.unstubAllGlobals());
+
+const UUID = "0b9f6a1e-3c2d-4e5f-8a7b-1c2d3e4f5a6b";
+const request = (method = "GET") => new Request("http://localhost:3000/api/videos/x", { method });
+
+test.each(["..", ".", "", "a/b", "%2e%2e", "../upload", "a?b", "v1"])(
+  "idInvalido(%j)E400SemChamarOBack",
+  async (id) => {
+    const fetchMock = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    for (const method of ["GET", "DELETE", "POST"]) {
+      const res = await repasseVideo(request(method), id, "");
+      expect(res.status).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+
+test("uuidValidoPassaParaOBackComOSufixo", async () => {
+  const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const res = await repasseVideo(request("DELETE"), UUID.toUpperCase(), "/upload");
+  expect(res.status).toBe(204);
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(url).toBe(`http://localhost:8080{context-path}{api-routes-prefix}/videos/${UUID.toUpperCase()}/upload`);
+  expect(init.method).toBe("DELETE");
+});

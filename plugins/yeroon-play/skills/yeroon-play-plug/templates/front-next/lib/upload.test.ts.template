@@ -184,3 +184,20 @@ describe("uploadVideo", () => {
     expect(storage.getItem(key)).toBeNull();
   });
 });
+
+describe("uploadVideo com videoId fora do comum", () => {
+  test("codificaOVideoIdNasUrls", async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url === "/api/videos/uploads") return json({ videoId: "a/b", partSizeBytes: 100, partCount: 1 }, 201);
+      if (url.endsWith("/part-urls")) return json({ urls: [{ partNumber: 1, url: "http://minio/put/1" }] });
+      if (init?.method === "PUT") return new Response(null, { status: 200, headers: { ETag: '"e1"' } });
+      return json({ videoId: "a/b", status: "ENVIADO" });
+    }) as typeof fetch;
+    await uploadVideo(file, { fetchImpl, storage: memoryStorage() });
+    expect(calls).toContain("POST /api/videos/a%2Fb/upload/part-urls");
+    expect(calls).toContain("POST /api/videos/a%2Fb/upload/complete");
+  });
+});

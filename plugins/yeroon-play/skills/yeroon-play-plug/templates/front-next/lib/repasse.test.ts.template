@@ -58,3 +58,40 @@ test("repassaMetodoECorpoJson", async () => {
   expect(init.body).toBe('{"a":1}');
   expect(new Headers(init.headers).get("content-type")).toBe("application/json");
 });
+
+test("falhaDeRedeViraBadGatewayGenerico", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED 10.0.0.5:8080"); }));
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(502);
+  expect(res.headers.get("content-type")).toContain("application/json");
+  const text = await res.text();
+  expect(text).not.toContain("ECONNREFUSED");
+  expect(JSON.parse(text)).toHaveProperty("title");
+});
+
+test("erro5xxDoBackNaoVazaOCorpoMantemOStatus", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response("java.lang.NullPointerException at br.com.x", {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+      }),
+    ),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(500);
+  const text = await res.text();
+  expect(text).not.toContain("NullPointer");
+  expect(JSON.parse(text)).toHaveProperty("title");
+});
+
+test("erro4xxPassaOCorpoDoBack", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response('{"errors":[{"code":"trial.video-limit"}]}', { status: 422, headers: { "content-type": "application/problem+json" } })),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(422);
+  expect(await res.text()).toContain("trial.video-limit");
+});

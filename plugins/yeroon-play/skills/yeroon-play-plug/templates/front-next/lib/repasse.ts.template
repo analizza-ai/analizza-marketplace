@@ -16,12 +16,19 @@ export async function repasse(request: Request, path: string): Promise<Response>
   const contentType = request.headers.get("content-type");
   if (hasBody && contentType) headers["content-type"] = contentType;
 
-  const upstream = await fetch(`${base}${BACK_PREFIX}${path}`, {
-    method,
-    headers,
-    body: hasBody ? await request.text() : undefined,
-    cache: "no-store",
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${base}${BACK_PREFIX}${path}`, {
+      method,
+      headers,
+      body: hasBody ? await request.text() : undefined,
+      cache: "no-store",
+    });
+  } catch {
+    return generic(502, "Não foi possível falar com o servidor.");
+  }
+  // Erro do servidor do back não vaza para o navegador: mesmo status, corpo genérico.
+  if (upstream.status >= 500) return generic(upstream.status, "Erro no servidor.");
 
   const out = new Headers();
   for (const name of PASSTHROUGH_HEADERS) {
@@ -33,4 +40,8 @@ export async function repasse(request: Request, path: string): Promise<Response>
     status: upstream.status,
     headers: out,
   });
+}
+
+function generic(status: number, title: string): Response {
+  return Response.json({ title }, { status });
 }

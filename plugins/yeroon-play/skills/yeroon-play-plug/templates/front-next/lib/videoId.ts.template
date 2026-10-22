@@ -1,0 +1,19 @@
+import { repasse } from "@/lib/repasse";
+
+const VIDEO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O `videoId` é um UUID. Qualquer outra coisa (`..`, `.`, vazio, `a/b`) é recusada aqui com 400:
+ * `encodeURIComponent("..")` continua `..`, e o fetch colapsaria o caminho para outra rota do back.
+ */
+export function isVideoId(id: string): boolean {
+  return VIDEO_ID.test(id);
+}
+
+/** Repassa ao back `/videos/<id><suffix>` depois de validar o id; id inválido responde 400 sem chamar o back. */
+export async function repasseVideo(request: Request, id: string, suffix: string): Promise<Response> {
+  if (!isVideoId(id)) {
+    return Response.json({ title: "Identificador de vídeo inválido." }, { status: 400 });
+  }
+  return repasse(request, `/videos/${id}${suffix}`);
+}
