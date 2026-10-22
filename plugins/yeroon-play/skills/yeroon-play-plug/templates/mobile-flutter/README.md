@@ -103,10 +103,18 @@ ou `flutter_dotenv`, siga o que ele usa. O `{context-path}` e o
 
 Mesmo algoritmo do web: início → `partSizeBytes`/`partCount`; URLs com no máximo
 20 partes por pedido; cada parte lida por faixa com `RandomAccessFile`
-(`setPosition` + `read`) e enviada num `PUT` à URL assinada; `ETag`
-obrigatório; `complete` com `[{partNumber, etag}]`. Duas partes em paralelo,
-três novas tentativas por parte (0,5 s, 1 s, 2 s). Retomada por nome + tamanho
-via `GET …/upload/parts`, pulando as partes já enviadas. `UploadCancelToken`
-para de começar partes novas e chama `DELETE …/upload` (o `PUT` em voo termina).
-Todo `videoId` passa por `isVideoId` (UUID) e `Uri.encodeComponent` antes de
-entrar num caminho.
+(`setPosition` + `read`; leitor injetável em `reader`) e enviada num `PUT` à URL
+assinada; leitura que devolve menos bytes que a parte (arquivo mudou ou
+encolheu) falha a parte antes do `PUT`; `ETag` obrigatório; `complete` com
+`[{partNumber, etag}]`. Duas partes em paralelo, três novas tentativas por parte
+(0,5 s, 1 s, 2 s). Cada parte em voo fica inteira na memória (o `http` ainda
+copia o corpo uma vez): com `partSizeBytes` grande, não aumente a concorrência.
+
+Retomada por nome + tamanho, conferindo uma impressão digital guardada no plano
+(tamanho + FNV-1a dos primeiros 64 KB, lidos pelo mesmo leitor); só então
+`GET …/upload/parts`, pulando as partes já enviadas. Plano sem impressão digital,
+ou outro conteúdo com o mesmo nome e tamanho, não retoma: o upload antigo é
+cancelado no back (`DELETE …/upload`, libera a vaga da conta de teste) e começa
+um novo. `UploadCancelToken` para de começar partes novas e chama
+`DELETE …/upload` (o `PUT` em voo termina). Todo `videoId` passa por
+`isVideoId` (UUID) e `Uri.encodeComponent` antes de entrar num caminho.

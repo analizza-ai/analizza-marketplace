@@ -1,4 +1,5 @@
 import { File, FileMode, Paths } from "expo-file-system";
+import { fetch as expoFetch } from "expo/fetch";
 import { API_BASE, InvalidVideoIdError, ensureOk, isVideoId, videoUrl } from "@/lib/api";
 
 /** Arquivo local escolhido pela pessoa (o `DocumentPickerAsset` do expo-document-picker serve como está). */
@@ -13,13 +14,26 @@ export type PendingUploadStore = {
 
 export type UploadOptions = {
   signal?: AbortSignal;
+  /** Chamadas ao back. Padrão: `fetch` global. */
   fetchImpl?: typeof fetch;
+  /**
+   * `PUT` das partes no storage. Padrão: `fetch` de `expo/fetch`, que entrega o `Uint8Array` ao
+   * código nativo como está; o `fetch` global do React Native converteria cada parte em base64 no JS.
+   * Se só `fetchImpl` for passado (testes), ele serve também para os `PUT`.
+   */
+  putFetch?: PutFetch;
   /** Lê `length` bytes a partir de `offset`. Padrão: `FileHandle` do expo-file-system. */
   readPart?: (uri: string, offset: number, length: number) => Promise<Uint8Array<ArrayBuffer>>;
   store?: PendingUploadStore;
   /** Espera antes de cada nova tentativa de uma parte; o tamanho da lista é o número de novas tentativas. */
   retryDelaysMs?: number[];
 };
+
+/** O mínimo de `fetch` que o `PUT` das partes usa (o global e o de `expo/fetch` servem). */
+export type PutFetch = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: Uint8Array<ArrayBuffer>; signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; headers: { get(name: string): string | null } }>;
 
 /** O início do upload foi recusado por regra de negócio (422): reenviar o mesmo arquivo não adianta. */
 export class UploadRejectedError extends Error {
@@ -41,6 +55,27 @@ function abortError(): Error {
   const e = new Error("Upload cancelado");
   e.name = "AbortError";
   return e;
+}
+
+// Impressão digital do arquivo: tamanho + FNV-1a 32 bits dos primeiros 64 KB. Separa dois
+// arquivos com o mesmo nome e tamanho antes de retomar o upload de um com as partes do outro.
+const FINGERPRINT_BYTES = 64 * 1024;
+
+function fnv1a(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+export async function fileFingerprint(
+  file: LocalVideoFile,
+  readPart: NonNullable<UploadOptions["readPart"]> = readPartFromFile,
+): Promise<string> {
+  const head = await readPart(file.uri, 0, Math.min(FINGERPRINT_BYTES, file.size));
+  return `${file.size}:${fnv1a(head)}`;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -95,6 +130,7 @@ export async function uploadVideo(
   opts: UploadOptions = {},
 ): Promise<string> {
   const doFetch = opts.fetchImpl ?? globalFetch;
+  const putFetch: PutFetch = opts.putFetch ?? opts.fetchImpl ?? ((url, init) => expoFetch(url, init));
   const readPart = opts.readPart ?? readPartFromFile;
   const store = opts.store ?? fileStore();
   const delays = opts.retryDelaysMs ?? BACKOFF_MS;
@@ -139,8 +175,19 @@ export async function uploadVideo(
     };
     if (!isVideoId(body.videoId)) throw new InvalidVideoIdError();
     await store.set(key, body.videoId);
-    await store.set(planKey, JSON.stringify({ partSize: body.partSizeBytes }));
+    await store.set(planKey, JSON.stringify({ partSize: body.partSizeBytes, fingerprint: await fileFingerprint(file, readPart) }));
     return { videoId: body.videoId, partSize: body.partSizeBytes, partCount: body.partCount, done: [] };
+  };
+
+  /** Desiste do upload guardado: cancela no back (libera a vaga da conta) e apaga a chave. */
+  const discard = async (savedId: string) => {
+    try {
+      await api(videoUrl(savedId, "/upload"), { method: "DELETE" });
+    } catch {
+      // já cancelado/abandonado ou sem rede: segue com um upload novo
+    }
+    await clearKeys();
+    return null;
   };
 
   const resume = async (savedId: string): Promise<Plan | null> => {
@@ -148,6 +195,17 @@ export async function uploadVideo(
       await clearKeys();
       return null;
     }
+    // O GET /parts não informa o tamanho da parte: ele vem do plano guardado, junto com a impressão
+    // digital do arquivo. Sem plano, ou com outro conteúdo sob o mesmo nome e tamanho, não retoma.
+    let saved: { partSize?: number; fingerprint?: string } | null = null;
+    try {
+      saved = JSON.parse((await store.get(planKey)) ?? "null");
+    } catch {
+      saved = null;
+    }
+    const partSize = saved?.partSize ?? 0;
+    if (!partSize || saved?.fingerprint !== (await fileFingerprint(file, readPart))) return discard(savedId);
+
     const res = await api(videoUrl(savedId, "/upload/parts"));
     if (res.status === 404 || res.status === 422) {
       await clearKeys();
@@ -155,20 +213,6 @@ export async function uploadVideo(
     }
     await ensureOk(res);
     const body = (await res.json()) as { parts: { partNumber: number; etag: string; sizeBytes: number }[] };
-    // O GET /parts não informa o tamanho da parte: usa o plano guardado ou o maior tamanho já enviado.
-    let partSize = 0;
-    try {
-      partSize = JSON.parse((await store.get(planKey)) ?? "null")?.partSize ?? 0;
-    } catch {
-      partSize = 0;
-    }
-    if (!partSize) partSize = Math.max(0, ...body.parts.map((p) => p.sizeBytes));
-    if (!partSize) {
-      // Nada enviado e plano desconhecido: descarta e recomeça.
-      await api(videoUrl(savedId, "/upload"), { method: "DELETE" });
-      await clearKeys();
-      return null;
-    }
     return {
       videoId: savedId,
       partSize,
@@ -194,11 +238,16 @@ export async function uploadVideo(
 
   const putPart = async (n: number, url: string) => {
     const offset = (n - 1) * partSize;
-    const bytes = await readPart(file.uri, offset, Math.min(partSize, file.size - offset));
+    const expected = Math.min(partSize, file.size - offset);
+    const bytes = await readPart(file.uri, offset, expected);
+    if (bytes.length !== expected) {
+      // Arquivo mudou ou encolheu desde a escolha: enviar a parte assim corromperia o vídeo.
+      throw new Error(`Parte ${n}: lidos ${bytes.length} de ${expected} bytes do arquivo`);
+    }
     for (let attempt = 0; ; attempt++) {
       if (signal?.aborted) throw abortError();
       try {
-        const res = await doFetch(url, {
+        const res = await putFetch(url, {
           method: "PUT",
           headers: { "content-type": "application/octet-stream" },
           body: bytes,

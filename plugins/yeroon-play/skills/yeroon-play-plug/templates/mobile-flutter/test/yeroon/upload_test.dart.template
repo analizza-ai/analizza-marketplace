@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -144,7 +145,8 @@ void main() {
 
   test('retoma enviando só as partes que faltam', () async {
     final back = FakeBack(existingParts: [1, 2]);
-    final store = MemoryPendingUploadStore({key: id, '$key:plan': jsonEncode({'partSize': 10})});
+    final plan = jsonEncode({'partSize': 10, 'fingerprint': await fileFingerprint(file)});
+    final store = MemoryPendingUploadStore({key: id, '$key:plan': plan});
     await uploadVideo(file, null, api: back.api, store: store, retryDelays: noWait);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isFalse);
     expect(back.calls.where((c) => c.method == 'PUT').map((c) => c.url), ['https://storage.test/put/3']);
@@ -158,8 +160,44 @@ void main() {
 
   test('upload guardado que não está mais pendente começa do zero', () async {
     final back = FakeBack(partsStatus: 422);
-    await uploadVideo(file, null, api: back.api, store: MemoryPendingUploadStore({key: id}), retryDelays: noWait);
+    final plan = jsonEncode({'partSize': 10, 'fingerprint': await fileFingerprint(file)});
+    await uploadVideo(file, null,
+        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+    expect(back.calls.any((c) => c.method == 'GET' && c.url.endsWith('/upload/parts')), isTrue);
     expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
+  });
+
+  test('mesmo nome e tamanho com conteúdo diferente não retoma', () async {
+    final back = FakeBack(existingParts: [1, 2]);
+    final plan = jsonEncode({'partSize': 10, 'fingerprint': '25:00000000'});
+    await uploadVideo(file, null,
+        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+    expect(back.calls.any((c) => c.url.endsWith('/upload/parts')), isFalse);
+    expect(back.calls.any((c) => c.method == 'DELETE' && c.url == '$base/videos/$id/upload'), isTrue);
+    expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
+    expect(back.calls.where((c) => c.method == 'PUT').length, 3);
+  });
+
+  test('plano guardado sem impressão digital não retoma', () async {
+    final back = FakeBack(existingParts: [1]);
+    final plan = jsonEncode({'partSize': 10});
+    await uploadVideo(file, null,
+        api: back.api, store: MemoryPendingUploadStore({key: id, '$key:plan': plan}), retryDelays: noWait);
+    expect(back.calls.any((c) => c.url.endsWith('/upload/parts')), isFalse);
+    expect(back.calls.any((c) => c.url == '$base/videos/uploads'), isTrue);
+  });
+
+  test('leitura curta falha a parte antes do PUT', () async {
+    final back = FakeBack();
+    Future<Uint8List> shortReader(File f, int start, int length) async =>
+        Uint8List(start == 10 ? length - 1 : length);
+    await expectLater(
+      uploadVideo(file, null,
+          api: back.api, store: MemoryPendingUploadStore(), reader: shortReader, retryDelays: noWait),
+      throwsA(predicate((e) => e.toString().contains('Parte 2: lidos 9 de 10 bytes do arquivo'))),
+    );
+    expect(back.calls.any((c) => c.method == 'PUT' && c.url.endsWith('/2')), isFalse);
+    expect(back.calls.any((c) => c.url.endsWith('/upload/complete')), isFalse);
   });
 
   test('id guardado que não é UUID é descartado sem chamar o back', () async {

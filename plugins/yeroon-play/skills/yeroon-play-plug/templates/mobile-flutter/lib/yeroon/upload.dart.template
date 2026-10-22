@@ -12,6 +12,9 @@ import 'api.dart';
 
 typedef UploadProgress = void Function(int sentParts, int totalParts);
 
+/// Lê `length` bytes do arquivo a partir de `start`.
+typedef PartReader = Future<Uint8List> Function(File file, int start, int length);
+
 /// Onde fica o upload pendente (para retomar depois de fechar o app).
 abstract class PendingUploadStore {
   Future<String?> get(String key);
@@ -97,6 +100,24 @@ Future<Uint8List> readPart(File file, int start, int length) async {
   }
 }
 
+// Impressão digital do arquivo: tamanho + FNV-1a 32 bits dos primeiros 64 KB. Separa dois
+// arquivos com o mesmo nome e tamanho antes de retomar o upload de um com as partes do outro.
+const int _fingerprintBytes = 64 * 1024;
+
+String _fnv1a(List<int> bytes) {
+  var hash = 0x811c9dc5;
+  for (final b in bytes) {
+    hash ^= b;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).padLeft(8, '0');
+}
+
+Future<String> fileFingerprint(File file, [PartReader reader = readPart]) async {
+  final size = await file.length();
+  return '$size:${_fnv1a(await reader(file, 0, min(_fingerprintBytes, size)))}';
+}
+
 class _Plan {
   _Plan(this.videoId, this.partSize, this.partCount, this.done);
   final String videoId;
@@ -116,6 +137,7 @@ Future<String> uploadVideo(
   YeroonApi? api,
   PendingUploadStore? store,
   UploadCancelToken? cancelToken,
+  PartReader reader = readPart,
   String? fileName,
   String? contentType,
   List<Duration> retryDelays = defaultRetryDelays,
@@ -149,8 +171,19 @@ Future<String> uploadVideo(
     if (!isVideoId(videoId)) throw InvalidVideoIdException(videoId);
     final partSize = body['partSizeBytes'] as int;
     await pending.set(key, videoId);
-    await pending.set(planKey, jsonEncode({'partSize': partSize}));
+    await pending.set(planKey, jsonEncode({'partSize': partSize, 'fingerprint': await fileFingerprint(file, reader)}));
     return _Plan(videoId, partSize, body['partCount'] as int, {});
+  }
+
+  /// Desiste do upload guardado: cancela no back (libera a vaga da conta) e apaga a chave.
+  Future<_Plan?> discard(String savedId) async {
+    try {
+      await back.client.delete(back.videoUri(savedId, '/upload'));
+    } catch (_) {
+      // já cancelado/abandonado ou sem rede: segue com um upload novo
+    }
+    await clearKeys();
+    return null;
   }
 
   Future<_Plan?> resume(String savedId) async {
@@ -158,26 +191,23 @@ Future<String> uploadVideo(
       await clearKeys();
       return null;
     }
+    // O GET /parts não informa o tamanho da parte: ele vem do plano guardado, junto com a impressão
+    // digital do arquivo. Sem plano, ou com outro conteúdo sob o mesmo nome e tamanho, não retoma.
+    Map<String, dynamic>? saved;
+    try {
+      saved = jsonDecode(await pending.get(planKey) ?? 'null') as Map<String, dynamic>?;
+    } catch (_) {
+      saved = null;
+    }
+    final partSize = saved?['partSize'] as int? ?? 0;
+    if (partSize <= 0 || saved?['fingerprint'] != await fileFingerprint(file, reader)) return discard(savedId);
+
     final res = await back.client.get(back.videoUri(savedId, '/upload/parts'));
     if (res.statusCode == 404 || res.statusCode == 422) {
       await clearKeys();
       return null;
     }
     final parts = ((YeroonApi.decode(YeroonApi.ensureOk(res)) as Map)['parts'] as List).cast<Map<String, dynamic>>();
-    // O GET /parts não informa o tamanho da parte: usa o plano guardado ou o maior tamanho já enviado.
-    var partSize = 0;
-    try {
-      partSize = (jsonDecode(await pending.get(planKey) ?? 'null') as Map?)?['partSize'] as int? ?? 0;
-    } catch (_) {
-      partSize = 0;
-    }
-    if (partSize == 0) partSize = parts.fold(0, (m, p) => max(m, p['sizeBytes'] as int? ?? 0));
-    if (partSize == 0) {
-      // Nada enviado e plano desconhecido: descarta e recomeça.
-      await back.client.delete(back.videoUri(savedId, '/upload'));
-      await clearKeys();
-      return null;
-    }
     return _Plan(savedId, partSize, (size / partSize).ceil(), {
       for (final p in parts) p['partNumber'] as int: p['etag'] as String,
     });
@@ -199,7 +229,12 @@ Future<String> uploadVideo(
 
   Future<void> putPart(int n, Uri url) async {
     final start = (n - 1) * plan.partSize;
-    final bytes = await readPart(file, start, min(plan.partSize, size - start));
+    final expected = min(plan.partSize, size - start);
+    final bytes = await reader(file, start, expected);
+    if (bytes.length != expected) {
+      // Arquivo mudou ou encolheu desde a escolha: enviar a parte assim corromperia o vídeo.
+      throw FileSystemException('Parte $n: lidos ${bytes.length} de $expected bytes do arquivo', file.path);
+    }
     for (var attempt = 0;; attempt++) {
       if (cancelled()) throw UploadCancelledException();
       try {

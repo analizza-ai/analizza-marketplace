@@ -1,8 +1,10 @@
 import { API_BASE, InvalidVideoIdError } from "@/lib/api";
-import { UploadRejectedError, uploadVideo, type PendingUploadStore } from "@/lib/upload";
+import { UploadRejectedError, fileFingerprint, uploadVideo, type PendingUploadStore } from "@/lib/upload";
 
 // O molde importa expo-file-system para o leitor e o armazenamento padrão; os testes injetam os dois.
 jest.mock("expo-file-system", () => ({ File: jest.fn(), Paths: {}, FileMode: { ReadOnly: "r" } }));
+// O PUT das partes usa `expo/fetch` por padrão (nativo); os testes injetam o dublê.
+jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
 
 const ID = "3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
 const VIDEOS = `${API_BASE}/videos`;
@@ -103,8 +105,10 @@ describe("uploadVideo", () => {
       url: `${VIDEOS}/uploads`,
       body: { fileName: "a.mp4", contentType: "video/mp4", sizeBytes: 25 },
     });
-    expect([...reads].sort((a, b) => a[1] - b[1])).toEqual([
+    // As três partes por faixa, mais a impressão digital (início do arquivo, até 64 KB).
+    expect([...reads].sort((a, b) => a[1] - b[1] || a[2] - b[2])).toEqual([
       [file.uri, 0, 10],
+      [file.uri, 0, 25],
       [file.uri, 10, 10],
       [file.uri, 20, 5],
     ]);
@@ -139,8 +143,10 @@ describe("uploadVideo", () => {
 
   test("retomaEnviandoSoAsPartesQueFaltam", async () => {
     const { calls, fetchImpl } = fakeApi({ existingParts: [1, 2] });
-    const store = memoryStore({ [key]: ID, [`${key}:plan`]: JSON.stringify({ partSize: 10 }) });
-    await uploadVideo(file, undefined, { fetchImpl, readPart: fakeReader().readPart, store, retryDelaysMs: NO_WAIT });
+    const { readPart } = fakeReader();
+    const plan = JSON.stringify({ partSize: 10, fingerprint: await fileFingerprint(file, readPart) });
+    const store = memoryStore({ [key]: ID, [`${key}:plan`]: plan });
+    await uploadVideo(file, undefined, { fetchImpl, readPart, store, retryDelaysMs: NO_WAIT });
     expect(calls.some((c) => c.url === `${VIDEOS}/uploads`)).toBe(false);
     expect(calls.filter((c) => c.method === "PUT").map((c) => c.url)).toEqual(["https://storage/put/3"]);
     const urlsAsked = calls.find((c) => c.url.endsWith("/part-urls"))?.body;
@@ -151,13 +157,69 @@ describe("uploadVideo", () => {
 
   test("uploadGuardadoQueNaoEstaMaisPendenteComecaDoZero", async () => {
     const { calls, fetchImpl } = fakeApi({ partsStatus: 422 });
+    const { readPart } = fakeReader();
+    const plan = JSON.stringify({ partSize: 10, fingerprint: await fileFingerprint(file, readPart) });
+    await uploadVideo(file, undefined, {
+      fetchImpl,
+      readPart,
+      store: memoryStore({ [key]: ID, [`${key}:plan`]: plan }),
+      retryDelaysMs: NO_WAIT,
+    });
+    expect(calls.some((c) => c.method === "GET" && c.url.endsWith("/upload/parts"))).toBe(true);
+    expect(calls.some((c) => c.url === `${VIDEOS}/uploads`)).toBe(true);
+  });
+
+  test("mesmoNomeETamanhoComConteudoDiferenteNaoRetoma", async () => {
+    const { calls, fetchImpl } = fakeApi({ existingParts: [1, 2] });
+    const plan = JSON.stringify({ partSize: 10, fingerprint: "25:00000000" });
     await uploadVideo(file, undefined, {
       fetchImpl,
       readPart: fakeReader().readPart,
-      store: memoryStore({ [key]: ID }),
+      store: memoryStore({ [key]: ID, [`${key}:plan`]: plan }),
       retryDelaysMs: NO_WAIT,
     });
+    expect(calls.some((c) => c.url.endsWith("/upload/parts"))).toBe(false);
+    expect(calls).toContainEqual({ method: "DELETE", url: `${VIDEOS}/${ID}/upload`, body: undefined });
     expect(calls.some((c) => c.url === `${VIDEOS}/uploads`)).toBe(true);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(3);
+  });
+
+  test("planoGuardadoSemImpressaoDigitalNaoRetoma", async () => {
+    const { calls, fetchImpl } = fakeApi({ existingParts: [1] });
+    await uploadVideo(file, undefined, {
+      fetchImpl,
+      readPart: fakeReader().readPart,
+      store: memoryStore({ [key]: ID, [`${key}:plan`]: JSON.stringify({ partSize: 10 }) }),
+      retryDelaysMs: NO_WAIT,
+    });
+    expect(calls.some((c) => c.url.endsWith("/upload/parts"))).toBe(false);
+    expect(calls.some((c) => c.url === `${VIDEOS}/uploads`)).toBe(true);
+  });
+
+  test("leituraCurtaFalhaAParteAntesDoPut", async () => {
+    const { calls, fetchImpl } = fakeApi({});
+    const readPart = async (_uri: string, offset: number, length: number) =>
+      new Uint8Array(offset === 10 ? length - 1 : length);
+    await expect(
+      uploadVideo(file, undefined, { fetchImpl, readPart, store: memoryStore(), retryDelaysMs: NO_WAIT }),
+    ).rejects.toThrow("Parte 2: lidos 9 de 10 bytes do arquivo");
+    expect(calls.some((c) => c.method === "PUT" && c.url.endsWith("/2"))).toBe(false);
+    expect(calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(false);
+  });
+
+  test("osPutsDasPartesVaoPeloPutFetch", async () => {
+    const api = fakeApi({});
+    const storage = fakeApi({});
+    await uploadVideo(file, undefined, {
+      fetchImpl: api.fetchImpl,
+      putFetch: storage.fetchImpl,
+      readPart: fakeReader().readPart,
+      store: memoryStore(),
+      retryDelaysMs: NO_WAIT,
+    });
+    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
+    expect(storage.calls.filter((c) => c.method === "PUT")).toHaveLength(3);
+    expect(api.calls.some((c) => c.url.endsWith("/upload/complete"))).toBe(true);
   });
 
   test("idGuardadoQueNaoEUuidEDescartadoSemChamarOBack", async () => {

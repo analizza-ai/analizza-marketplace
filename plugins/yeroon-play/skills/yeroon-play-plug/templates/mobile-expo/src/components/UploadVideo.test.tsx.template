@@ -1,9 +1,15 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { UploadVideo, type PickedVideo } from "@/components/UploadVideo";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
+import { UploadVideo, pickVideo, type PickedVideo } from "@/components/UploadVideo";
 import type { uploadVideo } from "@/lib/upload";
 
 jest.mock("expo-document-picker", () => ({ getDocumentAsync: jest.fn() }));
 jest.mock("expo-file-system", () => ({ File: jest.fn(), Paths: {}, FileMode: { ReadOnly: "r" } }));
+jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
+
+const getDocumentAsync = DocumentPicker.getDocumentAsync as jest.Mock;
+const FileMock = File as unknown as jest.Mock;
 
 const ID = "3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
 const picked: PickedVideo = { uri: "file:///cache/a.mp4", name: "a.mp4", size: 25, mimeType: "video/mp4" };
@@ -50,5 +56,29 @@ describe("UploadVideo", () => {
     await render(<UploadVideo onDone={jest.fn()} pick={async () => null} upload={ upload } />);
     await fireEvent.press(screen.getByText("Enviar vídeo"));
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  test("tamanhoDesconhecidoMostraMensagemSemEnviar", async () => {
+    getDocumentAsync.mockResolvedValue({ canceled: false, assets: [{ uri: picked.uri, name: "a.mp4", mimeType: "video/mp4" }] });
+    FileMock.mockImplementation(() => ({ size: null }));
+    const upload = jest.fn() as unknown as typeof uploadVideo;
+    await render(<UploadVideo onDone={jest.fn()} upload={ upload } />);
+    await fireEvent.press(screen.getByText("Enviar vídeo"));
+    expect(await screen.findByText("Não foi possível ler o tamanho do vídeo escolhido.")).toBeTruthy();
+    expect(upload).not.toHaveBeenCalled();
+  });
+});
+
+describe("pickVideo", () => {
+  test("usaOTamanhoDoArquivoQuandoOSeletorNaoInforma", async () => {
+    getDocumentAsync.mockResolvedValue({ canceled: false, assets: [{ uri: picked.uri, name: "a.mp4", mimeType: "video/mp4" }] });
+    FileMock.mockImplementation(() => ({ size: 25 }));
+    await expect(pickVideo()).resolves.toEqual(picked);
+    expect(FileMock).toHaveBeenCalledWith(picked.uri);
+  });
+
+  test("selecaoCanceladaDevolveNull", async () => {
+    getDocumentAsync.mockResolvedValue({ canceled: true, assets: null });
+    await expect(pickVideo()).resolves.toBeNull();
   });
 });

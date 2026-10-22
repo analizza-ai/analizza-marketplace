@@ -88,7 +88,10 @@ entram como constante em `api.ts` (`API_BASE`).
 
 - **`UploadVideo`** — `<UploadVideo onDone={(videoId) => ...} />`. Abre o
   seletor (`expo-document-picker`, `type: "video/*"`, `copyToCacheDirectory:
-  true`), envia com progresso e botão *Cancelar*. Em `onDone`, recarregue a
+  true`), envia com progresso e botão *Cancelar*. Se o seletor não informar o
+  tamanho, `pickVideo` lê `new File(uri).size` (expo-file-system); se ainda
+  assim não souber, mostra "Não foi possível ler o tamanho do vídeo escolhido."
+  em vez de enviar. Em `onDone`, recarregue a
   lista (`refreshKey`) ou abra o vídeo. Para usar outro seletor (ex.:
   `expo-image-picker` na galeria), passe `pick` devolvendo `{ uri, name, size,
   mimeType }` com `uri` `file://`.
@@ -113,12 +116,30 @@ Mesmo algoritmo do web: `POST …/videos/uploads` → `partSizeBytes`/`partCount
 por faixa de bytes com `File(uri).open(FileMode.ReadOnly)` + `offset` +
 `readBytes(length)` do `expo-file-system` (API nova do SDK 54+; no legado seria
 `readAsStringAsync` com `position`/`length` em base64) e vai num `PUT` à URL
-assinada; o `ETag` da resposta é obrigatório; no fim, `POST …/upload/complete`
-com `[{ partNumber, etag }]`. Duas partes em paralelo (cada uma fica inteira na
-memória), três novas tentativas por parte (0,5 s, 1 s, 2 s). O upload pendente
-(nome + tamanho → `videoId` e tamanho da parte) fica num JSON em
-`Paths.document`; reabrir o mesmo arquivo chama `GET …/upload/parts` e envia só
-o que falta. Cancelar chama `DELETE …/upload`. Todo `videoId` passa por
+assinada; leitura que devolve menos bytes que a parte (arquivo mudou ou
+encolheu) falha a parte antes do `PUT`; o `ETag` da resposta é obrigatório; no
+fim, `POST …/upload/complete` com `[{ partNumber, etag }]`. Duas partes em
+paralelo, três novas tentativas por parte (0,5 s, 1 s, 2 s).
+
+**`PUT` com `expo/fetch`.** As chamadas ao back usam o `fetch` global; o `PUT`
+das partes usa o `fetch` de `expo/fetch` (opção `putFetch`, injetável). Conferido
+nas tipagens do SDK 58: ele aceita `BodyInit` e entrega um `Uint8Array`/
+`ArrayBuffer` ao código nativo como está (`normalizeBodyInitAsync`), sem passar
+por base64. Com o `fetch` global do React Native, cada parte viraria base64 no
+JS antes de cruzar para o nativo — cerca de 2,3 a 3 vezes `partSizeBytes` de
+heap por parte em voo, vezes as 2 em paralelo — e aparelho com pouca memória
+fecharia o app no meio do envio. Se trocar `putFetch` pelo global, mantenha a
+concorrência em 2 (ou baixe para 1). Mesmo com `expo/fetch`, cada parte em voo
+ocupa `partSizeBytes` na memória.
+
+**Retomada.** O upload pendente (nome + tamanho → `videoId`, tamanho da parte e
+uma impressão digital: tamanho + FNV-1a dos primeiros 64 KB, lidos com o mesmo
+leitor por faixa) fica num JSON em `Paths.document`. Reabrir o mesmo arquivo
+confere a impressão digital e só então chama `GET …/upload/parts` e envia o que
+falta. Plano sem impressão digital, ou outro conteúdo com o mesmo nome e
+tamanho, não retoma: o upload antigo é cancelado no back (`DELETE …/upload`,
+libera a vaga da conta de teste) e começa um novo. Cancelar chama
+`DELETE …/upload`. Todo `videoId` passa por
 `isVideoId` (UUID) antes de entrar num caminho; o que não for UUID é recusado
 sem chamar o back.
 
