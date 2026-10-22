@@ -37,7 +37,8 @@ public class YeroonClientImpl implements YeroonClient {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdk);
         factory.setReadTimeout(properties.timeout());
         String key = properties.apiKey() == null ? "" : properties.apiKey().trim();
-        this.keyPrefix = key.length() <= 7 ? "(vazia)" : key.substring(0, 7) + "…";
+        // Chave curta demais para ter prefixo seguro: loga só o tamanho.
+        this.keyPrefix = key.length() <= 7 ? "(" + key.length() + " caracteres)" : key.substring(0, 7) + "…";
         if (key.isEmpty()) {
             log.warn("YEROON_API_KEY (yeroon.api-key) está vazia: toda chamada ao yeroon play será recusada.");
         }

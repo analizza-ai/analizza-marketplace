@@ -40,4 +40,14 @@ class YeroonRepositoriesIT extends YeroonIntegrationTest {
         assertTrue(receipts.registerIfNew(delivery, "video.ready", video, Instant.now()));
         assertFalse(receipts.registerIfNew(delivery, "video.ready", video, Instant.now()));
     }
+
+    @Test
+    void falhaQueNaoEDuplicidadeNaoViraJaRecebido() {
+        String longo = "x".repeat(500);
+
+        assertThrows(RuntimeException.class,
+                () -> receipts.registerIfNew(longo, "video.ready", UUID.randomUUID(), Instant.now()));
+        assertThrows(RuntimeException.class,
+                () -> receipts.registerIfNew("delivery-" + UUID.randomUUID(), null, UUID.randomUUID(), Instant.now()));
+    }
 }

@@ -4,8 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 /**
@@ -14,15 +13,12 @@ import org.springframework.test.web.servlet.client.RestTestClient;
  * /v1 zerado a cada teste, um segredo de webhook de teste e um cliente HTTP.
  *
  * <p>O segredo é de teste, sem valor real; o de verdade fica só no .env do back.
+ * Vai por {@code @TestPropertySource} para que um IT filho possa sobrescrevê-lo.
  */
+@TestPropertySource(properties = "yeroon.webhook-secret=" + YeroonIntegrationTest.WEBHOOK_SECRET)
 public abstract class YeroonIntegrationTest extends {base-integration-test-fqn} {
 
     protected static final String WEBHOOK_SECRET = "segredo-de-teste-do-webhook";
-
-    @DynamicPropertySource
-    static void yeroonDeTeste(DynamicPropertyRegistry registry) {
-        registry.add("yeroon.webhook-secret", () -> WEBHOOK_SECRET);
-    }
 
     @Autowired
     protected FakeYeroonClient yeroon;

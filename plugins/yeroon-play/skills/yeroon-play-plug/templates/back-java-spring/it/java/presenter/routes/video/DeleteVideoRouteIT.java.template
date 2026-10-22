@@ -40,6 +40,16 @@ class DeleteVideoRouteIT extends YeroonIntegrationTest {
     }
 
     @Test
+    void jaAusenteNaV1ApagaALinhaERetorna204() {
+        UUID id = UUID.randomUUID();
+        videos.save({video-entity}.register(id, Instant.now()));
+        yeroon.failNext(new YeroonNotFoundException());
+
+        api.delete().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isNoContent();
+        assertFalse(videos.existsById(id));
+    }
+
+    @Test
     void videoNaoExcluivelRepassa422EMantemALinha() {
         UUID id = UUID.randomUUID();
         videos.save({video-entity}.register(id, Instant.now()));

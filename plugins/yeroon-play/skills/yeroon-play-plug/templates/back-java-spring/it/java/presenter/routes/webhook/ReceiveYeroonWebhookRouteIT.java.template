@@ -51,10 +51,16 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
     }
 
     private RestTestClient.ResponseSpec post(byte[] body, String signature, String delivery) {
+        return post(body, signature, delivery, "video.ready");
+    }
+
+    private RestTestClient.ResponseSpec post(byte[] body, String signature, String delivery, String event) {
         var spec = api.post().uri(ROUTE)
                 .contentType(MediaType.APPLICATION_JSON)
-                .header("X-Yeroon-Event", "video.ready")
                 .header("X-Yeroon-Delivery", delivery);
+        if (event != null) {
+            spec = spec.header("X-Yeroon-Event", event);
+        }
         if (signature != null) {
             spec = spec.header("X-Yeroon-Signature", signature);
         }
@@ -160,5 +166,47 @@ class ReceiveYeroonWebhookRouteIT extends YeroonIntegrationTest {
         post(body, sign(body), "outro-id").expectStatus().isBadRequest();
 
         assertEquals(0, recibos());
+    }
+
+    @Test
+    void semTipoNoCorpoNemNoCabecalhoResponde400SemRegistrar() throws Exception {
+        byte[] body = ("{\"id\":\"evt-7\",\"data\":{\"videoId\":\"" + UUID.randomUUID() + "\"}}")
+                .getBytes(StandardCharsets.UTF_8);
+
+        post(body, sign(body), "evt-7", null).expectStatus().isBadRequest();
+
+        assertEquals(0, recibos());
+    }
+
+    @Test
+    void idNuloNoCorpoResponde400SemRegistrar() throws Exception {
+        byte[] body = ("{\"id\":null,\"type\":\"video.ready\",\"data\":{\"videoId\":\"" + UUID.randomUUID() + "\"}}")
+                .getBytes(StandardCharsets.UTF_8);
+
+        post(body, sign(body), "null").expectStatus().isBadRequest();
+
+        assertEquals(0, recibos());
+    }
+
+    @Test
+    void tipoNuloNoCorpoUsaOCabecalho() throws Exception {
+        UUID video = UUID.randomUUID();
+        byte[] body = ("{\"id\":\"evt-8\",\"type\":null,\"data\":{\"videoId\":\"" + video + "\"}}")
+                .getBytes(StandardCharsets.UTF_8);
+
+        post(body, sign(body), "evt-8", "video.failed").expectStatus().isOk();
+
+        assertEquals("video.failed", tipoDoRecibo("evt-8"));
+    }
+
+    private String tipoDoRecibo(String deliveryId) throws Exception {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement st = c.prepareStatement("select event_type from webhook_receipt where delivery_id = ?")) {
+            st.setString(1, deliveryId);
+            try (ResultSet rs = st.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
     }
 }

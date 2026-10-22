@@ -19,8 +19,13 @@ class WebhookReceiptRepositoryImpl implements WebhookReceiptRepository {
         try {
             jpa.saveAndFlush(new WebhookReceiptJpaEntity(deliveryId, eventType, videoId, at));
             return true;
-        } catch (DataIntegrityViolationException alreadyReceived) {
-            return false;
+        } catch (DataIntegrityViolationException e) {
+            // Só a chave primária repetida é "já recebido". Qualquer outra violação
+            // (coluna nula, valor longo demais) sobe: responder 200 perderia o aviso.
+            if (jpa.existsById(deliveryId)) {
+                return false;
+            }
+            throw e;
         }
     }
 }

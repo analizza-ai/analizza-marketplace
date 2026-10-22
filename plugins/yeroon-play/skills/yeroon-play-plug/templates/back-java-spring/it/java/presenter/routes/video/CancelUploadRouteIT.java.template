@@ -28,7 +28,8 @@ class CancelUploadRouteIT extends YeroonIntegrationTest {
 
         api.delete().uri("{api-routes-prefix}/videos/{id}/upload", id)
                 .exchange().expectStatus().isNoContent();
-        assertEquals(1, yeroon.calls());
+        assertEquals(java.util.Set.of(id), yeroon.cancelled);
+        assertTrue(videos.existsById(id));
     }
 
     @Test

@@ -35,6 +35,13 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
   (sem as linhas de comentário do cabeçalho).
 - `api/resources/application.snippet.properties.template` — as três chaves
   `yeroon.*`; em `.yml`, a mesma coisa em árvore. Só referências a variável.
+- `api/java/presenter/configuration/security/security.snippet.java.template`
+  — **só se o projeto usa Spring Security.** `POST {api-routes-prefix}/webhooks/yeroon`
+  precisa de `permitAll` e de ficar fora do CSRF (a assinatura HMAC é a
+  autenticação dele); as rotas `{api-routes-prefix}/videos/**` seguem as regras
+  de autenticação que o projeto já tem. Mescle na `SecurityFilterChain`
+  existente, com o matcher do webhook antes dos mais amplos. Sem Spring
+  Security, ignore o trecho.
 - `it/java/support/test-config.snippet.java.template` — o `@Bean @Primary` do
   dublê, para a classe `@TestConfiguration` que a base de IT importa. Imports
   depois do `package`, membros dentro da classe.
@@ -49,7 +56,8 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
   `listUploadedParts`, `completeUpload`, `cancelUpload`, `listVideos` (filtra a
   lista da `/v1` aos ids da tabela), `getVideo`, `issuePlayback`
   (`embedUrl`, `hlsUrl`, `expiresAt`) e `deleteVideo` (apaga na `/v1` e depois a
-  linha; `422 video.deletable` mantém a linha) — e
+  linha; `422 video.deletable` mantém a linha; `404` da `/v1` para um id que
+  está na tabela apaga a linha e responde `204`) — e
   `application/webhook/receiveYeroonEvent/`; entidade `{video-entity}`,
   repositórios e a migration das tabelas `{video-table}` e `webhook_receipt`.
 - **api:** uma rota por classe em `presenter/routes/video/<caso>/`, todas sob
@@ -57,10 +65,11 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
   em `{api-routes-prefix}/webhooks/yeroon`, com `YeroonWebhookSignature`
   (HMAC-SHA256 sobre os bytes brutos, tempo constante, ±5 min, sem segredo
   recusa tudo, dedupe pelo `id` assinado, que tem de bater com
-  `X-Yeroon-Delivery`). O `{context-path}` não entra em mapeamento.
+  `X-Yeroon-Delivery`; `id` ou tipo ausente/nulo → `400`). O segredo vem só de
+  `YeroonProperties`. O `{context-path}` não entra em mapeamento.
 - **it:** `support/FakeYeroonClient` (dublê em memória), `support/YeroonIntegrationTest`
   (estende `{base-integration-test-fqn}`, zera o dublê, põe um segredo de teste
-  e cria um `RestTestClient` próprio), um `<Rota>IT` por rota, o IT dos
+  e cria um `RestTestClient` próprio), um `<Rota>IT` por rota, `ReceiveYeroonWebhookWithoutSecretIT` (sem segredo → `401`), o IT dos
   repositórios e dois unitários que rodam no `test`: `YeroonWebhookSignatureTest`
   e `YeroonClientImplTest` (servidor HTTP local do JDK). Nenhum chama a `/v1`.
 
@@ -73,9 +82,19 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
 - **Spring Boot 3:** `RestTestClient` não existe — troque, no
   `YeroonIntegrationTest`, por `TestRestTemplate`/`WebTestClient` ou pelo cliente
   que a base de IT já expõe, mantendo as mesmas asserções.
+- **Base de IT sem servidor de verdade:** `YeroonIntegrationTest` usa
+  `@LocalServerPort` e `RestTestClient.bindToServer`, o que exige
+  `webEnvironment = RANDOM_PORT`. Se a base do projeto é `MOCK` (o padrão do
+  `@SpringBootTest`) ou usa MockMvc, ponha
+  `@SpringBootTest(webEnvironment = RANDOM_PORT)` no `YeroonIntegrationTest`
+  ou troque o cliente por `RestTestClient.bindTo(mockMvc)` / o MockMvc que a
+  base já injeta, mantendo as asserções.
 - **Sem classe base de IT:** `YeroonIntegrationTest` leva
   `@SpringBootTest(webEnvironment = RANDOM_PORT)` e o `@Import` do
-  `TestConfig` em vez do `extends`.
+  `TestConfig` em vez do `extends`, e precisa de um banco: siga o que o
+  projeto já usa nos testes (Testcontainers com `@ServiceConnection`, banco de
+  `docker-compose`, perfil de teste). Sem nada disso, diga no plano que a base
+  de IT falta, em vez de inventar uma.
 - **Regra "todo entrypoint tem IT"** (ArchUnit ou similar): os ITs se chamam
   `<Rota>IT` e estendem a base por meio de `YeroonIntegrationTest`.
 - **Banco que não é PostgreSQL:** troque `uuid`/`timestamptz` na migration

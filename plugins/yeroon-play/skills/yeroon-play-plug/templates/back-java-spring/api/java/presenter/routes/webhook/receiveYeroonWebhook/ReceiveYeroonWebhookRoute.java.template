@@ -2,12 +2,12 @@ package {base-package}.presenter.routes.webhook.receiveYeroonWebhook;
 
 import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventCommand;
 import {base-package}.application.webhook.receiveYeroonEvent.ReceiveYeroonEventHandler;
+import {base-package}.infrastructure.configuration.YeroonProperties;
 import {base-package}.presenter.configuration.security.YeroonWebhookSignature;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -22,12 +22,11 @@ import org.springframework.web.bind.annotation.*;
 public class ReceiveYeroonWebhookRoute {
 
     private final ReceiveYeroonEventHandler handler;
-    private final String secret;
+    private final YeroonProperties properties;
 
-    public ReceiveYeroonWebhookRoute(ReceiveYeroonEventHandler handler,
-                                     @Value("${yeroon.webhook-secret:}") String secret) {
+    public ReceiveYeroonWebhookRoute(ReceiveYeroonEventHandler handler, YeroonProperties properties) {
         this.handler = handler;
-        this.secret = secret;
+        this.properties = properties;
     }
 
     @PostMapping("{api-routes-prefix}/webhooks/yeroon")
@@ -36,7 +35,7 @@ public class ReceiveYeroonWebhookRoute {
                                     @RequestHeader(value = "X-Yeroon-Delivery", required = false) String deliveryId,
                                     @RequestHeader(value = "X-Yeroon-Event", required = false) String eventType) {
         // Assinatura sobre os bytes brutos, antes de qualquer parse.
-        if (!YeroonWebhookSignature.verify(secret, signature, rawBody, Instant.now())) {
+        if (!YeroonWebhookSignature.verify(properties.webhookSecret(), signature, rawBody, Instant.now())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED));
         }
         String eventId;
@@ -45,19 +44,25 @@ public class ReceiveYeroonWebhookRoute {
         try {
             Map<String, Object> root = JsonParserFactory.getJsonParser()
                     .parseMap(new String(rawBody, StandardCharsets.UTF_8));
-            eventId = String.valueOf(root.getOrDefault("id", ""));
-            type = String.valueOf(root.getOrDefault("type", ""));
-            Object data = root.get("data");
-            videoId = UUID.fromString(String.valueOf(((Map<?, ?>) data).get("videoId")));
+            eventId = text(root.get("id"));
+            type = text(root.get("type"));
+            videoId = UUID.fromString(text(((Map<?, ?>) root.get("data")).get("videoId")));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ProblemDetail.forStatus(HttpStatus.BAD_REQUEST));
         }
         // O id do corpo é assinado; os cabeçalhos não. Dedupe pelo id assinado, que
         // é o mesmo valor do X-Yeroon-Delivery; divergência é recusada.
-        if (eventId.isBlank() || (deliveryId != null && !deliveryId.equals(eventId))) {
+        String resolvedType = type.isBlank() && eventType != null ? eventType.trim() : type;
+        if (eventId.isBlank() || resolvedType.isBlank()
+                || (deliveryId != null && !deliveryId.equals(eventId))) {
             return ResponseEntity.badRequest().body(ProblemDetail.forStatus(HttpStatus.BAD_REQUEST));
         }
-        handler.handle(new ReceiveYeroonEventCommand(eventId, type.isBlank() ? eventType : type, videoId));
+        handler.handle(new ReceiveYeroonEventCommand(eventId, resolvedType, videoId));
         return ResponseEntity.ok().build();
+    }
+
+    /** Texto do JSON; null, ausente ou não-texto vira "" (nunca a string "null"). */
+    private static String text(Object value) {
+        return value instanceof String s ? s.trim() : "";
     }
 }

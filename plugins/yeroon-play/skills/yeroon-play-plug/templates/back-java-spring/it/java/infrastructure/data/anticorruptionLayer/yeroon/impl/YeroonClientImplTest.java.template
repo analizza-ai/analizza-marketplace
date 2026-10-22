@@ -154,6 +154,16 @@ class YeroonClientImplTest {
     }
 
     @Test
+    void chaveCurtaRecusadaLogaSoOTamanho() {
+        status = 401;
+        YeroonClientImpl curta = new YeroonClientImpl(new YeroonProperties(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort()), "k-123", "", Duration.ofSeconds(2)));
+
+        assertThatThrownBy(curta::list).isInstanceOf(YeroonUnavailableException.class);
+        assertThat(allLogs()).contains("(5 caracteres)").doesNotContain("k-123");
+    }
+
+    @Test
     void erro5xxViraIndisponivel() {
         status = 503;
         assertThatThrownBy(() -> client().list()).isInstanceOf(YeroonUnavailableException.class);

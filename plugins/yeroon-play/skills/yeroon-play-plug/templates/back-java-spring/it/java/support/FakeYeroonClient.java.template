@@ -17,6 +17,7 @@ public class FakeYeroonClient implements YeroonClient {
 
     public final Map<UUID, YeroonVideo> videos = new ConcurrentHashMap<>();
     public final Set<UUID> deleted = ConcurrentHashMap.newKeySet();
+    public final Set<UUID> cancelled = ConcurrentHashMap.newKeySet();
     private final AtomicInteger calls = new AtomicInteger();
     private volatile RuntimeException nextFailure;
 
@@ -32,6 +33,7 @@ public class FakeYeroonClient implements YeroonClient {
     public void reset() {
         videos.clear();
         deleted.clear();
+        cancelled.clear();
         calls.set(0);
         nextFailure = null;
     }
@@ -77,6 +79,7 @@ public class FakeYeroonClient implements YeroonClient {
     public void cancel(UUID videoId) {
         enter();
         videos.remove(videoId);
+        cancelled.add(videoId);
     }
 
     @Override
