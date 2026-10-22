@@ -99,6 +99,24 @@ ou `flutter_dotenv`, siga o que ele usa. O `{context-path}` e o
   `VideoPlayerController.networkUrl(..., formatHint: VideoFormat.hls)`.
   Alternativa com `embedUrl` em WebView: só em comentário no molde.
 
+## Autenticação do app no back
+
+As rotas `{api-routes-prefix}/videos/**` do back seguem a autenticação que ele
+já tem; o app precisa mandar a credencial do usuário que já usa nas outras
+chamadas. Os moldes não inventam login: injete o cabeçalho pelo `http.Client`.
+
+- `YeroonApi({http.Client? client})` aceita um cliente. Crie no projeto um
+  `http.BaseClient` que, em `send`, acrescenta o cabeçalho do app (ex.:
+  `Authorization: Bearer <token da sessão>`) e passe `YeroonApi(client: ...)`
+  a `VideoList` e `VideoPlayerScreen` (parâmetro `api`) e ao `uploadVideo(api: ...)`
+  — no `VideoUploadButton`, pelo parâmetro `upload`, que embrulha o `uploadVideo`.
+- **Só para o back:** o `uploadVideo` usa o mesmo `client` no `PUT` das partes
+  às URLs assinadas do storage. O cliente acrescenta o cabeçalho **apenas**
+  quando `request.url` começa com `apiBase`; senão a credencial do usuário iria
+  para o storage do yeroon.
+- Back sem autenticação nenhuma: as rotas ficam abertas a qualquer um — o plano
+  avisa (Passo 2) e o norte pede para protegê-las antes de produção.
+
 ## Upload: o que o molde faz
 
 Mesmo algoritmo do web: início → `partSizeBytes`/`partCount`; URLs com no máximo

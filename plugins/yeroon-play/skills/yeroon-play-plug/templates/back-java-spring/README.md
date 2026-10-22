@@ -59,7 +59,7 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
   linha; `422 video.deletable` mantém a linha; `404` da `/v1` para um id que
   está na tabela apaga a linha e responde `204`) — e
   `application/webhook/receiveYeroonEvent/`; entidade `{video-entity}`,
-  repositórios e a migration das tabelas `{video-table}` e `webhook_receipt`.
+  repositórios e a migration das tabelas `{video-table}` e `{webhook-table}`.
 - **api:** uma rota por classe em `presenter/routes/video/<caso>/`, todas sob
   `{api-routes-prefix}/videos`; `presenter/routes/webhook/receiveYeroonWebhook/`
   em `{api-routes-prefix}/webhooks/yeroon`, com `YeroonWebhookSignature`
@@ -70,8 +70,21 @@ Não são arquivos novos: o cabeçalho de cada um diz onde entra.
 - **it:** `support/FakeYeroonClient` (dublê em memória), `support/YeroonIntegrationTest`
   (estende `{base-integration-test-fqn}`, zera o dublê, põe um segredo de teste
   e cria um `RestTestClient` próprio), um `<Rota>IT` por rota, `ReceiveYeroonWebhookWithoutSecretIT` (sem segredo → `401`), o IT dos
-  repositórios e dois unitários que rodam no `test`: `YeroonWebhookSignatureTest`
-  e `YeroonClientImplTest` (servidor HTTP local do JDK). Nenhum chama a `/v1`.
+  repositórios e três unitários que rodam no `test`: `YeroonWebhookSignatureTest`,
+  `YeroonClientImplTest` (servidor HTTP local do JDK) e `YeroonPropertiesTest`
+  (o `toString()` do record não mostra chave nem segredo). Nenhum chama a `/v1`.
+
+## Autenticação das rotas de vídeo
+
+As rotas `{api-routes-prefix}/videos/**` não trazem autenticação própria: ficam
+atrás da que o projeto já tem. O Passo 2 da skill põe no plano o mecanismo
+detectado (Spring Security, sessão/cookie, JWT) e, sem nenhum, avisa que
+`/videos` fica aberto a qualquer um e pode consumir a cota da conta de teste.
+Com Spring Security, o trecho de segurança deixa só o webhook em `permitAll`.
+O web repassa `authorization` e `cookie` do usuário ao back
+(`front-next/lib/repasse.ts`); Expo e Flutter injetam o cabeçalho do app pelo
+cliente HTTP (README de cada um). Proteger `/videos/**` antes de produção é
+item do norte.
 
 ## Ajustes que dependem do projeto
 

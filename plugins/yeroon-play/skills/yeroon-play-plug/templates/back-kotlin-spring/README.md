@@ -27,6 +27,10 @@ se o projeto não tem advice), `security.snippet.kt.template` (só com Spring
 Security) e `it/kotlin/support/test-config.snippet.kt.template` (o `@Bean
 @Primary` do dublê). `application.snippet.properties.template` é idêntico.
 
+A autenticação das rotas `{api-routes-prefix}/videos/**` segue a seção
+*Autenticação das rotas de vídeo* do README do Java: a do projeto, sem nada
+próprio; sem nenhuma, o plano avisa e o norte pede para proteger.
+
 ## Build do `{core-module}`
 
 Além do cliente HTTP (README do Java, *Dependência do cliente HTTP*), o Kotlin

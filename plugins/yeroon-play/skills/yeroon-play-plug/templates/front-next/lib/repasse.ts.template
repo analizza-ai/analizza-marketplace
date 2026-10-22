@@ -1,5 +1,12 @@
 const PASSTHROUGH_HEADERS = ["content-type", "cache-control"];
 
+/**
+ * Credenciais do usuário que seguem do navegador para o back, para que as rotas de vídeo passem pela
+ * autenticação que o back já tem (sessão por cookie ou `Authorization: Bearer`). Vão só ao back do
+ * próprio projeto — nunca ao yeroon, que o Next não chama — e nunca voltam ao navegador.
+ */
+const FORWARDED_AUTH_HEADERS = ["authorization", "cookie"];
+
 /** Caminho do back sob o qual ficam as rotas de vídeo: context-path + prefixo de mapeamento. */
 const BACK_PREFIX = "{context-path}{api-routes-prefix}";
 
@@ -15,6 +22,10 @@ export async function repasse(request: Request, path: string): Promise<Response>
   const headers: Record<string, string> = {};
   const contentType = request.headers.get("content-type");
   if (hasBody && contentType) headers["content-type"] = contentType;
+  for (const name of FORWARDED_AUTH_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) headers[name] = value;
+  }
 
   let upstream: Response;
   try {

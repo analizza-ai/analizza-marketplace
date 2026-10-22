@@ -87,6 +87,7 @@ Avise a pessoa no plano antes de adaptar.
 
 - Todo handler com `[id]` passa por `repasseVideo` (`lib/videoId.ts`): id que não é UUID responde `400` e o back não é chamado. Sem isso, `..` (que `encodeURIComponent` não altera) faria o `fetch` colapsar o caminho para outras rotas do back, com qualquer método.
 - `repasse` devolve o corpo do back só em respostas abaixo de 500; falha de rede vira `502` e erro `5xx` do back vira o mesmo status com corpo genérico.
+- **Autenticação das rotas de vídeo:** `repasse` leva ao back os cabeçalhos `authorization` e `cookie` do pedido do navegador, para que `{api-routes-prefix}/videos/**` passe pela autenticação que o back já tem (sessão por cookie ou `Bearer`). Só esses dois seguem, só para o back do projeto (nunca para o yeroon), e o `set-cookie` do back não volta ao navegador. Se o back autentica de outro jeito (cabeçalho próprio, token guardado no servidor do Next), acrescente-o em `repasse.ts` e diga no plano. Back sem autenticação nenhuma: o plano avisa que `/videos` fica aberto a qualquer um (Passo 2).
 
 ## Estilo dos moldes: `{ x }` com espaços
 

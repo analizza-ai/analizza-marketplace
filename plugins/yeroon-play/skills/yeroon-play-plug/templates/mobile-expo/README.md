@@ -109,6 +109,24 @@ entram como constante em `api.ts` (`API_BASE`).
 Os textos e o markup são mínimos (`View`, `Text`, `Pressable`): troque pelos
 componentes do projeto mantendo os `accessibilityLabel`/`role` que os testes usam.
 
+## Autenticação do app no back
+
+As rotas `{api-routes-prefix}/videos/**` do back seguem a autenticação que ele
+já tem; o app precisa mandar a credencial do usuário que já usa nas outras
+chamadas. Os moldes não inventam login: injete o cabeçalho pelo `fetch`.
+
+- **`src/lib/api.ts`:** toda função recebe `fetchImpl` (padrão: `fetch` global).
+  Crie um `authFetch` no projeto que acrescenta o cabeçalho do app (ex.:
+  `Authorization: Bearer <token da sessão>`) e passe-o nas chamadas, ou troque o
+  `globalFetch` do arquivo por ele.
+- **`src/lib/upload.ts`:** passe `fetchImpl: authFetch` **e** `putFetch`
+  explícito (o `fetch` de `expo/fetch`). Sem `putFetch`, o molde usa o
+  `fetchImpl` também no `PUT` das partes, e a credencial do usuário iria para o
+  storage do yeroon nas URLs assinadas. Se preferir um `fetch` só, acrescente o
+  cabeçalho apenas quando a URL começa com `API_BASE`.
+- Back sem autenticação nenhuma: as rotas ficam abertas a qualquer um — o plano
+  avisa (Passo 2) e o norte pede para protegê-las antes de produção.
+
 ## Upload: o que o molde faz
 
 Mesmo algoritmo do web: `POST …/videos/uploads` → `partSizeBytes`/`partCount`;

@@ -95,3 +95,38 @@ test("erro4xxPassaOCorpoDoBack", async () => {
   expect(res.status).toBe(422);
   expect(await res.text()).toContain("trial.video-limit");
 });
+
+test("repassaAuthorizationECookieDoUsuarioAoBack", async () => {
+  const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await repasse(
+    new Request("http://localhost:3000/api/videos", {
+      headers: { authorization: "Bearer token-do-usuario", cookie: "SESSION=abc", "x-outro": "nao" },
+    }),
+    "/videos",
+  );
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  const sent = new Headers(init.headers);
+  expect(sent.get("authorization")).toBe("Bearer token-do-usuario");
+  expect(sent.get("cookie")).toBe("SESSION=abc");
+  expect(sent.get("x-outro")).toBeNull();
+});
+
+test("semCredenciaisNaoInventaCabecalho", async () => {
+  const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  const sent = new Headers(init.headers);
+  expect(sent.get("authorization")).toBeNull();
+  expect(sent.get("cookie")).toBeNull();
+});
+
+test("setCookieDoBackNaoVoltaAoNavegador", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("[]", { status: 200, headers: { "set-cookie": "SESSION=novo", "content-type": "application/json" } })),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.headers.get("set-cookie")).toBeNull();
+});
