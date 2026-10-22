@@ -1,0 +1,16 @@
+package {base-package}.application.video.getVideo
+
+import {base-package}.domain.{video-entity}NotFoundException
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient
+import org.springframework.stereotype.Component
+
+@Component
+class GetVideoHandler(private val yeroon: YeroonClient, private val videos: {video-entity}Repository) {
+
+    fun handle(query: GetVideoQuery): GetVideoResult {
+        if (!videos.existsById(query.videoId)) throw {video-entity}NotFoundException()
+        val v = yeroon.get(query.videoId)
+        return GetVideoResult(v.videoId, v.fileName, v.status, v.failureReason, v.renditions, v.thumbnailUrl?.toString())
+    }
+}

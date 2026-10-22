@@ -1,0 +1,106 @@
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { VideoPlayer } from "./VideoPlayer";
+
+afterEach(() => vi.unstubAllGlobals());
+
+function stubFetch(status: string) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    void init;
+    if (url === "/api/videos/v1/playback") {
+      return Response.json({ embedUrl: "https://p/embed/x", expiresAt: "2030-01-01T00:00:00Z" });
+    }
+    return Response.json({ status, fileName: "aula.mp4", failureReason: null });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("prontoMostraOIframeComOEmbedUrl", async () => {
+  const fetchMock = stubFetch("PRONTO");
+  render(<VideoPlayer id="v1" />);
+  const iframe = await screen.findByTitle("Player");
+  expect(iframe).toHaveAttribute("src", "https://p/embed/x");
+  expect(iframe).toHaveAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+  expect(iframe).toHaveAttribute("allowfullscreen");
+  const playback = fetchMock.mock.calls.find(([u]) => u === "/api/videos/v1/playback");
+  expect((playback?.[1] as RequestInit).method).toBe("POST");
+});
+
+test("processandoMostraStatusSemIframe", async () => {
+  stubFetch("CONVERTENDO");
+  render(<VideoPlayer id="v1" />);
+  expect(await screen.findByText("CONVERTENDO")).toBeInTheDocument();
+  expect(screen.queryByTitle("Player")).toBeNull();
+});
+
+test("erroDoPlayerMostraMensagem", async () => {
+  stubFetch("PRONTO");
+  render(<VideoPlayer id="v1" />);
+  await screen.findByTitle("Player");
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "https://p",
+        data: { source: "yeroon-player", type: "error" },
+      }),
+    );
+  });
+  await waitFor(() =>
+    expect(screen.getByText("Não foi possível tocar o vídeo.")).toBeInTheDocument(),
+  );
+});
+
+test("erroDeOutraOrigemEIgnorado", async () => {
+  stubFetch("PRONTO");
+  render(<VideoPlayer id="v1" />);
+  await screen.findByTitle("Player");
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "https://evil.example",
+        data: { source: "yeroon-player", type: "error" },
+      }),
+    );
+  });
+  expect(screen.getByTitle("Player")).toBeInTheDocument();
+  expect(screen.queryByText("Não foi possível tocar o vídeo.")).toBeNull();
+});
+
+test.each(["CANCELADO", "ABANDONADO", "FALHOU"])("%sBuscaUmaVezEParaDePesquisar", async (status) => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = stubFetch(status);
+    render(<VideoPlayer id="v1" />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("idComCaracteresEspeciaisVaiCodificadoNaUrl", async () => {
+  const fetchMock = stubFetch("PROCESSANDO");
+  render(<VideoPlayer id="a/b?c" />);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/videos/a%2Fb%3Fc");
+});
+
+test("cadaAberturaPedeUmTokenNovoENadaFicaGuardado", async () => {
+  const fetchMock = stubFetch("PRONTO");
+  const first = render(<VideoPlayer id="v1" />);
+  await screen.findByTitle("Player");
+  first.unmount();
+  render(<VideoPlayer id="v1" />);
+  await screen.findByTitle("Player");
+  const playbacks = fetchMock.mock.calls.filter(([u]) => u === "/api/videos/v1/playback");
+  expect(playbacks).toHaveLength(2);
+  expect(localStorage.length).toBe(0);
+  expect(sessionStorage.length).toBe(0);
+});

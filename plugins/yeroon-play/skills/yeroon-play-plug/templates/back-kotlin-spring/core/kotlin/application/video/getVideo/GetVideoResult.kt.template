@@ -1,0 +1,12 @@
+package {base-package}.application.video.getVideo
+
+import java.util.UUID
+
+data class GetVideoResult(
+    val videoId: UUID,
+    val fileName: String,
+    val status: String,
+    val failureReason: String?,
+    val renditions: List<String>,
+    val thumbnailUrl: String?,
+)

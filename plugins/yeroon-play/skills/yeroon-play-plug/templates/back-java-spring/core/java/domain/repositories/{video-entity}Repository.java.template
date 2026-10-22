@@ -1,0 +1,15 @@
+package {base-package}.domain.repositories;
+
+import {base-package}.domain.{video-entity};
+import java.util.Set;
+import java.util.UUID;
+
+public interface {video-entity}Repository {
+    void save({video-entity} video);
+
+    boolean existsById(UUID id);
+
+    Set<UUID> findAllIds();
+
+    void deleteById(UUID id);
+}

@@ -1,0 +1,51 @@
+package {base-package}.presenter.routes.video;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import {base-package}.support.FakeYeroonClient;
+import {base-package}.support.YeroonIntegrationTest;
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+
+class ListVideosRouteIT extends YeroonIntegrationTest {
+
+    @Autowired
+    private {video-entity}Repository videos;
+
+    @Test
+    void listaSoOsVideosDaTabela() {
+        UUID meu = UUID.randomUUID();
+        UUID deOutro = UUID.randomUUID();
+        yeroon.videos.put(meu, new YeroonVideo(meu, "a.mp4", "PRONTO", null, List.of("720p"),
+                URI.create("https://cdn.example/a.jpg")));
+        yeroon.videos.put(deOutro, new YeroonVideo(deOutro, "b.mp4", "PRONTO", null, List.of("720p"), null));
+        videos.save({video-entity}.register(meu, Instant.now()));
+
+        api.get().uri("{api-routes-prefix}/videos").exchange().expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.videos.length()").isEqualTo(1)
+                .jsonPath("$.videos[0].videoId").isEqualTo(meu.toString())
+                .jsonPath("$.videos[0].fileName").isEqualTo("a.mp4")
+                .jsonPath("$.videos[0].status").isEqualTo("PRONTO")
+                .jsonPath("$.videos[0].createdAt").exists()
+                .jsonPath("$.videos[0].thumbnailUrl").isEqualTo("https://cdn.example/a.jpg");
+    }
+
+    @Test
+    void v1IndisponivelRetorna502SemVazarDetalhe() {
+        yeroon.failNext(new YeroonUnavailableException("detalhe interno"));
+
+        var body = api.get().uri("{api-routes-prefix}/videos").exchange().expectStatus().isEqualTo(502)
+                .expectBody().returnResult().getResponseBody();
+        assertFalse(new String(body).contains("detalhe interno"));
+    }
+}

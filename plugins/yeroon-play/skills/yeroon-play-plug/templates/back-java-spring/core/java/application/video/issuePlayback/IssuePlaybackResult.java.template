@@ -1,0 +1,6 @@
+package {base-package}.application.video.issuePlayback;
+
+import java.time.Instant;
+
+/** Só o que o front precisa: o token vai dentro das URLs e não é guardado. */
+public record IssuePlaybackResult(String embedUrl, String hlsUrl, Instant expiresAt) {}

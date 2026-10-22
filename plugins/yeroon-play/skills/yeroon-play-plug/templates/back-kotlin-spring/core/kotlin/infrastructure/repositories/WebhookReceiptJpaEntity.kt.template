@@ -1,0 +1,36 @@
+package {base-package}.infrastructure.repositories
+
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.Id
+import jakarta.persistence.Table
+import java.time.Instant
+import java.util.UUID
+import org.springframework.data.domain.Persistable
+
+/**
+ * Recibo de um aviso do webhook. Persistable com isNew sempre true: o save vira
+ * INSERT puro (sem SELECT antes), e um deliveryId repetido estoura a chave
+ * primária — é assim que o dedupe funciona em qualquer banco.
+ */
+@Entity
+@Table(name = "{webhook-table}")
+class WebhookReceiptJpaEntity(
+    @field:Id
+    @field:Column(name = "delivery_id")
+    private val deliveryId: String,
+
+    @field:Column(name = "event_type", nullable = false)
+    private val eventType: String,
+
+    @field:Column(name = "video_id")
+    private val videoId: UUID?,
+
+    @field:Column(name = "received_at", nullable = false)
+    private val receivedAt: Instant,
+) : Persistable<String> {
+
+    override fun getId(): String = deliveryId
+
+    override fun isNew(): Boolean = true
+}

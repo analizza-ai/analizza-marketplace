@@ -1,0 +1,14 @@
+package {base-package}.domain.repositories
+
+import {base-package}.domain.{video-entity}
+import java.util.UUID
+
+interface {video-entity}Repository {
+    fun save(video: {video-entity})
+
+    fun existsById(id: UUID): Boolean
+
+    fun findAllIds(): Set<UUID>
+
+    fun deleteById(id: UUID)
+}

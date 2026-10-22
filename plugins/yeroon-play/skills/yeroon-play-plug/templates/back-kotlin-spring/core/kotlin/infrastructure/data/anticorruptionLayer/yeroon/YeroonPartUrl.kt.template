@@ -1,0 +1,7 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import java.net.URI
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class YeroonPartUrl(val partNumber: Int, val url: URI)

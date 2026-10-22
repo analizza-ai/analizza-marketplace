@@ -1,0 +1,59 @@
+package {base-package}.presenter.routes.video
+
+import {base-package}.domain.{video-entity}
+import {base-package}.domain.repositories.{video-entity}Repository
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import {base-package}.support.FakeYeroonClient
+import {base-package}.support.YeroonIntegrationTest
+import java.net.URI
+import java.time.Instant
+import java.util.UUID
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.MediaType
+
+class DeleteVideoRouteIT : YeroonIntegrationTest() {
+
+    @Autowired
+    private lateinit var videos: {video-entity}Repository
+
+    private fun registrado(): UUID = UUID.randomUUID().also { videos.save({video-entity}.register(it, Instant.now())) }
+
+    @Test
+    fun excluiNaV1EApagaALinha() {
+        val id = registrado()
+
+        api.delete().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isNoContent()
+        assertTrue(id in yeroon.deleted)
+        assertFalse(videos.existsById(id))
+    }
+
+    @Test
+    fun idForaDaTabelaRetorna404SemChamarAV1() {
+        api.delete().uri("{api-routes-prefix}/videos/{id}", UUID.randomUUID()).exchange().expectStatus().isNotFound()
+        assertEquals(0, yeroon.calls())
+    }
+
+    @Test
+    fun jaAusenteNaV1ApagaALinhaERetorna204() {
+        val id = registrado()
+        yeroon.failNext(YeroonNotFoundException())
+
+        api.delete().uri("{api-routes-prefix}/videos/{id}", id).exchange().expectStatus().isNoContent()
+        assertFalse(videos.existsById(id))
+    }
+
+    @Test
+    fun videoNaoExcluivelRepassa422EMantemALinha() {
+        val id = registrado()
+        yeroon.failNext(YeroonRejectedException(listOf(YeroonError("video.deletable", "em processamento"))))
+
+        api.delete().uri("{api-routes-prefix}/videos/{id}", id).exchange()
+            .expectStatus().isEqualTo(422)
+            .expectBody().jsonPath("$.errors[0].code").isEqualTo("video.deletable")
+        assertTrue(videos.existsById(id))
+    }
+}

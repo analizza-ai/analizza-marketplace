@@ -1,0 +1,78 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { VideoList } from "./VideoList";
+
+const VIDEOS = [
+  { videoId: "v1", fileName: "ferias.mp4", status: "PRONTO", createdAt: "2026-10-20T10:00:00Z", thumbnailUrl: null },
+  { videoId: "v2", fileName: "aula-de-guarda.mov", status: "PROCESSANDO", createdAt: "2026-10-21T10:00:00Z", thumbnailUrl: null },
+];
+
+let deleteStatus = 204;
+let fetchMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  deleteStatus = 204;
+  fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+    init?.method === "DELETE"
+      ? new Response(null, { status: deleteStatus })
+      : new Response(JSON.stringify({ videos: VIDEOS }), { headers: { "content-type": "application/json" } }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+});
+afterEach(() => vi.unstubAllGlobals());
+
+test("cadaVideoLinkaParaASuaPaginaEMostraOStatus", async () => {
+  render(<VideoList />);
+  const link = await screen.findByRole("link", { name: /ferias\.mp4/ });
+  expect(link).toHaveAttribute("href", "/videos/v1");
+  const outro = screen.getByRole("link", { name: /aula-de-guarda\.mov/ });
+  expect(within(outro).getByText("Convertendo")).toBeInTheDocument();
+});
+
+test("marcaOVideoQueEstaTocando", async () => {
+  render(<VideoList currentId="v2" />);
+  const atual = await screen.findByRole("link", { name: /aula-de-guarda\.mov/ });
+  expect(atual).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("link", { name: /ferias\.mp4/ })).not.toHaveAttribute("aria-current");
+});
+
+test("aBuscaFiltraPeloNomeDoArquivoSemDiferenciarMaiusculas", async () => {
+  render(<VideoList query="FERIAS" />);
+  expect(await screen.findByRole("link", { name: /ferias\.mp4/ })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /aula-de-guarda/ })).not.toBeInTheDocument();
+  expect(screen.getByText("1 de 2")).toBeInTheDocument();
+});
+
+test("buscaSemResultadoDizIsso", async () => {
+  render(<VideoList query="xyz" />);
+  expect(await screen.findByText("Nenhum vídeo com “xyz”.")).toBeInTheDocument();
+});
+
+test("hrefForTrocaOEnderecoDaPaginaDoVideo", async () => {
+  render(<VideoList hrefFor={(id) => `/aulas/${id}/assistir`} />);
+  const link = await screen.findByRole("link", { name: /ferias\.mp4/ });
+  expect(link).toHaveAttribute("href", "/aulas/v1/assistir");
+});
+
+test("excluirPedeConfirmacaoChamaDeleteERetiraDaLista", async () => {
+  const onDeleted = vi.fn();
+  render(<VideoList onDeleted={onDeleted} />);
+  await screen.findByRole("link", { name: /ferias\.mp4/ });
+  fireEvent.click(screen.getByRole("button", { name: "Excluir ferias.mp4" }));
+  expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
+  await waitFor(() => expect(screen.queryByRole("link", { name: /ferias\.mp4/ })).not.toBeInTheDocument());
+  const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
+  expect(call?.[0]).toBe("/api/videos/v1");
+  expect(onDeleted).toHaveBeenCalledWith("v1");
+});
+
+test("exclusaoRecusadaAvisaEMantemOVideo", async () => {
+  deleteStatus = 422;
+  render(<VideoList />);
+  await screen.findByRole("link", { name: /aula-de-guarda\.mov/ });
+  fireEvent.click(screen.getByRole("button", { name: "Excluir aula-de-guarda.mov" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível excluir o vídeo");
+  expect(screen.getByRole("link", { name: /aula-de-guarda\.mov/ })).toBeInTheDocument();
+});

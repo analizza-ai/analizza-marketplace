@@ -1,0 +1,140 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { statusLabel } from "@/lib/videoStatus";
+
+type VideoItem = {
+  videoId: string;
+  fileName: string;
+  status: string;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+const ACTIVE = ["ENVIADO", "PROCESSANDO"];
+const POLL_MS = 5000;
+
+/** Lista os vídeos com o status, atualiza sozinha enquanto algum converte e permite excluir. */
+export function VideoList({
+  currentId,
+  query = "",
+  refreshKey = 0,
+  hrefFor = (id) => `/videos/${id}`,
+  onDeleted,
+}: {
+  currentId?: string;
+  query?: string;
+  /** Muda quando um envio termina: recarrega a lista mesmo com a consulta periódica parada. */
+  refreshKey?: number;
+  /** Endereço da página de cada vídeo. */
+  hrefFor?: (videoId: string) => string;
+  /** Chamado depois que o back confirma a exclusão. */
+  onDeleted?: (videoId: string) => void;
+}) {
+  const [videos, setVideos] = useState<VideoItem[] | null>(null);
+  const [error, setError] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const polling = videos === null || videos.some((v) => ACTIVE.includes(v.status));
+
+  useEffect(() => {
+    if (!polling) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/videos");
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as { videos: VideoItem[] };
+        if (!cancelled) {
+          setVideos(body.videos);
+          setError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setVideos((v) => v ?? []);
+        }
+      }
+    };
+    void load();
+    const timer = setInterval(load, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [polling, refreshKey]);
+
+  const remove = async (videoId: string) => {
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(String(res.status));
+      setVideos((list) => (list ?? []).filter((v) => v.videoId !== videoId));
+      setConfirming(null);
+      onDeleted?.(videoId);
+    } catch {
+      setConfirming(null);
+      setDeleteError("Não foi possível excluir o vídeo. Só vídeos prontos ou com falha podem ser excluídos.");
+    }
+  };
+
+  const term = query.trim().toLowerCase();
+  const shown = (videos ?? []).filter((v) => v.fileName.toLowerCase().includes(term));
+  const total = videos?.length ?? 0;
+
+  return (
+    <section aria-label="Vídeos" className="video-list">
+      <h2 className="video-list__title">Vídeos</h2>
+      <span className="video-list__count">
+        {term ? `${shown.length} de ${total}` : `${total} ${total === 1 ? "vídeo" : "vídeos"}`}
+      </span>
+
+      {videos === null && <p>Carregando…</p>}
+      {error && <p role="alert">Não foi possível carregar os vídeos.</p>}
+      {deleteError && <p role="alert">{ deleteError }</p>}
+      {videos !== null && total === 0 && !error && <p>Nenhum vídeo ainda.</p>}
+      {term && total > 0 && shown.length === 0 && <p>Nenhum vídeo com “{query.trim()}”.</p>}
+
+      <ol className="video-list__items">
+        {shown.map((v) => (
+          <li key={v.videoId} className="video-list__item">
+            <Link
+              href={hrefFor(v.videoId)}
+              aria-current={v.videoId === currentId ? "page" : undefined}
+              className="video-list__link"
+            >
+              <span className="video-list__thumb">
+                {v.thumbnailUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={ v.thumbnailUrl } alt="" />
+                )}
+                {v.status !== "PRONTO" && <span className="video-list__status">{statusLabel(v.status)}</span>}
+              </span>
+              <span className="video-list__name">{ v.fileName }</span>
+              <span className="video-list__date">{new Date(v.createdAt).toLocaleDateString("pt-BR")}</span>
+            </Link>
+            {confirming === v.videoId ? (
+              <span className="video-list__confirm">
+                <button type="button" onClick={() => void remove(v.videoId)}>
+                  Confirmar exclusão
+                </button>
+                <button type="button" onClick={() => setConfirming(null)}>
+                  Manter
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                aria-label={`Excluir ${v.fileName}`}
+                onClick={() => setConfirming(v.videoId)}
+              >
+                Excluir
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}

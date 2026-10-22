@@ -1,0 +1,186 @@
+package {base-package}.presenter.routes.webhook
+
+import {base-package}.support.YeroonIntegrationTest
+import java.time.Instant
+import java.util.HexFormat
+import java.util.UUID
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import javax.sql.DataSource
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.MediaType
+import org.springframework.test.web.servlet.client.RestTestClient
+
+class ReceiveYeroonWebhookRouteIT : YeroonIntegrationTest() {
+
+    @Autowired
+    private lateinit var dataSource: DataSource
+
+    @BeforeEach
+    fun limparRecibos() {
+        dataSource.connection.use { c -> c.prepareStatement("delete from {webhook-table}").use { it.executeUpdate() } }
+    }
+
+    private fun sign(body: ByteArray, secret: String = WEBHOOK_SECRET, t: Long = Instant.now().epochSecond): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
+        mac.update("$t.".toByteArray())
+        return "t=$t,v1=" + HexFormat.of().formatHex(mac.doFinal(body))
+    }
+
+    private fun body(videoId: UUID, eventId: String): ByteArray =
+        ("""{"id":"$eventId","type":"video.ready","createdAt":"2026-10-22T10:00:00Z",""" +
+            """"data":{"videoId":"$videoId","status":"PRONTO","renditions":["720p"]}}""").toByteArray()
+
+    private fun post(
+        body: ByteArray,
+        signature: String?,
+        delivery: String,
+        event: String? = "video.ready",
+    ): RestTestClient.ResponseSpec {
+        var spec = api.post().uri(ROUTE)
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("X-Yeroon-Delivery", delivery)
+        if (event != null) spec = spec.header("X-Yeroon-Event", event)
+        if (signature != null) spec = spec.header("X-Yeroon-Signature", signature)
+        return spec.body(body).exchange()
+    }
+
+    private fun recibos(): Int = dataSource.connection.use { c ->
+        c.prepareStatement("select count(*) from {webhook-table}").use { st ->
+            st.executeQuery().use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+    }
+
+    private fun <T> colunaDoRecibo(deliveryId: String, coluna: String, ler: (java.sql.ResultSet) -> T): T =
+        dataSource.connection.use { c ->
+            c.prepareStatement("select $coluna from {webhook-table} where delivery_id = ?").use { st ->
+                st.setString(1, deliveryId)
+                st.executeQuery().use { rs ->
+                    rs.next()
+                    ler(rs)
+                }
+            }
+        }
+
+    private fun videoDoRecibo(deliveryId: String): UUID =
+        colunaDoRecibo(deliveryId, "video_id") { it.getObject(1, UUID::class.java) }
+
+    private fun tipoDoRecibo(deliveryId: String): String =
+        colunaDoRecibo(deliveryId, "event_type") { it.getString(1) }
+
+    @Test
+    fun avisoAssinadoRegistraEResponde200() {
+        val video = UUID.randomUUID()
+        val body = body(video, "evt-1")
+
+        post(body, sign(body), "evt-1").expectStatus().isOk()
+
+        assertEquals(1, recibos())
+        assertEquals(video, videoDoRecibo("evt-1"))
+    }
+
+    @Test
+    fun corpoComEspacamentoEOrdemIncomunsValeAssinaturaSobreOsBytesBrutos() {
+        val video = UUID.randomUUID()
+        // Ordem de campos trocada, espaços, quebra de linha, tab e acento: se o
+        // back re-serializasse o JSON antes de conferir, a assinatura não bateria.
+        val body = ("{\n  \"data\" : {  \"renditions\" : [ \"720p\" ,\"480p\" ],\t\"status\":\"PRONTO\" ," +
+            " \"videoId\" :   \"$video\", \"nota\": \"aula de revisão\" } ," +
+            "\"type\"   : \"video.ready\" ,\n\"createdAt\":\"2026-10-22T10:00:00Z\",  \"id\" : \"evt-raro\"\n}\n")
+            .toByteArray()
+
+        post(body, sign(body), "evt-raro").expectStatus().isOk()
+
+        assertEquals(video, videoDoRecibo("evt-raro"))
+    }
+
+    @Test
+    fun avisoRepetidoResponde200SemSegundaLinha() {
+        val body = body(UUID.randomUUID(), "evt-2")
+        val sig = sign(body)
+
+        post(body, sig, "evt-2").expectStatus().isOk()
+        post(body, sig, "evt-2").expectStatus().isOk()
+
+        assertEquals(1, recibos())
+    }
+
+    @Test
+    fun corpoAlteradoResponde401() {
+        val body = body(UUID.randomUUID(), "evt-3")
+        val sig = sign(body)
+        val alterado = body.decodeToString().replace("PRONTO", "FALHOU").toByteArray()
+
+        post(alterado, sig, "evt-3").expectStatus().isUnauthorized()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun marcaDeTempoForaDaJanelaResponde401() {
+        val body = body(UUID.randomUUID(), "evt-4")
+
+        post(body, sign(body, t = Instant.now().epochSecond - 301), "evt-4").expectStatus().isUnauthorized()
+        post(body, sign(body, t = Instant.now().epochSecond + 301), "evt-4").expectStatus().isUnauthorized()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun segredoErradoOuSemAssinaturaResponde401() {
+        val body = body(UUID.randomUUID(), "evt-5")
+
+        post(body, sign(body, secret = "outro-segredo"), "evt-5").expectStatus().isUnauthorized()
+        post(body, null, "evt-5").expectStatus().isUnauthorized()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun entregaQueNaoBateComOIdAssinadoResponde400() {
+        val body = body(UUID.randomUUID(), "evt-6")
+
+        post(body, sign(body), "outro-id").expectStatus().isBadRequest()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun semTipoNoCorpoNemNoCabecalhoResponde400SemRegistrar() {
+        val body = """{"id":"evt-7","data":{"videoId":"${UUID.randomUUID()}"}}""".toByteArray()
+
+        post(body, sign(body), "evt-7", event = null).expectStatus().isBadRequest()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun idNuloNoCorpoResponde400SemRegistrar() {
+        val body = """{"id":null,"type":"video.ready","data":{"videoId":"${UUID.randomUUID()}"}}""".toByteArray()
+
+        post(body, sign(body), "null").expectStatus().isBadRequest()
+
+        assertEquals(0, recibos())
+    }
+
+    @Test
+    fun tipoNuloNoCorpoUsaOCabecalho() {
+        val video = UUID.randomUUID()
+        val body = """{"id":"evt-8","type":null,"data":{"videoId":"$video"}}""".toByteArray()
+
+        post(body, sign(body), "evt-8", event = "video.failed").expectStatus().isOk()
+
+        assertEquals("video.failed", tipoDoRecibo("evt-8"))
+    }
+
+    private companion object {
+        const val ROUTE = "{api-routes-prefix}/webhooks/yeroon"
+    }
+}

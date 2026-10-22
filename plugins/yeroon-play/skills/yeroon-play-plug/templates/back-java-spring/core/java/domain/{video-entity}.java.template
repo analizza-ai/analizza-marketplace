@@ -1,0 +1,34 @@
+package {base-package}.domain;
+
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * Vídeo hospedado no yeroon play. O projeto guarda só o id (o videoId da /v1) e
+ * quando foi criado: arquivo, status, partes e URLs de mídia são da plataforma.
+ */
+public class {video-entity} {
+    private final UUID id;
+    private final Instant createdAt;
+
+    private {video-entity}(UUID id, Instant createdAt) {
+        this.id = id;
+        this.createdAt = createdAt;
+    }
+
+    public static {video-entity} register(UUID yeroonVideoId, Instant now) {
+        return new {video-entity}(yeroonVideoId, now);
+    }
+
+    public static {video-entity} restore(UUID id, Instant createdAt) {
+        return new {video-entity}(id, createdAt);
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}

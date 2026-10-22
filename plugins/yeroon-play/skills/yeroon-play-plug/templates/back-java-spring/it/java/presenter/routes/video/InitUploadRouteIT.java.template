@@ -1,0 +1,73 @@
+package {base-package}.presenter.routes.video;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import {base-package}.support.FakeYeroonClient;
+import {base-package}.support.YeroonIntegrationTest;
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+
+class InitUploadRouteIT extends YeroonIntegrationTest {
+
+    @Autowired
+    private {video-entity}Repository videos;
+
+    @Test
+    void criaOUploadNaV1EGuardaSoOVideoId() {
+        var body = api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fileName", "aula.mp4", "contentType", "video/mp4", "sizeBytes", 20_000_000))
+                .exchange().expectStatus().isCreated()
+                .expectBody()
+                .jsonPath("$.partSizeBytes").isEqualTo(8388608)
+                .jsonPath("$.partCount").isEqualTo(3)
+                .returnResult().getResponseBody();
+        UUID id = yeroon.videos.keySet().iterator().next();
+        assertTrue(new String(body).contains("\"videoId\":\"" + id + "\""));
+        assertTrue(videos.existsById(id));
+    }
+
+    @Test
+    void rejeicaoDaV1Vira422ComOsCodigosESemLinhaNova() {
+        var antes = videos.findAllIds();
+        yeroon.failNext(new YeroonRejectedException(List.of(new YeroonError("trial.video-limit", "limite"))));
+
+        api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fileName", "aula.mp4", "contentType", "video/mp4", "sizeBytes", 1))
+                .exchange().expectStatus().isEqualTo(422)
+                .expectBody().jsonPath("$.errors[0].code").isEqualTo("trial.video-limit");
+        assertEquals(antes, videos.findAllIds());
+    }
+
+    @Test
+    void camposAusentesViram422SemChamarAV1() {
+        api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of())
+                .exchange().expectStatus().isEqualTo(422)
+                .expectBody()
+                .jsonPath("$.errors.length()").isEqualTo(3)
+                .jsonPath("$.errors[?(@.code=='required.fileName')]").exists()
+                .jsonPath("$.errors[?(@.code=='required.contentType')]").exists()
+                .jsonPath("$.errors[?(@.code=='required.sizeBytes')]").exists();
+        assertEquals(0, yeroon.calls());
+    }
+
+    @Test
+    void v1IndisponivelVira502Generico() {
+        yeroon.failNext(new YeroonUnavailableException("falha de rede"));
+
+        var body = api.post().uri("{api-routes-prefix}/videos/uploads").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fileName", "aula.mp4", "contentType", "video/mp4", "sizeBytes", 1))
+                .exchange().expectStatus().isEqualTo(502)
+                .expectBody().returnResult().getResponseBody();
+        assertFalse(new String(body).contains("falha de rede"));
+    }
+}

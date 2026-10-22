@@ -1,0 +1,16 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import java.net.URI
+import java.util.UUID
+
+/** Resposta de GET /v1/videos/{id}. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class YeroonVideo(
+    val videoId: UUID,
+    val fileName: String,
+    val status: String,
+    val failureReason: String? = null,
+    val renditions: List<String> = emptyList(),
+    val thumbnailUrl: URI? = null,
+)

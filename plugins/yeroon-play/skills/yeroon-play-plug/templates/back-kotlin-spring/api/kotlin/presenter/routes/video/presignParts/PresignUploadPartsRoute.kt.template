@@ -1,0 +1,20 @@
+package {base-package}.presenter.routes.video.presignParts
+
+import {base-package}.application.video.presignParts.PresignPartsCommand
+import {base-package}.application.video.presignParts.PresignPartsHandler
+import {base-package}.application.video.presignParts.PresignPartsResult
+import java.util.UUID
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RestController
+
+@RestController
+class PresignUploadPartsRoute(private val handler: PresignPartsHandler) {
+
+    data class PresignUploadPartsRequest(val partNumbers: List<Int>? = null)
+
+    @PostMapping("{api-routes-prefix}/videos/{id}/upload/part-urls")
+    fun handle(@PathVariable id: UUID, @RequestBody request: PresignUploadPartsRequest): PresignPartsResult =
+        handler.handle(PresignPartsCommand(id, request.partNumbers))
+}

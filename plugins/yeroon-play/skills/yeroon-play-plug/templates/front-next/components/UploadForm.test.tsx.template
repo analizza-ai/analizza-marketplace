@@ -1,0 +1,78 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, test, vi } from "vitest";
+import { UploadRejectedError, uploadVideo } from "@/lib/upload";
+import { UploadForm } from "./UploadForm";
+
+vi.mock("@/lib/upload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/upload")>()),
+  uploadVideo: vi.fn(),
+}));
+
+const upload = vi.mocked(uploadVideo);
+const video = new File(["x"], "aula.mp4", { type: "video/mp4" });
+
+function escolher(file: File) {
+  fireEvent.change(screen.getByLabelText("Arquivo de vídeo"), { target: { files: [file] } });
+}
+
+beforeEach(() => {
+  upload.mockReset();
+});
+
+test("enviarEstaDesabilitadoSemArquivo", () => {
+  render(<UploadForm />);
+  expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+});
+
+test("mostraOProgressoEEntregaOVideoIdAoTerminar", async () => {
+  let finish!: (r: { videoId: string }) => void;
+  upload.mockImplementation((_file, opts) => {
+    opts?.onProgress?.(1, 4);
+    return new Promise((resolve) => (finish = resolve));
+  });
+  const onDone = vi.fn();
+  render(<UploadForm onDone={onDone} />);
+  escolher(video);
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(await screen.findByText("1 / 4 partes")).toBeInTheDocument();
+  expect(screen.getByLabelText("Progresso do envio")).toHaveAttribute("max", "4");
+  expect(screen.getByLabelText("Arquivo de vídeo")).toBeDisabled();
+  finish({ videoId: "v9" });
+  await waitFor(() => expect(onDone).toHaveBeenCalledWith("v9"));
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("recusaDoServidorMostraAMensagemDele", async () => {
+  upload.mockRejectedValue(new UploadRejectedError("Só vídeos são aceitos."));
+  render(<UploadForm />);
+  escolher(video);
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Só vídeos são aceitos.");
+});
+
+test("falhaDeRedeAvisaEPermiteEnviarDeNovo", async () => {
+  upload.mockRejectedValueOnce(new Error("PUT da parte 2 falhou (500)"));
+  upload.mockResolvedValueOnce({ videoId: "v2" });
+  const onDone = vi.fn();
+  render(<UploadForm onDone={onDone} />);
+  escolher(video);
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("O envio de aula.mp4 falhou");
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  await waitFor(() => expect(onDone).toHaveBeenCalledWith("v2"));
+});
+
+test("cancelarAbortaOEnvioSemMostrarErro", async () => {
+  upload.mockImplementation(
+    (_file, opts) =>
+      new Promise((_resolve, reject) =>
+        opts?.signal?.addEventListener("abort", () => reject(new DOMException("Upload cancelado", "AbortError"))),
+      ),
+  );
+  render(<UploadForm />);
+  escolher(video);
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).not.toBeDisabled());
+  expect(screen.queryByRole("alert")).toBeNull();
+});

@@ -1,0 +1,22 @@
+package {base-package}.presenter.routes.video.issuePlayback
+
+import {base-package}.application.video.issuePlayback.IssuePlaybackCommand
+import {base-package}.application.video.issuePlayback.IssuePlaybackHandler
+import {base-package}.application.video.issuePlayback.IssuePlaybackResult
+import java.util.UUID
+import org.springframework.http.CacheControl
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RestController
+
+@RestController
+class IssuePlaybackRoute(private val handler: IssuePlaybackHandler) {
+
+    /** {embedUrl, hlsUrl, expiresAt}, sem cache: o front pede um novo a cada abertura. */
+    @PostMapping("{api-routes-prefix}/videos/{id}/playback")
+    fun handle(@PathVariable id: UUID): ResponseEntity<IssuePlaybackResult> =
+        ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .body(handler.handle(IssuePlaybackCommand(id)))
+}

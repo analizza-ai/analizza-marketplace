@@ -1,0 +1,18 @@
+package {base-package}.presenter.routes.video.deleteVideo
+
+import {base-package}.application.video.deleteVideo.DeleteVideoCommand
+import {base-package}.application.video.deleteVideo.DeleteVideoHandler
+import java.util.UUID
+import org.springframework.http.HttpStatus
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.ResponseStatus
+import org.springframework.web.bind.annotation.RestController
+
+@RestController
+class DeleteVideoRoute(private val handler: DeleteVideoHandler) {
+
+    @DeleteMapping("{api-routes-prefix}/videos/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun handle(@PathVariable id: UUID) = handler.handle(DeleteVideoCommand(id))
+}

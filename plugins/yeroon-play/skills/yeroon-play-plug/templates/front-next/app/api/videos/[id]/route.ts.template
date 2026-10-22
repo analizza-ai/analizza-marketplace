@@ -1,0 +1,12 @@
+import { repasseVideo } from "@/lib/videoId";
+
+export async function GET(request: Request, ctx: RouteContext<"/api/videos/[id]">) {
+  const { id } = await ctx.params;
+  return repasseVideo(request, id, "");
+}
+
+/** Exclui o vídeo: o back apaga na plataforma e a linha local (422 `video.deletable` se ainda processa). */
+export async function DELETE(request: Request, ctx: RouteContext<"/api/videos/[id]">) {
+  const { id } = await ctx.params;
+  return repasseVideo(request, id, "");
+}

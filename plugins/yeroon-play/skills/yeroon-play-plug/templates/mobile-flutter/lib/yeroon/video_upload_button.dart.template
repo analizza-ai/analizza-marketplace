@@ -1,0 +1,87 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+
+import 'upload.dart';
+
+typedef VideoUploader = Future<String> Function(File file, UploadProgress? onProgress, {UploadCancelToken? cancelToken});
+
+/// Abre o seletor do sistema filtrando vídeos; `null` se a pessoa desistir.
+/// A API do `file_picker` muda entre versões maiores: confira a do projeto (aqui, `FilePicker.pickFile`).
+Future<File?> pickVideoFile() async {
+  final picked = await FilePicker.pickFile(type: FileType.video);
+  final path = picked?.path;
+  return path == null ? null : File(path);
+}
+
+/// Escolhe um vídeo e envia em partes, com progresso e cancelamento. Um envio por vez; um envio
+/// interrompido do mesmo arquivo retoma de onde parou. Sem estilo próprio.
+class VideoUploadButton extends StatefulWidget {
+  const VideoUploadButton({super.key, required this.onDone, this.pick = pickVideoFile, this.upload = uploadVideo});
+
+  /// Recebe o `videoId` quando o back confirma o envio — recarregue a lista ou abra o vídeo.
+  final ValueChanged<String> onDone;
+  final Future<File?> Function() pick;
+  final VideoUploader upload;
+
+  @override
+  State<VideoUploadButton> createState() => _VideoUploadButtonState();
+}
+
+class _VideoUploadButtonState extends State<VideoUploadButton> {
+  String? _sending;
+  int _percent = 0;
+  String? _message;
+  UploadCancelToken? _token;
+
+  Future<void> _start() async {
+    setState(() => _message = null);
+    final file = await widget.pick();
+    if (file == null || !mounted) return;
+    final token = UploadCancelToken();
+    setState(() {
+      _token = token;
+      _sending = file.uri.pathSegments.last;
+      _percent = 0;
+    });
+    try {
+      final videoId = await widget.upload(
+        file,
+        (sent, total) {
+          if (mounted) setState(() => _percent = total == 0 ? 0 : (sent * 100 / total).round());
+        },
+        cancelToken: token,
+      );
+      widget.onDone(videoId);
+    } on UploadCancelledException {
+      _message = 'Envio cancelado.';
+    } on UploadRejectedException catch (e) {
+      _message = e.message;
+    } catch (_) {
+      _message = 'O envio falhou. Tente de novo: as partes já enviadas não são repetidas.';
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sending = null;
+          _token = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_sending != null) ...[
+          Text('Enviando $_sending: $_percent%'),
+          TextButton(onPressed: () => _token?.cancel(), child: const Text('Cancelar')),
+        ] else
+          TextButton(onPressed: _start, child: const Text('Enviar vídeo')),
+        if (_message != null) Text(_message!),
+      ],
+    );
+  }
+}

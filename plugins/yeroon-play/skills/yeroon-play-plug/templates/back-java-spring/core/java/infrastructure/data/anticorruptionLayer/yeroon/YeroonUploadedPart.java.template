@@ -1,0 +1,3 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
+
+public record YeroonUploadedPart(int partNumber, String etag, long sizeBytes) {}

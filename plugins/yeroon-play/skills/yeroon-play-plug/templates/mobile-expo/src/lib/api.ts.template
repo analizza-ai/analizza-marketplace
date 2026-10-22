@@ -1,0 +1,103 @@
+/**
+ * Cliente das rotas de vídeo do back do projeto. O app fala só com o back (e com o storage, nas URLs
+ * assinadas do upload); nunca com a API do yeroon, e nunca tem a chave dela.
+ *
+ * `EXPO_PUBLIC_{back-url-env}` vai para o bundle do app — é de propósito: é a URL do próprio back,
+ * não um segredo. Leia com `process.env.EXPO_PUBLIC_...` literal (o Expo só substitui esse formato).
+ * No emulador Android, `localhost` é o próprio emulador: use `http://10.0.2.2:<porta>`.
+ */
+const BACK_URL = (process.env.EXPO_PUBLIC_{back-url-env} || "http://localhost:8080").replace(/\/+$/, "");
+
+/** URL do back + context-path + prefixo de mapeamento; as rotas de vídeo ficam em `${API_BASE}/videos`. */
+export const API_BASE = `${BACK_URL}{context-path}{api-routes-prefix}`;
+
+export type VideoItem = {
+  videoId: string;
+  fileName: string;
+  status: string;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+export type VideoDetail = {
+  videoId?: string;
+  fileName: string;
+  status: string;
+  failureReason: string | null;
+  thumbnailUrl?: string | null;
+};
+
+/** O que o back devolve do playback. O token vem dentro das URLs: peça de novo a cada abertura, não guarde. */
+export type Playback = { embedUrl: string; hlsUrl: string; expiresAt: string };
+
+/** Resposta de erro do back; `messages` traz os `errors[].message` do problem+json (422). */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly messages: string[] = [],
+  ) {
+    super(messages.join(" ") || `O servidor respondeu ${status}.`);
+    this.name = "ApiError";
+  }
+}
+
+/** O id não é um UUID: o pedido não sai do app. */
+export class InvalidVideoIdError extends Error {
+  constructor() {
+    super("Identificador de vídeo inválido.");
+    this.name = "InvalidVideoIdError";
+  }
+}
+
+const VIDEO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O `videoId` é um UUID. Qualquer outra coisa (`..`, `.`, vazio, `a/b`) é recusada antes do pedido:
+ * `encodeURIComponent("..")` continua `..`, e o caminho colapsaria para outra rota do back.
+ */
+export function isVideoId(id: string): boolean {
+  return VIDEO_ID.test(id);
+}
+
+/** `${API_BASE}/videos/<id><suffix>`; lança `InvalidVideoIdError` se o id não for UUID. */
+export function videoUrl(id: string, suffix = ""): string {
+  if (!isVideoId(id)) throw new InvalidVideoIdError();
+  return `${API_BASE}/videos/${encodeURIComponent(id)}${suffix}`;
+}
+
+// Resolve o `fetch` global na hora da chamada (os testes trocam o global).
+const globalFetch: typeof fetch = (...args) => fetch(...args);
+
+/** Lança `ApiError` quando a resposta não é 2xx, com as mensagens do problem+json se houver. */
+export async function ensureOk(res: Response): Promise<Response> {
+  if (res.ok) return res;
+  let messages: string[] = [];
+  try {
+    const problem = (await res.json()) as { errors?: { message?: string }[] };
+    messages = (problem.errors ?? []).flatMap((e) => (e.message ? [e.message] : []));
+  } catch {
+    // corpo vazio ou fora do padrão: fica a mensagem genérica
+  }
+  throw new ApiError(res.status, messages);
+}
+
+export async function listVideos(fetchImpl: typeof fetch = globalFetch): Promise<VideoItem[]> {
+  const res = await ensureOk(await fetchImpl(`${API_BASE}/videos`));
+  return ((await res.json()) as { videos: VideoItem[] }).videos;
+}
+
+export async function getVideo(id: string, fetchImpl: typeof fetch = globalFetch): Promise<VideoDetail> {
+  const res = await ensureOk(await fetchImpl(videoUrl(id)));
+  return (await res.json()) as VideoDetail;
+}
+
+/** Exclui no back. Vídeo ainda em conversão responde 422 (`video.deletable`). */
+export async function deleteVideo(id: string, fetchImpl: typeof fetch = globalFetch): Promise<void> {
+  await ensureOk(await fetchImpl(videoUrl(id), { method: "DELETE" }));
+}
+
+/** Pede um playback novo (só com o vídeo PRONTO; antes disso o back responde 409). */
+export async function requestPlayback(id: string, fetchImpl: typeof fetch = globalFetch): Promise<Playback> {
+  const res = await ensureOk(await fetchImpl(videoUrl(id, "/playback"), { method: "POST" }));
+  return (await res.json()) as Playback;
+}

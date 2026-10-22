@@ -1,0 +1,9 @@
+{
+  "name": "yeroon-play",
+  "description": "Pluga o yeroon play (hospedagem de vídeo) num projeto Spring Boot com Next.js, Expo ou Flutter",
+  "version": "0.1.0",
+  "author": {
+    "name": "Diego Lirio",
+    "email": "diegolirio.dl@gmail.com"
+  }
+}

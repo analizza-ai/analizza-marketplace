@@ -1,0 +1,330 @@
+// Envio em partes direto para as URLs assinadas do storage, com retomada e cancelamento.
+// Mesmo algoritmo do web: início → URLs (até 20 por pedido) → PUT de cada parte → complete.
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api.dart';
+
+typedef UploadProgress = void Function(int sentParts, int totalParts);
+
+/// Lê `length` bytes do arquivo a partir de `start`.
+typedef PartReader = Future<Uint8List> Function(File file, int start, int length);
+
+/// Onde fica o upload pendente (para retomar depois de fechar o app).
+abstract class PendingUploadStore {
+  Future<String?> get(String key);
+  Future<void> set(String key, String value);
+  Future<void> remove(String key);
+}
+
+/// Guarda no `shared_preferences` do app.
+class SharedPreferencesPendingUploadStore implements PendingUploadStore {
+  final SharedPreferencesAsync _prefs = SharedPreferencesAsync();
+  @override
+  Future<String?> get(String key) => _prefs.getString(key);
+  @override
+  Future<void> set(String key, String value) => _prefs.setString(key, value);
+  @override
+  Future<void> remove(String key) => _prefs.remove(key);
+}
+
+/// Em memória: só retoma enquanto o app está aberto. Útil em testes.
+class MemoryPendingUploadStore implements PendingUploadStore {
+  MemoryPendingUploadStore([Map<String, String>? initial]) : _data = {...?initial};
+  final Map<String, String> _data;
+  bool get isEmpty => _data.isEmpty;
+  @override
+  Future<String?> get(String key) async => _data[key];
+  @override
+  Future<void> set(String key, String value) async => _data[key] = value;
+  @override
+  Future<void> remove(String key) async => _data.remove(key);
+}
+
+/// Cancela um envio em andamento: as partes em voo terminam, nenhuma nova começa e o back é avisado.
+class UploadCancelToken {
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+  void cancel() => _cancelled = true;
+}
+
+class UploadCancelledException implements Exception {
+  @override
+  String toString() => 'Upload cancelado';
+}
+
+/// O início do upload foi recusado por regra de negócio (422): reenviar o mesmo arquivo não adianta.
+class UploadRejectedException implements Exception {
+  UploadRejectedException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+// Cada parte em envio fica inteira na memória: no celular, poucas de cada vez.
+const int _concurrency = 2;
+const int _urlBatch = 20;
+const List<Duration> defaultRetryDelays = [
+  Duration(milliseconds: 500),
+  Duration(seconds: 1),
+  Duration(seconds: 2),
+];
+
+const Map<String, String> _videoTypes = {
+  'mp4': 'video/mp4',
+  'm4v': 'video/x-m4v',
+  'mov': 'video/quicktime',
+  'webm': 'video/webm',
+  'mkv': 'video/x-matroska',
+};
+
+String _contentTypeOf(String name) {
+  final dot = name.lastIndexOf('.');
+  final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+  return _videoTypes[ext] ?? 'application/octet-stream';
+}
+
+/// Lê a faixa `[start, start + length)` do arquivo, sem carregar o arquivo inteiro.
+Future<Uint8List> readPart(File file, int start, int length) async {
+  final raf = await file.open();
+  try {
+    await raf.setPosition(start);
+    return await raf.read(length);
+  } finally {
+    await raf.close();
+  }
+}
+
+// Impressão digital do arquivo: tamanho + FNV-1a 32 bits dos primeiros 64 KB. Separa dois
+// arquivos com o mesmo nome e tamanho antes de retomar o upload de um com as partes do outro.
+const int _fingerprintBytes = 64 * 1024;
+
+String _fnv1a(List<int> bytes) {
+  var hash = 0x811c9dc5;
+  for (final b in bytes) {
+    hash ^= b;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).padLeft(8, '0');
+}
+
+Future<String> fileFingerprint(File file, [PartReader reader = readPart]) async {
+  final size = await file.length();
+  return '$size:${_fnv1a(await reader(file, 0, min(_fingerprintBytes, size)))}';
+}
+
+class _Plan {
+  _Plan(this.videoId, this.partSize, this.partCount, this.done);
+  final String videoId;
+  final int partSize;
+  final int partCount;
+  final Map<int, String> done;
+}
+
+/// Envia o vídeo em partes e devolve o `videoId`.
+///
+/// Retoma um envio interrompido do mesmo arquivo (nome + tamanho) pulando as partes que o back já
+/// lista em `GET …/upload/parts`. [cancelToken] cancela no back (`DELETE …/upload`) e termina com
+/// [UploadCancelledException].
+///
+/// O `PUT` das partes vai para a URL assinada do storage (terceiro) por [storageClient] — padrão: um
+/// `http.Client()` novo, fechado no fim —, nunca pelo `client` do [api], onde o projeto injeta a
+/// autenticação do app.
+Future<String> uploadVideo(
+  File file,
+  UploadProgress? onProgress, {
+  YeroonApi? api,
+  http.Client? storageClient,
+  PendingUploadStore? store,
+  UploadCancelToken? cancelToken,
+  PartReader reader = readPart,
+  String? fileName,
+  String? contentType,
+  List<Duration> retryDelays = defaultRetryDelays,
+}) async {
+  final storage = storageClient ?? http.Client();
+  try {
+    return await _uploadVideo(file, onProgress, api ?? YeroonApi(), storage, store, cancelToken, reader, fileName,
+        contentType, retryDelays);
+  } finally {
+    if (storageClient == null) storage.close();
+  }
+}
+
+Future<String> _uploadVideo(
+  File file,
+  UploadProgress? onProgress,
+  YeroonApi back,
+  http.Client storage,
+  PendingUploadStore? store,
+  UploadCancelToken? cancelToken,
+  PartReader reader,
+  String? fileName,
+  String? contentType,
+  List<Duration> retryDelays,
+) async {
+  final pending = store ?? SharedPreferencesPendingUploadStore();
+  final name = fileName ?? file.uri.pathSegments.last;
+  final size = await file.length();
+  final key = 'upload:$name:$size';
+  final planKey = '$key:plan';
+  const jsonHeaders = {'content-type': 'application/json'};
+  bool cancelled() => cancelToken?.isCancelled ?? false;
+
+  Future<void> clearKeys() async {
+    await pending.remove(key);
+    await pending.remove(planKey);
+  }
+
+  Future<_Plan> startNew() async {
+    final res = await back.client.post(
+      Uri.parse('${back.baseUrl}/videos/uploads'),
+      headers: jsonHeaders,
+      body: jsonEncode({'fileName': name, 'contentType': contentType ?? _contentTypeOf(name), 'sizeBytes': size}),
+    );
+    if (res.statusCode == 422) {
+      final messages = YeroonApi.problemMessages(res);
+      throw UploadRejectedException(messages.isEmpty ? 'O servidor recusou o arquivo.' : messages.join(' '));
+    }
+    final body = YeroonApi.decode(YeroonApi.ensureOk(res)) as Map<String, dynamic>;
+    final videoId = body['videoId'] as String;
+    if (!isVideoId(videoId)) throw InvalidVideoIdException(videoId);
+    final partSize = body['partSizeBytes'] as int;
+    await pending.set(key, videoId);
+    await pending.set(planKey, jsonEncode({'partSize': partSize, 'fingerprint': await fileFingerprint(file, reader)}));
+    return _Plan(videoId, partSize, body['partCount'] as int, {});
+  }
+
+  /// Desiste do upload guardado: cancela no back (libera a vaga da conta) e apaga a chave.
+  Future<_Plan?> discard(String savedId) async {
+    try {
+      await back.client.delete(back.videoUri(savedId, '/upload'));
+    } catch (_) {
+      // já cancelado/abandonado ou sem rede: segue com um upload novo
+    }
+    await clearKeys();
+    return null;
+  }
+
+  Future<_Plan?> resume(String savedId) async {
+    if (!isVideoId(savedId)) {
+      await clearKeys();
+      return null;
+    }
+    // O GET /parts não informa o tamanho da parte: ele vem do plano guardado, junto com a impressão
+    // digital do arquivo. Sem plano, ou com outro conteúdo sob o mesmo nome e tamanho, não retoma.
+    Map<String, dynamic>? saved;
+    try {
+      saved = jsonDecode(await pending.get(planKey) ?? 'null') as Map<String, dynamic>?;
+    } catch (_) {
+      saved = null;
+    }
+    final partSize = saved?['partSize'] as int? ?? 0;
+    if (partSize <= 0 || saved?['fingerprint'] != await fileFingerprint(file, reader)) return discard(savedId);
+
+    final res = await back.client.get(back.videoUri(savedId, '/upload/parts'));
+    if (res.statusCode == 404 || res.statusCode == 422) {
+      await clearKeys();
+      return null;
+    }
+    final parts = ((YeroonApi.decode(YeroonApi.ensureOk(res)) as Map)['parts'] as List).cast<Map<String, dynamic>>();
+    return _Plan(savedId, partSize, (size / partSize).ceil(), {
+      for (final p in parts) p['partNumber'] as int: p['etag'] as String,
+    });
+  }
+
+  final saved = await pending.get(key);
+  final plan = (saved != null ? await resume(saved) : null) ?? await startNew();
+  final parts = plan.done;
+  onProgress?.call(parts.length, plan.partCount);
+
+  Future<Never> cancel() async {
+    try {
+      await back.client.delete(back.videoUri(plan.videoId, '/upload'));
+    } finally {
+      await clearKeys();
+    }
+    throw UploadCancelledException();
+  }
+
+  Future<void> putPart(int n, Uri url) async {
+    final start = (n - 1) * plan.partSize;
+    final expected = min(plan.partSize, size - start);
+    final bytes = await reader(file, start, expected);
+    if (bytes.length != expected) {
+      // Arquivo mudou ou encolheu desde a escolha: enviar a parte assim corromperia o vídeo.
+      throw FileSystemException('Parte $n: lidos ${bytes.length} de $expected bytes do arquivo', file.path);
+    }
+    for (var attempt = 0;; attempt++) {
+      if (cancelled()) throw UploadCancelledException();
+      try {
+        // Só o que a URL assinada pede: nada de `authorization` nem `cookie`.
+        final res = await storage.put(url, headers: {'content-type': 'application/octet-stream'}, body: bytes);
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          throw HttpException('PUT da parte $n falhou (${res.statusCode})');
+        }
+        final etag = res.headers['etag'];
+        if (etag == null || etag.isEmpty) throw HttpException('Parte $n sem ETag na resposta');
+        parts[n] = etag;
+        onProgress?.call(parts.length, plan.partCount);
+        return;
+      } on UploadCancelledException {
+        rethrow;
+      } catch (e) {
+        if (cancelled()) throw UploadCancelledException();
+        if (attempt >= retryDelays.length) rethrow;
+        await Future<void>.delayed(retryDelays[attempt]);
+      }
+    }
+  }
+
+  final missing = [
+    for (var n = 1; n <= plan.partCount; n++)
+      if (!parts.containsKey(n)) n,
+  ];
+
+  try {
+    for (var i = 0; i < missing.length; i += _urlBatch) {
+      final batch = missing.sublist(i, min(i + _urlBatch, missing.length));
+      final res = YeroonApi.ensureOk(await back.client.post(
+        back.videoUri(plan.videoId, '/upload/part-urls'),
+        headers: jsonHeaders,
+        body: jsonEncode({'partNumbers': batch}),
+      ));
+      final queue = [
+        for (final u in ((YeroonApi.decode(res) as Map)['urls'] as List).cast<Map<String, dynamic>>())
+          (u['partNumber'] as int, Uri.parse(u['url'] as String)),
+      ];
+      Future<void> worker() async {
+        while (queue.isNotEmpty) {
+          final (n, url) = queue.removeAt(0);
+          await putPart(n, url);
+        }
+      }
+
+      await Future.wait([for (var w = 0; w < min(_concurrency, queue.length); w++) worker()]);
+    }
+    if (cancelled()) throw UploadCancelledException();
+    final ordered = parts.keys.toList()..sort();
+    YeroonApi.ensureOk(await back.client.post(
+      back.videoUri(plan.videoId, '/upload/complete'),
+      headers: jsonHeaders,
+      body: jsonEncode({
+        'parts': [
+          for (final n in ordered) {'partNumber': n, 'etag': parts[n]},
+        ],
+      }),
+    ));
+  } catch (e) {
+    if (cancelled() || e is UploadCancelledException) return cancel();
+    rethrow;
+  }
+  await clearKeys();
+  return plan.videoId;
+}

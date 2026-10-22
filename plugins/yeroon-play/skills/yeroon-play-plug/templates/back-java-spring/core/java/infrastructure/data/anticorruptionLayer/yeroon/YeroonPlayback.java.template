@@ -1,0 +1,10 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
+
+import java.net.URI;
+import java.time.Instant;
+
+/**
+ * O que interessa de POST /v1/videos/{id}/playback-token. O token em si não é
+ * lido: embedUrl e hlsUrl já o carregam, e ele nunca é guardado.
+ */
+public record YeroonPlayback(URI embedUrl, URI hlsUrl, Instant expiresAt) {}

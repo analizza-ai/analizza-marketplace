@@ -1,7 +1,7 @@
 REPO        := analizza-ai/analizza-marketplace
 MARKETPLACE := analizza-marketplace
-PLUGIN      := analizza-skills
-PLUGIN_DIR  := plugins/analizza-skills
+PLUGIN      ?= analizza-skills
+PLUGINS     := analizza-skills yeroon-play
 
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
@@ -22,7 +22,7 @@ marketplace-add: ## Registra este repositório como marketplace
 	claude plugin marketplace add $(REPO)
 
 .PHONY: install
-install: ## Instala o plugin a partir do marketplace
+install: ## Instala o plugin (PLUGIN=analizza-skills|yeroon-play) a partir do marketplace
 	claude plugin install $(PLUGIN)@$(MARKETPLACE)
 
 .PHONY: agy-install
@@ -32,7 +32,7 @@ agy-install: ## Instala o plugin no Antigravity (agy)
 ##@ Atualização
 
 .PHONY: update
-update: ## Atualiza o marketplace e depois o plugin
+update: ## Atualiza o marketplace e depois o plugin (PLUGIN=...)
 	claude plugin marketplace update $(MARKETPLACE) && claude plugin update $(PLUGIN)
 
 .PHONY: agy-update
@@ -43,14 +43,32 @@ agy-update: ## Atualiza o plugin no Antigravity (agy) reinstalando
 
 .PHONY: validate
 validate: ## Valida os manifestos do marketplace, Claude e Codex
-	claude plugin validate . && claude plugin validate $(PLUGIN_DIR) && python3 tools/validate_plugin_manifests.py
+	claude plugin validate . && \
+	for p in $(PLUGINS); do \
+		[ -d plugins/$$p ] || continue; \
+		claude plugin validate plugins/$$p || exit 1; \
+	done && python3 tools/validate_plugin_manifests.py
+
+# PLUGIN=... na linha de comando (ou no ambiente) escolhe um plugin só; sem ele, todos.
+TAG_EXPLICIT := $(filter command line environment,$(origin PLUGIN))
+TAG_PLUGINS  := $(if $(TAG_EXPLICIT),$(PLUGIN),$(PLUGINS))
 
 .PHONY: tag
-tag: validate ## Cria a tag {plugin}--v{version} validando os manifestos
-	claude plugin tag $(PLUGIN_DIR)
+tag: validate ## Cria a tag {plugin}--v{version} (PLUGIN=... para um só; sem ele, todos, pulando as tags que já existem)
+	@for p in $(TAG_PLUGINS); do \
+		manifest=plugins/$$p/.claude-plugin/plugin.json; \
+		[ -f $$manifest ] || { echo "plugin $$p sem $$manifest" >&2; exit 1; }; \
+		version=$$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' $$manifest) || exit 1; \
+		tag="$$p--v$$version"; \
+		if [ -z "$(TAG_EXPLICIT)" ] && git rev-parse -q --verify "refs/tags/$$tag" >/dev/null; then \
+			echo "skip $$tag: a tag já existe"; continue; \
+		fi; \
+		claude plugin tag plugins/$$p || exit 1; \
+	done
 
 ##@ Qualidade
 
 .PHONY: check
-check: ## Roda a suíte de testes dos validadores
+check: ## Roda a suíte de testes dos validadores e a guarda das skills
 	python3 -m pytest tools/tests -q
+	python3 tools/check_skill_guards.py

@@ -1,0 +1,34 @@
+package {base-package}.application.video.deleteVideo;
+
+import {base-package}.domain.{video-entity}NotFoundException;
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonClient;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.YeroonNotFoundException;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DeleteVideoHandler {
+    private final YeroonClient yeroon;
+    private final {video-entity}Repository videos;
+
+    public DeleteVideoHandler(YeroonClient yeroon, {video-entity}Repository videos) {
+        this.yeroon = yeroon;
+        this.videos = videos;
+    }
+
+    /**
+     * Exclui na /v1 (original, HLS e miniatura; libera a vaga da conta de teste) e
+     * só então apaga a linha. Se a /v1 recusar (422 video.deletable: o vídeo não
+     * está PRONTO nem FALHOU), a linha fica. Se a /v1 já não tem o vídeo (404), a
+     * exclusão já aconteceu lá: apaga a linha e segue (idempotente, 204).
+     */
+    public void handle(DeleteVideoCommand command) {
+        if (!videos.existsById(command.videoId())) throw new {video-entity}NotFoundException();
+        try {
+            yeroon.delete(command.videoId());
+        } catch (YeroonNotFoundException alreadyGone) {
+            // segue para apagar a linha órfã
+        }
+        videos.deleteById(command.videoId());
+    }
+}

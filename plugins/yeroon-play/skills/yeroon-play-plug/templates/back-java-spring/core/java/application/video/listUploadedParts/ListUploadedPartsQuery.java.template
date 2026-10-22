@@ -1,0 +1,5 @@
+package {base-package}.application.video.listUploadedParts;
+
+import java.util.UUID;
+
+public record ListUploadedPartsQuery(UUID videoId) {}

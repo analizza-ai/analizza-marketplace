@@ -1,0 +1,102 @@
+import { useRef, useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
+import { UploadRejectedError, uploadVideo, type LocalVideoFile } from "@/lib/upload";
+
+export type PickedVideo = LocalVideoFile;
+
+/** O seletor não informou o tamanho e o arquivo também não: sem tamanho não há como dividir em partes. */
+export class UnknownFileSizeError extends Error {
+  constructor() {
+    super("Não foi possível ler o tamanho do vídeo escolhido.");
+    this.name = "UnknownFileSizeError";
+  }
+}
+
+/** Abre o seletor de arquivos do sistema filtrando vídeos; `null` se a pessoa desistir. */
+export async function pickVideo(): Promise<PickedVideo | null> {
+  // copyToCacheDirectory: o upload lê o arquivo por faixas de bytes, então precisa de um `file://`.
+  const result = await DocumentPicker.getDocumentAsync({ type: "video/*", copyToCacheDirectory: true });
+  if (result.canceled || !result.assets?.length) return null;
+  const asset = result.assets[0];
+  let size = asset.size ?? null;
+  if (size == null) {
+    try {
+      size = new File(asset.uri).size ?? null;
+    } catch {
+      size = null;
+    }
+  }
+  if (typeof size !== "number" || size <= 0) throw new UnknownFileSizeError();
+  return { uri: asset.uri, name: asset.name, size, mimeType: asset.mimeType ?? null };
+}
+
+/**
+ * Escolhe um vídeo e envia em partes, com progresso e cancelamento. Um envio por vez; um envio
+ * interrompido do mesmo arquivo retoma de onde parou. Sem estilo próprio.
+ */
+export function UploadVideo({
+  onDone,
+  pick = pickVideo,
+  upload = uploadVideo,
+}: {
+  /** Recebe o `videoId` quando o back confirma o envio — recarregue a lista ou abra o vídeo. */
+  onDone: (videoId: string) => void;
+  pick?: () => Promise<PickedVideo | null>;
+  upload?: typeof uploadVideo;
+}) {
+  const [sending, setSending] = useState<string | null>(null);
+  const [percent, setPercent] = useState(0);
+  const [message, setMessage] = useState<string | null>(null);
+  const controller = useRef<AbortController | null>(null);
+
+  const start = async () => {
+    setMessage(null);
+    let file: PickedVideo | null;
+    try {
+      file = await pick();
+    } catch (e) {
+      setMessage(e instanceof UnknownFileSizeError ? e.message : "Não foi possível abrir o vídeo escolhido.");
+      return;
+    }
+    if (!file) return;
+    const abort = new AbortController();
+    controller.current = abort;
+    setSending(file.name);
+    setPercent(0);
+    try {
+      const videoId = await upload(
+        file,
+        (sent, total) => setPercent(total ? Math.round((sent / total) * 100) : 0),
+        { signal: abort.signal },
+      );
+      onDone(videoId);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") setMessage("Envio cancelado.");
+      else if (e instanceof UploadRejectedError) setMessage(e.message);
+      else setMessage("O envio falhou. Tente de novo: as partes já enviadas não são repetidas.");
+    } finally {
+      controller.current = null;
+      setSending(null);
+    }
+  };
+
+  return (
+    <View>
+      {sending ? (
+        <>
+          <Text accessibilityLiveRegion="polite">{`Enviando ${sending}: ${percent}%`}</Text>
+          <Pressable accessibilityRole="button" onPress={() => controller.current?.abort()}>
+            <Text>Cancelar</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Pressable accessibilityRole="button" onPress={() => void start()}>
+          <Text>Enviar vídeo</Text>
+        </Pressable>
+      )}
+      {message && <Text role="alert">{ message }</Text>}
+    </View>
+  );
+}

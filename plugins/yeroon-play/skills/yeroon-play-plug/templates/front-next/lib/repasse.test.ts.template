@@ -1,0 +1,132 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { repasse } from "./repasse";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+test("preservaStatusCorpoEContentTypeEAcrescentaOPrefixoDoBack", async () => {
+  vi.stubEnv("{back-url-env}", "");
+  const fetchMock = vi.fn(
+    async () =>
+      new Response('{"title":"conflito"}', {
+        status: 409,
+        headers: {
+          "content-type": "application/problem+json",
+          "cache-control": "no-store",
+        },
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const res = await repasse(
+    new Request("http://localhost:3000/api/videos/v1/playback", { method: "POST" }),
+    "/videos/v1/playback",
+  );
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('{"title":"conflito"}');
+  expect(res.headers.get("content-type")).toBe("application/problem+json");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(url).toBe("http://localhost:8080{context-path}{api-routes-prefix}/videos/v1/playback");
+  expect(init.method).toBe("POST");
+});
+
+test("usaAUrlDoBackDaVariavelDeAmbienteSemBarraNoFim", async () => {
+  vi.stubEnv("{back-url-env}", "https://back.exemplo.test/");
+  const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  const [url] = fetchMock.mock.calls[0] as unknown as [string];
+  expect(url).toBe("https://back.exemplo.test{context-path}{api-routes-prefix}/videos");
+});
+
+test("repassaMetodoECorpoJson", async () => {
+  const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const res = await repasse(
+    new Request("http://localhost:3000/x", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    }),
+    "/videos/uploads",
+  );
+  expect(res.status).toBe(204);
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(init.method).toBe("POST");
+  expect(init.body).toBe('{"a":1}');
+  expect(new Headers(init.headers).get("content-type")).toBe("application/json");
+});
+
+test("falhaDeRedeViraBadGatewayGenerico", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED 10.0.0.5:8080"); }));
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(502);
+  expect(res.headers.get("content-type")).toContain("application/json");
+  const text = await res.text();
+  expect(text).not.toContain("ECONNREFUSED");
+  expect(JSON.parse(text)).toHaveProperty("title");
+});
+
+test("erro5xxDoBackNaoVazaOCorpoMantemOStatus", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response("java.lang.NullPointerException at br.com.x", {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+      }),
+    ),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(500);
+  const text = await res.text();
+  expect(text).not.toContain("NullPointer");
+  expect(JSON.parse(text)).toHaveProperty("title");
+});
+
+test("erro4xxPassaOCorpoDoBack", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response('{"errors":[{"code":"trial.video-limit"}]}', { status: 422, headers: { "content-type": "application/problem+json" } })),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.status).toBe(422);
+  expect(await res.text()).toContain("trial.video-limit");
+});
+
+test("repassaAuthorizationECookieDoUsuarioAoBack", async () => {
+  const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await repasse(
+    new Request("http://localhost:3000/api/videos", {
+      headers: { authorization: "Bearer token-do-usuario", cookie: "SESSION=abc", "x-outro": "nao" },
+    }),
+    "/videos",
+  );
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  const sent = new Headers(init.headers);
+  expect(sent.get("authorization")).toBe("Bearer token-do-usuario");
+  expect(sent.get("cookie")).toBe("SESSION=abc");
+  expect(sent.get("x-outro")).toBeNull();
+});
+
+test("semCredenciaisNaoInventaCabecalho", async () => {
+  const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  const sent = new Headers(init.headers);
+  expect(sent.get("authorization")).toBeNull();
+  expect(sent.get("cookie")).toBeNull();
+});
+
+test("setCookieDoBackNaoVoltaAoNavegador", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("[]", { status: 200, headers: { "set-cookie": "SESSION=novo", "content-type": "application/json" } })),
+  );
+  const res = await repasse(new Request("http://localhost:3000/api/videos"), "/videos");
+  expect(res.headers.get("set-cookie")).toBeNull();
+});

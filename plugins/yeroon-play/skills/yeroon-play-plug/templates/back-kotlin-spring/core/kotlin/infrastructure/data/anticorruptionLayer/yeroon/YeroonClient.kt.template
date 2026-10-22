@@ -1,0 +1,27 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
+
+import java.util.UUID
+
+/**
+ * Porta para a /v1 do yeroon play. A implementação real é `impl.YeroonClientImpl`;
+ * os testes usam um dublê `@Primary`. Nenhuma outra classe chama a /v1.
+ */
+interface YeroonClient {
+    fun initUpload(fileName: String, contentType: String, sizeBytes: Long): YeroonUpload
+
+    fun partUrls(videoId: UUID, partNumbers: List<Int>): List<YeroonPartUrl>
+
+    fun uploadedParts(videoId: UUID): List<YeroonUploadedPart>
+
+    fun complete(videoId: UUID, parts: List<YeroonPart>): YeroonCompleted
+
+    fun cancel(videoId: UUID)
+
+    fun get(videoId: UUID): YeroonVideo
+
+    fun list(): List<YeroonVideoSummary>
+
+    fun playbackToken(videoId: UUID): YeroonPlayback
+
+    fun delete(videoId: UUID)
+}

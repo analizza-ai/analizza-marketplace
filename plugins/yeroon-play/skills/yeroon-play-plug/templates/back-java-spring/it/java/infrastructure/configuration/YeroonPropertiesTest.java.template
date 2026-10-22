@@ -1,0 +1,35 @@
+package {base-package}.infrastructure.configuration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.URI;
+import java.time.Duration;
+import org.junit.jupiter.api.Test;
+
+/** Unitário: o toString() das propriedades nunca imprime a chave nem o segredo. */
+class YeroonPropertiesTest {
+
+    private static final String KEY = "chave-de-teste-abc123";
+    private static final String SECRET = "segredo-de-teste-xyz789";
+
+    @Test
+    void toStringNaoMostraChaveNemSegredo() {
+        var properties = new YeroonProperties(
+                URI.create("https://api.exemplo.test"), KEY, SECRET, Duration.ofSeconds(3));
+
+        String text = properties.toString();
+
+        assertThat(text).doesNotContain(KEY).doesNotContain(SECRET);
+        assertThat(text).contains("https://api.exemplo.test").contains("PT3S").contains("***");
+    }
+
+    @Test
+    void toStringSemValoresDizVazio() {
+        var properties = new YeroonProperties(null, null, " ", null);
+
+        assertThat(properties.toString())
+                .contains("https://api.dev.play.yeroon.video")
+                .contains("apiKey=<vazio>")
+                .contains("webhookSecret=<vazio>");
+    }
+}

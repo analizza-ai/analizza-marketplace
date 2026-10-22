@@ -1,0 +1,74 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { API_BASE } from "@/lib/api";
+import { VideoList } from "@/components/VideoList";
+
+const A = "3f1c2e4a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+const B = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+let calls: { url: string; method: string }[] = [];
+let deleteStatus = 204;
+
+beforeEach(() => {
+  calls = [];
+  deleteStatus = 204;
+  globalThis.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ url, method });
+    if (method === "GET" && url === `${API_BASE}/videos`) {
+      return json({
+        videos: [
+          { videoId: A, fileName: "aula-1.mp4", status: "PRONTO", createdAt: "2026-10-22T00:00:00Z", thumbnailUrl: null },
+          { videoId: B, fileName: "aula-2.mp4", status: "FALHOU", createdAt: "2026-10-22T00:00:00Z", thumbnailUrl: null },
+        ],
+      });
+    }
+    if (method === "DELETE") return new Response(null, { status: deleteStatus });
+    throw new Error(`chamada inesperada ${method} ${url}`);
+  }) as typeof fetch;
+});
+
+describe("VideoList", () => {
+  test("mostraOsVideosComORotuloDoStatus", async () => {
+    await render(<VideoList onOpen={jest.fn()} />);
+    expect(await screen.findByText("aula-1.mp4")).toBeTruthy();
+    expect(screen.getByText("aula-2.mp4")).toBeTruthy();
+    expect(screen.getByText("Pronto")).toBeTruthy();
+    expect(screen.getByText("Falhou")).toBeTruthy();
+  });
+
+  test("tocarNoVideoAbreAPaginaDele", async () => {
+    const onOpen = jest.fn();
+    await render(<VideoList onOpen={ onOpen } />);
+    await fireEvent.press(await screen.findByLabelText("Abrir aula-1.mp4"));
+    expect(onOpen).toHaveBeenCalledWith(A);
+  });
+
+  test("excluirPedeConfirmacaoAntesDoDelete", async () => {
+    const onDeleted = jest.fn();
+    await render(<VideoList onOpen={jest.fn()} onDeleted={ onDeleted } />);
+    await fireEvent.press(await screen.findByLabelText("Excluir aula-1.mp4"));
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    await fireEvent.press(screen.getByText("Manter"));
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    await fireEvent.press(screen.getByLabelText("Excluir aula-1.mp4"));
+    await fireEvent.press(screen.getByText("Confirmar exclusão"));
+    await waitFor(() => expect(screen.queryByText("aula-1.mp4")).toBeNull());
+    expect(calls).toContainEqual({ url: `${API_BASE}/videos/${A}`, method: "DELETE" });
+    expect(onDeleted).toHaveBeenCalledWith(A);
+  });
+
+  test("exclusaoRecusadaMostraAvisoEMantemALinha", async () => {
+    deleteStatus = 422;
+    await render(<VideoList onOpen={jest.fn()} />);
+    await fireEvent.press(await screen.findByLabelText("Excluir aula-1.mp4"));
+    await fireEvent.press(screen.getByText("Confirmar exclusão"));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText("aula-1.mp4")).toBeTruthy();
+  });
+});

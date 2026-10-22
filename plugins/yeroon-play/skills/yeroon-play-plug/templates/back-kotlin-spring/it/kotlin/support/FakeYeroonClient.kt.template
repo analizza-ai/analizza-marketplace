@@ -1,0 +1,103 @@
+package {base-package}.support
+
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*
+import java.net.URI
+import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+
+/** Dublê em memória da /v1 do yeroon play: nenhuma chamada de rede sai da suíte. */
+class FakeYeroonClient : YeroonClient {
+
+    val videos: MutableMap<UUID, YeroonVideo> = ConcurrentHashMap()
+    val deleted: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    val cancelled: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    private val calls = AtomicInteger()
+
+    @Volatile
+    private var nextFailure: RuntimeException? = null
+
+    fun calls(): Int = calls.get()
+
+    /** A próxima chamada lança esta exceção, como a /v1 responderia. */
+    fun failNext(failure: RuntimeException) {
+        nextFailure = failure
+    }
+
+    fun reset() {
+        videos.clear()
+        deleted.clear()
+        cancelled.clear()
+        calls.set(0)
+        nextFailure = null
+    }
+
+    private fun enter() {
+        calls.incrementAndGet()
+        nextFailure?.let {
+            nextFailure = null
+            throw it
+        }
+    }
+
+    override fun initUpload(fileName: String, contentType: String, sizeBytes: Long): YeroonUpload {
+        enter()
+        val id = UUID.randomUUID()
+        videos[id] = YeroonVideo(id, fileName, "PENDENTE", null, emptyList(), null)
+        return YeroonUpload(id, PART_SIZE, maxOf(1L, (sizeBytes + PART_SIZE - 1) / PART_SIZE).toInt())
+    }
+
+    override fun partUrls(videoId: UUID, partNumbers: List<Int>): List<YeroonPartUrl> {
+        enter()
+        return partNumbers.map { YeroonPartUrl(it, URI.create("https://storage.example/$videoId/$it")) }
+    }
+
+    override fun uploadedParts(videoId: UUID): List<YeroonUploadedPart> {
+        enter()
+        return listOf(YeroonUploadedPart(1, ETAG, 1024))
+    }
+
+    override fun complete(videoId: UUID, parts: List<YeroonPart>): YeroonCompleted {
+        enter()
+        return YeroonCompleted(videoId, "ENVIADO")
+    }
+
+    override fun cancel(videoId: UUID) {
+        enter()
+        videos.remove(videoId)
+        cancelled += videoId
+    }
+
+    override fun get(videoId: UUID): YeroonVideo {
+        enter()
+        return videos[videoId] ?: throw YeroonNotFoundException()
+    }
+
+    override fun list(): List<YeroonVideoSummary> {
+        enter()
+        return videos.values.map {
+            YeroonVideoSummary(it.videoId, it.fileName, it.status, Instant.now(), it.thumbnailUrl, 1024L)
+        }
+    }
+
+    override fun playbackToken(videoId: UUID): YeroonPlayback {
+        enter()
+        return YeroonPlayback(
+            embedUrl = URI.create("https://play.example/embed/tkn-$videoId"),
+            hlsUrl = URI.create("https://play.example/api/play/tkn-$videoId/master.m3u8"),
+            expiresAt = Instant.now().plusSeconds(6 * 3600),
+        )
+    }
+
+    override fun delete(videoId: UUID) {
+        enter()
+        videos.remove(videoId)
+        deleted += videoId
+    }
+
+    companion object {
+        const val ETAG = "\"etag-1\""
+        private const val PART_SIZE = 8_388_608L
+    }
+}

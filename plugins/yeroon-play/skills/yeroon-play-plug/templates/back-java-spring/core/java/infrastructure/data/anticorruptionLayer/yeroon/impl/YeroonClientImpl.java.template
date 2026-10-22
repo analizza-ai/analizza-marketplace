@@ -1,0 +1,171 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon.impl;
+
+import {base-package}.infrastructure.configuration.YeroonProperties;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.net.http.HttpClient;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+
+/**
+ * Cliente da /v1 do yeroon play: timeout curto, {@code Authorization: Bearer} e o
+ * mapa de erros do contrato — 422 repassa errors[], 404 e 409 seguem, e 401,
+ * 5xx, rede ou timeout viram {@link YeroonUnavailableException} (502 genérico).
+ * Do segredo, o log só leva o prefixo da chave.
+ */
+@Component
+public class YeroonClientImpl implements YeroonClient {
+
+    private static final Logger log = LoggerFactory.getLogger(YeroonClientImpl.class);
+
+    private final RestClient http;
+    private final String keyPrefix;
+
+    public YeroonClientImpl(YeroonProperties properties) {
+        HttpClient jdk = HttpClient.newBuilder().connectTimeout(properties.timeout()).build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdk);
+        factory.setReadTimeout(properties.timeout());
+        String key = properties.apiKey() == null ? "" : properties.apiKey().trim();
+        // Chave curta demais para ter prefixo seguro: loga só o tamanho.
+        this.keyPrefix = key.length() <= 7 ? "(" + key.length() + " caracteres)" : key.substring(0, 7) + "…";
+        if (key.isEmpty()) {
+            log.warn("YEROON_API_KEY (yeroon.api-key) está vazia: toda chamada ao yeroon play será recusada.");
+        }
+        this.http = RestClient.builder()
+                .baseUrl(properties.apiUrl().toString())
+                .requestFactory(factory)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + key)
+                .build();
+    }
+
+    @Override
+    public YeroonUpload initUpload(String fileName, String contentType, long sizeBytes) {
+        Map<String, Object> body = Map.of("fileName", fileName, "contentType", contentType, "sizeBytes", sizeBytes);
+        return call(() -> http.post()
+                .uri("/v1/videos/uploads")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(YeroonUpload.class));
+    }
+
+    @Override
+    public List<YeroonPartUrl> partUrls(UUID videoId, List<Integer> partNumbers) {
+        return call(() -> http.post()
+                .uri("/v1/videos/{id}/upload/part-urls", videoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("partNumbers", partNumbers))
+                .retrieve()
+                .body(Urls.class)).urls();
+    }
+
+    @Override
+    public List<YeroonUploadedPart> uploadedParts(UUID videoId) {
+        return call(() -> http.get()
+                .uri("/v1/videos/{id}/upload/parts", videoId)
+                .retrieve()
+                .body(Parts.class)).parts();
+    }
+
+    @Override
+    public YeroonCompleted complete(UUID videoId, List<YeroonPart> parts) {
+        return call(() -> http.post()
+                .uri("/v1/videos/{id}/upload/complete", videoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("parts", parts))
+                .retrieve()
+                .body(YeroonCompleted.class));
+    }
+
+    @Override
+    public void cancel(UUID videoId) {
+        call(() -> http.delete().uri("/v1/videos/{id}/upload", videoId).retrieve().toBodilessEntity());
+    }
+
+    @Override
+    public YeroonVideo get(UUID videoId) {
+        return call(() -> http.get().uri("/v1/videos/{id}", videoId).retrieve().body(YeroonVideo.class));
+    }
+
+    @Override
+    public List<YeroonVideoSummary> list() {
+        return call(() -> http.get().uri("/v1/videos").retrieve().body(Videos.class)).videos();
+    }
+
+    @Override
+    public YeroonPlayback playbackToken(UUID videoId) {
+        return call(() -> http.post()
+                .uri("/v1/videos/{id}/playback-token", videoId)
+                .retrieve()
+                .body(YeroonPlayback.class));
+    }
+
+    @Override
+    public void delete(UUID videoId) {
+        call(() -> http.delete().uri("/v1/videos/{id}", videoId).retrieve().toBodilessEntity());
+    }
+
+    private <T> T call(Supplier<T> request) {
+        try {
+            return request.get();
+        } catch (RestClientResponseException e) {
+            throw map(e);
+        } catch (RestClientException e) {
+            // Rede, timeout ou corpo ilegível. Só a classe da exceção vai ao log:
+            // a mensagem pode citar a URL, e nada de cabeçalho nem chave.
+            log.warn("yeroon play indisponível ({})", e.getClass().getSimpleName());
+            throw new YeroonUnavailableException("Serviço de vídeo indisponível.", e);
+        }
+    }
+
+    private RuntimeException map(RestClientResponseException e) {
+        int status = e.getStatusCode().value();
+        switch (status) {
+            case 422:
+                return new YeroonRejectedException(errors(e));
+            case 404:
+                return new YeroonNotFoundException();
+            case 409:
+                return new YeroonConflictException();
+            case 401, 403:
+                // Chave recusada: problema de configuração, não do usuário.
+                log.error("yeroon play recusou a chave {} (status {})", keyPrefix, status);
+                return new YeroonUnavailableException("Serviço de vídeo indisponível.");
+            default:
+                log.warn("yeroon play indisponível (status {})", status);
+                return new YeroonUnavailableException("Serviço de vídeo indisponível.");
+        }
+    }
+
+    private static List<YeroonError> errors(RestClientResponseException e) {
+        try {
+            Errors body = e.getResponseBodyAs(Errors.class);
+            return body == null || body.errors() == null ? List.of() : body.errors();
+        } catch (RuntimeException ignored) {
+            return List.of();
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Urls(List<YeroonPartUrl> urls) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Parts(List<YeroonUploadedPart> parts) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Videos(List<YeroonVideoSummary> videos) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Errors(List<YeroonError> errors) {}
+}

@@ -1,0 +1,18 @@
+package {base-package}.presenter.routes.video.listVideos;
+
+import {base-package}.application.video.listVideos.*;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class ListVideosRoute {
+    private final ListVideosHandler handler;
+
+    public ListVideosRoute(ListVideosHandler handler) {
+        this.handler = handler;
+    }
+
+    @GetMapping("{api-routes-prefix}/videos")
+    public ListVideosResult handle() {
+        return handler.handle(new ListVideosQuery());
+    }
+}

@@ -1,0 +1,41 @@
+package {base-package}.infrastructure.configuration;
+
+import java.net.URI;
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * yeroon.api-url, yeroon.api-key, yeroon.webhook-secret e yeroon.timeout. Os
+ * valores vêm de YEROON_API_URL, YEROON_API_KEY e YEROON_WEBHOOK_SECRET (só no
+ * .env do back); nenhum valor de segredo mora no código nem no git.
+ *
+ * O toString() de um record imprimiria a chave e o segredo em qualquer log
+ * que mostrasse o objeto: por isso ele é sobrescrito e mostra só "***".
+ */
+@ConfigurationProperties("yeroon")
+public record YeroonProperties(URI apiUrl, String apiKey, String webhookSecret, Duration timeout) {
+
+    private static final URI DEFAULT_API_URL = URI.create("https://api.dev.play.yeroon.video");
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
+
+    public YeroonProperties {
+        if (apiUrl == null) {
+            apiUrl = DEFAULT_API_URL;
+        }
+        if (timeout == null) {
+            timeout = DEFAULT_TIMEOUT;
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "YeroonProperties[apiUrl=" + apiUrl
+                + ", apiKey=" + mask(apiKey)
+                + ", webhookSecret=" + mask(webhookSecret)
+                + ", timeout=" + timeout + "]";
+    }
+
+    private static String mask(String value) {
+        return value == null || value.isBlank() ? "<vazio>" : "***";
+    }
+}

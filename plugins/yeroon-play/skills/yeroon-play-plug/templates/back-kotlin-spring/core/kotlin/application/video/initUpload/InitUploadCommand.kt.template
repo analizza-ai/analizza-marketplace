@@ -1,0 +1,4 @@
+package {base-package}.application.video.initUpload
+
+/** Campos anuláveis: a entrada pode vir sem eles, e o handler responde 422 por campo. */
+data class InitUploadCommand(val fileName: String?, val contentType: String?, val sizeBytes: Long?)

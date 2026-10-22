@@ -1,0 +1,66 @@
+package {base-package}.presenter.routes.video;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import {base-package}.domain.{video-entity};
+import {base-package}.domain.repositories.{video-entity}Repository;
+import {base-package}.infrastructure.data.anticorruptionLayer.yeroon.*;
+import {base-package}.support.FakeYeroonClient;
+import {base-package}.support.YeroonIntegrationTest;
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+
+class IssuePlaybackRouteIT extends YeroonIntegrationTest {
+
+    @Autowired
+    private {video-entity}Repository videos;
+
+    @Test
+    void devolveSoEmbedUrlHlsUrlEExpiresAt() {
+        UUID id = UUID.randomUUID();
+        videos.save({video-entity}.register(id, Instant.now()));
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/playback", id).exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Cache-Control", "no-store")
+                .expectBody()
+                .jsonPath("$.embedUrl").isEqualTo("https://play.example/embed/tkn-" + id)
+                .jsonPath("$.hlsUrl").isEqualTo("https://play.example/api/play/tkn-" + id + "/master.m3u8")
+                .jsonPath("$.expiresAt").exists()
+                .jsonPath("$.token").doesNotExist()
+                .jsonPath("$.videoId").doesNotExist();
+    }
+
+    @Test
+    void cadaAberturaPedeUmTokenNovo() {
+        UUID id = UUID.randomUUID();
+        videos.save({video-entity}.register(id, Instant.now()));
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/playback", id).exchange().expectStatus().isOk();
+        api.post().uri("{api-routes-prefix}/videos/{id}/playback", id).exchange().expectStatus().isOk();
+        assertEquals(2, yeroon.calls());
+    }
+
+    @Test
+    void videoAindaNaoProntoRetorna409() {
+        UUID id = UUID.randomUUID();
+        videos.save({video-entity}.register(id, Instant.now()));
+        yeroon.failNext(new YeroonConflictException());
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/playback", id).exchange().expectStatus().isEqualTo(409);
+    }
+
+    @Test
+    void idForaDaTabelaRetorna404SemChamarAV1() {
+        UUID id = UUID.randomUUID();
+
+        api.post().uri("{api-routes-prefix}/videos/{id}/playback", id).exchange().expectStatus().isNotFound();
+        assertEquals(0, yeroon.calls());
+    }
+}

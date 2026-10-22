@@ -1,0 +1,109 @@
+import { useEffect, useState } from "react";
+import { Image, Pressable, Text, View } from "react-native";
+import { deleteVideo, listVideos, type VideoItem } from "@/lib/api";
+import { statusLabel } from "@/lib/videoStatus";
+
+const ACTIVE = ["PENDENTE", "ENVIADO", "PROCESSANDO"];
+const POLL_MS = 5000;
+
+/**
+ * Lista os vídeos com o status, atualiza sozinha enquanto algum converte e permite excluir (com
+ * confirmação). Sem estilo próprio: troque `View`/`Text`/`Pressable` pelos componentes do projeto.
+ */
+export function VideoList({
+  onOpen,
+  refreshKey = 0,
+  onDeleted,
+}: {
+  /** Abre a tela do vídeo — ex.: `(id) => router.push({ pathname: "/videos/[id]", params: { id } })`. */
+  onOpen: (videoId: string) => void;
+  /** Mude quando um envio terminar: recarrega a lista mesmo com a consulta periódica parada. */
+  refreshKey?: number;
+  /** Chamado depois que o back confirma a exclusão. */
+  onDeleted?: (videoId: string) => void;
+}) {
+  const [videos, setVideos] = useState<VideoItem[] | null>(null);
+  const [error, setError] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const polling = videos === null || videos.some((v) => ACTIVE.includes(v.status));
+
+  useEffect(() => {
+    if (!polling && refreshKey === 0) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const list = await listVideos();
+        if (!cancelled) {
+          setVideos(list);
+          setError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setVideos((v) => v ?? []);
+        }
+      }
+    };
+    void load();
+    if (!polling) return () => void (cancelled = true);
+    const timer = setInterval(load, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [polling, refreshKey]);
+
+  const remove = async (videoId: string) => {
+    setDeleteError(null);
+    try {
+      await deleteVideo(videoId);
+      setVideos((list) => (list ?? []).filter((v) => v.videoId !== videoId));
+      setConfirming(null);
+      onDeleted?.(videoId);
+    } catch {
+      setConfirming(null);
+      setDeleteError("Não foi possível excluir o vídeo. Só vídeos prontos ou com falha podem ser excluídos.");
+    }
+  };
+
+  const total = videos?.length ?? 0;
+
+  return (
+    <View accessibilityLabel="Vídeos">
+      {videos === null && <Text>Carregando…</Text>}
+      {error && <Text role="alert">Não foi possível carregar os vídeos.</Text>}
+      {deleteError && <Text role="alert">{ deleteError }</Text>}
+      {videos !== null && total === 0 && !error && <Text>Nenhum vídeo ainda.</Text>}
+
+      {(videos ?? []).map((v) => (
+        <View key={v.videoId}>
+          <Pressable accessibilityRole="link" accessibilityLabel={`Abrir ${v.fileName}`} onPress={() => onOpen(v.videoId)}>
+            {v.thumbnailUrl && <Image source={{ uri: v.thumbnailUrl }} style={{ width: 96, height: 54 }} accessibilityIgnoresInvertColors />}
+            <Text>{ v.fileName }</Text>
+            <Text>{statusLabel(v.status)}</Text>
+            <Text>{new Date(v.createdAt).toLocaleDateString("pt-BR")}</Text>
+          </Pressable>
+          {confirming === v.videoId ? (
+            <View>
+              <Pressable accessibilityRole="button" onPress={() => void remove(v.videoId)}>
+                <Text>Confirmar exclusão</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => setConfirming(null)}>
+                <Text>Manter</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Excluir ${v.fileName}`}
+              onPress={() => setConfirming(v.videoId)}
+            >
+              <Text>Excluir</Text>
+            </Pressable>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}

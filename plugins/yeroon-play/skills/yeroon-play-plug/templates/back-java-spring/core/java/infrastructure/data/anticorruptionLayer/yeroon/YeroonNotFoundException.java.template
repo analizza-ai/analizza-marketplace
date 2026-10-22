@@ -1,0 +1,8 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
+
+/** 404 da /v1: vídeo inexistente ou de outro cliente. */
+public class YeroonNotFoundException extends RuntimeException {
+    public YeroonNotFoundException() {
+        super("Vídeo não encontrado no yeroon play.");
+    }
+}
