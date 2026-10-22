@@ -5,7 +5,6 @@ Marketplace de plugins do Claude Code da Analizza.
 | Plugin | Descrição |
 | --- | --- |
 | `analizza-skills` | Skills para scaffolding e qualidade de projetos |
-| `yeroon-play` | Pluga o yeroon play (hospedagem de vídeo como serviço) em projetos existentes |
 
 ## Instalação por harness
 
@@ -16,24 +15,18 @@ claude plugin marketplace add analizza-ai/analizza-marketplace
 claude plugin install analizza-skills@analizza-marketplace
 ```
 
-Para instalar o plugin `yeroon-play`:
-
-```bash
-claude plugin install yeroon-play@analizza-marketplace
-```
-
-Pelo Makefile, `PLUGIN` escolhe o plugin (padrão `analizza-skills`):
+Pelo Makefile:
 
 ```bash
 make marketplace-add
-make install PLUGIN=yeroon-play
+make install
 ```
 
 Para atualizar depois:
 
 ```bash
 claude plugin marketplace update analizza-marketplace
-claude plugin update analizza-skills   # ou yeroon-play; no Makefile: make update PLUGIN=yeroon-play
+claude plugin update analizza-skills   # no Makefile: make update
 ```
 
 ### Codex
@@ -85,11 +78,6 @@ npx skills add analizza-ai/analizza-marketplace --skill yeroon-play-plug
 | `domain-context-map` | Roda num projeto em disco e gera `docs/domain/domain-guide.md`: a descrição de uma linha e o guia do repositório (onde ficam specs, rotas, casos de uso, regras, como seguir uma regra e o glossário), sem resumo de regra de negócio. Um script faz o inventário do disco, outro valida o arquivo (tamanho, caminhos que existem, sem número de linha, sem segredo), e rodar de novo confere se o guia ficou velho. O texto é feito para colar no cadastro do alvo de um servidor MCP no Ólly. |
 | `analizza-new-project` | Cria do zero, em Java ou Kotlin, um monorepo de cinco módulos: `buildingBlocks` com os contratos base, `{project}-api` (Spring Boot, entrada), `{project}-core` (domínio, casos de uso e saída), `{project}-web` em Next.js e `{project}-mobile` em Expo. O backend vem da API do Spring Initializr e é refatorado para multi-módulo Gradle, na DSL da linguagem escolhida, com Postgres em docker-compose e migrations Flyway no core. As convenções da arquitetura em camadas são gravadas no arquivo do framework de Spec-Driven Development em uso. |
 | `test-runbook` | Implanta num projeto o mecanismo de checkpoint de conferência manual: o guia de formato em `docs/checkpoints/README.md` e a skill local `.claude/skills/test-runbook/` que conduz o checkpoint, com `scripts/preflight.sh` ajustado ao ambiente detectado. Nunca sobrescreve o que já existe. |
-
-## Skills do plugin `yeroon-play`
-
-| Skill | O que faz |
-| --- | --- |
 | `yeroon-play-plug` | Pluga o yeroon play num projeto que já existe: back Spring Boot (Java ou Kotlin) e front Next.js, app Expo ou app Flutter. Detecta a stack e as convenções, mostra o plano e espera o ok, pede que a pessoa rode `yeroon-key.sh` (cria a conta de teste e grava a chave no `.env` do back; o agente não vê senha nem chave) e implementa em fatias: cliente da `/v1`, rotas de repasse, webhook assinado, migration e telas de enviar, listar e assistir, com testes que não chamam a `/v1`. Termina com o checklist do que falta para produção. Para quando o back não é Spring Boot. |
 
 ## Publicando uma versão
@@ -101,7 +89,7 @@ Pré-requisito de `make check`: `pip install -r requirements-dev.txt`.
 ```bash
 make validate
 make check
-make tag PLUGIN=yeroon-play   # cria a tag do plugin que mudou (ex.: yeroon-play--v0.1.0)
+make tag PLUGIN=analizza-skills   # cria a tag do plugin que mudou (ex.: analizza-skills--v0.8.0)
 make tag                      # sem PLUGIN: todos os plugins, pulando ("skip") os cuja tag já existe
 ```
 
@@ -114,7 +102,7 @@ outros são marcados.
 
 ```
 .claude-plugin/marketplace.json     # manifesto do marketplace
-plugins/<plugin>/                   # analizza-skills, yeroon-play
+plugins/<plugin>/                   # analizza-skills
 ├── .claude-plugin/plugin.json      # manifesto do plugin (Claude Code)
 ├── .codex-plugin/plugin.json       # manifesto do plugin (Codex)
 └── skills/                         # uma pasta por skill, fonte única para os dois harnesses

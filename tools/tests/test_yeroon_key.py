@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = (Path(__file__).resolve().parents[2]
-          / "plugins/yeroon-play/skills/yeroon-play-plug/scripts/yeroon-key.sh")
+          / "plugins/analizza-skills/skills/yeroon-play-plug/scripts/yeroon-key.sh")
 KEY = "yk_" + "abcd1234efgh5678"
 SECRET = "whsec_" + "zyxw9876vuts5432"
 OK_BODY = {"tenantId": "t1", "name": "Acme", "apiKey": KEY, "webhookSecret": SECRET,

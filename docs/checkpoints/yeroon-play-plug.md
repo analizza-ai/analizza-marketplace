@@ -4,7 +4,7 @@ type: skill
 
 # Checkpoint: skill `yeroon-play-plug`
 
-Conferência manual da skill `yeroon-play-plug` (plugin `yeroon-play`). Quem roda
+Conferência manual da skill `yeroon-play-plug` (plugin `analizza-skills`). Quem roda
 `yeroon-key.sh` é **você**, com a sua senha: o agente nunca a vê.
 
 ## Preparação
@@ -18,7 +18,7 @@ Conferência manual da skill `yeroon-play-plug` (plugin `yeroon-play`). Quem rod
 
 ## Instalação (os dois canais)
 
-- [ ] Claude Code: `make marketplace-add && claude plugin install yeroon-play@analizza-marketplace`
+- [ ] Claude Code: `make marketplace-add && claude plugin install analizza-skills@analizza-marketplace`
 - [ ] skills.sh: `npx skills add analizza-ai/analizza-marketplace --skill yeroon-play-plug`
 - [ ] Em cada um, `/yeroon-play-plug` aparece e `SKILL.md`, `references/`, `scripts/` e `templates/` foram instalados.
 
