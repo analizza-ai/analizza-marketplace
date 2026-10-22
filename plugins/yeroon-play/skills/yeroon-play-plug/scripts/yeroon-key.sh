@@ -5,7 +5,7 @@
 #
 # Uso: yeroon-key.sh [--env ./.env] [--api URL] [--origin URL] [--webhook URL] [--force]
 # Saidas: 0 ok | 1 uso/termos recusados | 2 .env fora do .gitignore | 3 e-mail ja
-#         tem conta | 4 regra quebrada (422) | 5 chave ja existe (sem --force)
+#         tem conta | 4 regra quebrada (422) | 5 chave com valor ja existe (sem --force)
 #         6 falha de rede | 7 resposta inesperada
 set -euo pipefail
 
@@ -45,9 +45,10 @@ elif [ -f "$ENV_DIR/.gitignore" ] \
 fi
 [ "$ignored" -eq 1 ] || die 2 "O arquivo $ENV_FILE nao esta no .gitignore. Adicione '$ENV_BASE' ao .gitignore e rode de novo (a chave nao pode ir para o git)."
 
-# 2. Nao criar conta nova se ja ha chave, a menos que --force.
+# 2. Nao criar conta nova se ja ha chave com valor, a menos que --force.
+#    Linha vazia (YEROON_API_KEY=, copiada do .env.example) nao conta: e preenchida no lugar.
 if [ "$FORCE" -eq 0 ] && [ -f "$ENV_FILE" ] \
-  && grep -Eq '^[[:space:]]*(export[[:space:]]+)?(YEROON_API_KEY|YEROON_WEBHOOK_SECRET)[[:space:]]*=' "$ENV_FILE"; then
+  && grep -Eq '^[[:space:]]*(export[[:space:]]+)?(YEROON_API_KEY|YEROON_WEBHOOK_SECRET)[[:space:]]*=[[:space:]]*["'"'"']?[^"'"'"'[:space:]#]' "$ENV_FILE"; then
   die 5 "$ENV_FILE ja tem YEROON_API_KEY/YEROON_WEBHOOK_SECRET. Use --force para substituir."
 fi
 

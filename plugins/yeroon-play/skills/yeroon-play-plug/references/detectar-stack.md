@@ -136,6 +136,33 @@ grep -rniE 'runbook|checkpoint' CLAUDE.md AGENTS.md 2>/dev/null | head
 Leia o que existir e siga: pastas de camada, classe base de teste de integração, onde o projeto
 documenta variáveis de ambiente, regra de runbook. O `.env` precisa estar no `.gitignore`.
 
+## 7. Prefixo das rotas, context-path e URL do back no front
+
+Dois mecanismos diferentes, que não se misturam:
+
+```bash
+# context-path: vale para a aplicação inteira, fora do código das rotas
+grep -rnE 'server\.servlet\.context-path|context-path:' --include='application*.properties' --include='application*.yml' --include='application*.yaml' . | grep -v '/build/'
+# prefixo de mapeamento: o começo comum dos @RequestMapping/@*Mapping das rotas existentes
+grep -rhoE '@(Request|Get|Post|Put|Delete|Patch)Mapping\((value *= *|path *= *)?\[?"[^"]*"' --include='*.java' --include='*.kt' . | grep -v '/build/' | sed -E 's/.*"([^"]*)"/\1/' | sort | uniq -c | sort -rn | head
+# variável do front/app com a URL do back
+grep -rnE '^(NEXT_PUBLIC_|EXPO_PUBLIC_)?[A-Z_]*(BACK|API|SERVER)[A-Z_]*URL' .env.example .env.sample */.env.example 2>/dev/null | grep -v 'YEROON_'
+grep -rnoE 'process\.env\.[A-Z_]*(BACK|API|SERVER)[A-Z_]*URL' --include='*.ts' --include='*.tsx' --include='*.js' --include='*.mjs' . 2>/dev/null | grep -v node_modules | head
+grep -rnoE "String\.fromEnvironment\('[A-Z_]+'" --include='*.dart' . 2>/dev/null | head
+```
+
+| Achado | Decisão |
+|---|---|
+| `server.servlet.context-path=/x` | `{context-path}` = `/x`. Entra **só** nas URLs públicas (`webhookUrl`, a URL do back no front); nunca nos mapeamentos, senão a rota vira `/x/x/videos` |
+| Sem context-path | `{context-path}` vazio |
+| As rotas existentes começam todas com o mesmo trecho (ex.: `/api`) no `@RequestMapping` | `{api-routes-prefix}` = esse trecho; os moldes escrevem as rotas novas sob ele |
+| Rotas sem prefixo comum, ou nenhuma rota | `{api-routes-prefix}` vazio |
+| Front/app já lê uma variável com a URL do back | `{back-url-env}` = o nome dela, sem `NEXT_PUBLIC_`/`EXPO_PUBLIC_` |
+| Nenhuma | `{back-url-env}` = `BACK_URL` |
+
+A URL do webhook, em qualquer ambiente, é `{back-public-url}{context-path}{api-routes-prefix}/webhooks/yeroon`
+(em dev por túnel: a URL do túnel no lugar de `{back-public-url}`).
+
 ## Quando não reconhece
 
 | Situação | Ação |

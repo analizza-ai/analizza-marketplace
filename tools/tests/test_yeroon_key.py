@@ -194,3 +194,24 @@ def test_falha_na_gravacao_salva_fallback_fora_do_repo(repo, fake, tmp_path_fact
     assert f"YEROON_API_KEY={KEY}" in files[0].read_text()
     assert str(files[0]) in r.stderr and KEY not in r.stdout + r.stderr
     assert (os.stat(files[0].parent).st_mode & 0o777) == 0o700
+
+
+@pytest.mark.parametrize("vazia", ["YEROON_API_KEY=", "YEROON_API_KEY=   ", 'YEROON_API_KEY=""',
+                                   "export YEROON_API_KEY="])
+def test_linha_vazia_e_preenchida_sem_force(repo, fake, vazia):
+    (repo / ".env").write_text(f"A=1\n{vazia}\nYEROON_WEBHOOK_SECRET=\nB=2\n")
+    r = run(repo, fake["url"])
+    assert r.returncode == 0, r.stderr
+    lines = (repo / ".env").read_text().splitlines()
+    assert sum("YEROON_API_KEY=" in l for l in lines) == 1
+    assert sum("YEROON_WEBHOOK_SECRET=" in l for l in lines) == 1
+    assert f"YEROON_API_KEY={KEY}" in lines
+    assert f"YEROON_WEBHOOK_SECRET={SECRET}" in lines
+    assert "A=1" in lines and "B=2" in lines
+
+
+def test_uma_preenchida_outra_vazia_para_com_5(repo, fake):
+    (repo / ".env").write_text("YEROON_API_KEY=antiga\nYEROON_WEBHOOK_SECRET=\n")
+    r = run(repo, fake["url"])
+    assert r.returncode == 5
+    assert fake["requests"] == []
