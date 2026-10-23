@@ -1,0 +1,180 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor
+
+import dev.langchain4j.agentic.observability.AfterAgentToolExecution
+import dev.langchain4j.agentic.observability.AgentInvocationError
+import dev.langchain4j.agentic.observability.AgentMonitor
+import dev.langchain4j.agentic.observability.AgentRequest
+import dev.langchain4j.agentic.observability.AgentResponse
+import dev.langchain4j.agentic.planner.AgentArgument
+import dev.langchain4j.agentic.planner.AgentInstance
+import dev.langchain4j.agentic.planner.AgenticSystemTopology
+import dev.langchain4j.agentic.planner.Planner
+import dev.langchain4j.agentic.scope.AgenticScope
+import dev.langchain4j.invocation.InvocationContext
+import dev.langchain4j.invocation.LangChain4jManaged
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.observability.api.event.AiServiceCompletedEvent
+import dev.langchain4j.observability.api.event.AiServiceErrorEvent
+import dev.langchain4j.observability.api.event.AiServiceEvent
+import dev.langchain4j.observability.api.event.AiServiceResponseReceivedEvent
+import dev.langchain4j.observability.api.event.AiServiceStartedEvent
+import dev.langchain4j.observability.api.event.ToolExecutedEvent
+import dev.langchain4j.observability.api.listener.AiServiceListener
+import dev.langchain4j.service.Result
+import dev.langchain4j.service.tool.ToolExecution
+import dev.langchain4j.service.tool.ToolExecutionResult
+import org.slf4j.LoggerFactory
+import java.lang.reflect.Proxy
+import java.lang.reflect.Type
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Traduz os eventos de um AI Service nas chamadas que o AgentMonitor espera de
+ * um agente do agentic. O monitor pede um AgentInstance e um AgenticScope, que
+ * so existem dentro do agentic: os dois sao fabricados aqui. API beta da
+ * biblioteca -- o teste do ExecutionMonitor e quem avisa quando ela mudar.
+ *
+ * So observa: um erro aqui e logado e engolido, e o chat responde igual.
+ */
+internal class MonitorBridge(private val monitor: AgentMonitor) {
+
+    private val agent = ReportAgent().also(monitor::setRootAgent)
+    private val scopes = ConcurrentHashMap<Any, AgenticScope>()
+
+    // Por invocacao, porque conversas diferentes rodam ao mesmo tempo.
+    private val running = ConcurrentHashMap<UUID, AgenticScope>()
+    private val inputs = ConcurrentHashMap<UUID, Map<String, Any>>()
+    private val lastExchange = ConcurrentHashMap<UUID, Pair<ChatRequest, ChatResponse>>()
+
+    fun listeners(agentLabel: String, session: (InvocationContext) -> Any): List<AiServiceListener<*>> {
+        // O scope e escolhido no inicio e vale ate o fim da invocacao: o evento de tool e o de
+        // fim acham a execucao certa mesmo com dois turnos na mesma sessao.
+        fun scopeOf(context: InvocationContext): AgenticScope =
+            running[context.invocationId()] ?: scope(session(context))
+        return listOf(
+            on<AiServiceStartedEvent> { event ->
+                val context = event.invocationContext()
+                val asked = mapOf<String, Any>(USER_INPUT to event.userMessage().singleText(), AGENT to agentLabel)
+                inputs[context.invocationId()] = asked
+                // Escolher a chave livre e registrar a execucao juntos: senao dois inicios ao mesmo
+                // tempo escolheriam a mesma.
+                synchronized(this) {
+                    val scope = start(session(context))
+                    running[context.invocationId()] = scope
+                    monitor.beforeAgentInvocation(AgentRequest(scope, agent, asked))
+                }
+            },
+            on<AiServiceResponseReceivedEvent> { event ->
+                lastExchange[event.invocationContext().invocationId()] = event.request() to event.response()
+            },
+            on<ToolExecutedEvent> { event ->
+                val execution = ToolExecution.builder()
+                    .request(event.request())
+                    .result(ToolExecutionResult.builder().resultText(event.resultText()).build())
+                    .invocationContext(withScope(event.invocationContext(), scopeOf(event.invocationContext())))
+                    .build()
+                monitor.afterAgentToolExecution(AfterAgentToolExecution(agent, execution))
+            },
+            on<AiServiceCompletedEvent> { event ->
+                val context = event.invocationContext()
+                val exchange = lastExchange.remove(context.invocationId())
+                monitor.afterAgentInvocation(
+                    AgentResponse(
+                        running.remove(context.invocationId()) ?: scopeOf(context), agent, inputs.remove(context.invocationId()) ?: emptyMap(),
+                        text(event.result().orElse(null)), exchange?.first, exchange?.second,
+                    ),
+                )
+            },
+            on<AiServiceErrorEvent> { event ->
+                val context = event.invocationContext()
+                lastExchange.remove(context.invocationId())
+                monitor.onAgentInvocationError(
+                    AgentInvocationError(running.remove(context.invocationId()) ?: scopeOf(context), agent, inputs.remove(context.invocationId()) ?: emptyMap(), event.error()),
+                )
+            },
+        )
+    }
+
+    private fun scope(key: Any): AgenticScope = scopes.computeIfAbsent(key, ::ReportScope)
+
+    // O monitor guarda uma execucao em curso por sessao: um segundo turno na mesma sessao,
+    // antes de o primeiro acabar, vai para "<sessao> (paralelo N)" em vez de se misturar a ele.
+    private fun start(key: Any): AgenticScope {
+        if (monitor.ongoingExecutionFor(key) == null) return scope(key)
+        val free = generateSequence(2) { it + 1 }.map { "$key (paralelo $it)" }.first { monitor.ongoingExecutionFor(it) == null }
+        return scope(free)
+    }
+
+    // A linha de tool acha a execucao em curso pelo scope que o contexto carrega.
+    private fun withScope(context: InvocationContext, scope: AgenticScope): InvocationContext =
+        object : InvocationContext by context {
+            override fun managedParameters(): Map<Class<out LangChain4jManaged>, LangChain4jManaged> =
+                mapOf(AgenticScope::class.java to scope)
+        }
+
+    private inline fun <reified T : AiServiceEvent> on(crossinline handle: (T) -> Unit): AiServiceListener<T> =
+        object : AiServiceListener<T> {
+            override fun getEventClass(): Class<T> = T::class.java
+            override fun onEvent(event: T) {
+                try {
+                    handle(event)
+                } catch (e: Exception) {
+                    // So a classe: a mensagem pode trazer o que o modelo ou a tool devolveram.
+                    log.warn("relatorio de execucoes: evento {} ignorado ({})", T::class.java.simpleName, e.javaClass.simpleName)
+                }
+            }
+        }
+
+    private companion object {
+        const val USER_INPUT = "userInput"
+        const val AGENT = "agente"
+        val log = LoggerFactory.getLogger(MonitorBridge::class.java)
+
+        // O relatorio mostra o toString() do output: sai o texto, nunca Result@hash.
+        fun text(result: Any?): String? = when (result) {
+            null -> null
+            is Result<*> -> result.content()?.toString()
+            is ChatResponse -> result.aiMessage()?.text()
+            else -> result.toString()
+        }
+    }
+}
+
+/** O agente raiz do relatorio: um so, para todos os AI Services do processo. */
+internal class ReportAgent : AgentInstance {
+    override fun type(): Class<*> = ExecutionMonitor::class.java
+    override fun plannerType(): Class<out Planner>? = null
+    override fun name() = NAME
+    override fun agentId() = NAME
+    override fun description() = "{agent-module}"
+    override fun outputType(): Type = String::class.java
+    override fun outputKey() = "resposta"
+    override fun async() = false
+    override fun arguments() = listOf(AgentArgument(String::class.java, "userInput"))
+    override fun parent(): AgentInstance? = null
+    override fun subagents(): List<AgentInstance> = emptyList()
+    override fun topology() = AgenticSystemTopology.AI_AGENT
+
+    private companion object {
+        const val NAME = "{agent-module}"
+    }
+}
+
+/** O monitor e o gerador so leem memoryId(); o resto responde vazio. */
+@Suppress("FunctionName")
+internal fun ReportScope(memoryId: Any): AgenticScope =
+    Proxy.newProxyInstance(AgenticScope::class.java.classLoader, arrayOf(AgenticScope::class.java)) { _, method, args ->
+        when (method.name) {
+            "memoryId" -> memoryId
+            "state" -> emptyMap<String, Any>()
+            "agentInvocations" -> emptyList<Any>()
+            "hasState", "completePendingResponse" -> false
+            "pendingResponseIds" -> emptySet<String>()
+            "toString" -> "ReportScope($memoryId)"
+            "hashCode" -> memoryId.hashCode()
+            "equals" -> args?.firstOrNull() === memoryId
+            else -> null
+        }
+    } as AgenticScope

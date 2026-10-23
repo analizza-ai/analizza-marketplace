@@ -9,7 +9,7 @@ description: >-
   um projeto Gradle multi-módulo existente. Entrega endpoint de chat (JSON e
   SSE), LLM OpenAI-compatível via LangChain4j atrás de uma interface, cliente
   MCP preguiçoso, observabilidade (OpenTelemetry, LangWatch local,
-  Prometheus) e testes com Ollama em Testcontainers. Use quando o usuário
+  Prometheus, relatório de execuções em /diagnostics/report) e testes com Ollama em Testcontainers. Use quando o usuário
   pedir "novo agente", "criar agent", "agente de IA", "adicionar módulo
   agent", "chat com LLM", "agente com MCP" ou invocar /analizza-new-agent.
   Para monorepo com -api e -core sem agente, use analizza-new-project.
@@ -109,7 +109,8 @@ vai para o arquivo final**, e blocos de condição que não vale somem inteiros.
 
 Os marcadores valem para tudo o que a skill grava no projeto: os arquivos de
 `templates/` e também `references/agent-conventions.md`,
-`references/runbook-agent-chat.md` e `references/readme-env-vars.md`.
+`references/runbook-agent-chat.md`, `references/runbook-relatorio-de-execucoes.md`
+e `references/readme-env-vars.md`.
 
 | Condição | Vale quando |
 |---|---|
@@ -409,6 +410,18 @@ migration vai morar.
 `resources/prompts/system-prompt.prompt` só se o usuário disser o papel do
 agente; o que vem do template é neutro de propósito.
 
+O AI Service do assistente **não** usa `@AiService`: o `AssistantAiServiceConfig`
+monta o `AssistantAiService` com `AiServices.builder()`, porque o starter do
+Spring não registra `AiServiceListener`, e é por eles que o relatório de
+execuções enxerga cada conversa. A ponte fica em
+`infrastructure/data/anticorruptionLayer/llm/monitor/` (`ExecutionMonitor`,
+`MonitorBridge`). Ela alimenta um `AgentMonitor` do `langchain4j-agentic`, e a
+rota `GET /diagnostics/report` (`presenter/routes/diagnostics/`, pelo
+`application/diagnostics/ExecutionReportHandler`) devolve a página do
+`HtmlReportGenerator`. A sessão do relatório é o id da conversa, o primeiro
+argumento de `chat` e `chatStream`, com ou sem memória. A rota nasce sempre
+ligada, sem chave, e mostra o conteúdo cru das tools de todas as conversas.
+
 O que cada condição muda aqui: `ChatMemoryConfig` só existe com `memoria`;
 `V1__chat_memory.sql` só com `memoria-jdbc`; em Java, `ErrorMessage.java` só
 com `sem-buildingBlocks` (em Kotlin o tipo fica dentro do
@@ -567,8 +580,10 @@ inserida imediatamente **antes** de `### Agente`, nunca no fim do arquivo,
 onde ficaria pendurada depois das subseções `####` do agente.
 
 Grave [runbook-agent-chat.md](./references/runbook-agent-chat.md) como
-`docs/checkpoints/agent-chat.md`. Depois de tirar os marcadores, a primeira
-linha do arquivo é o `---` do frontmatter.
+`docs/checkpoints/agent-chat.md` e
+[runbook-relatorio-de-execucoes.md](./references/runbook-relatorio-de-execucoes.md)
+como `docs/checkpoints/relatorio-de-execucoes.md`. Depois de tirar os
+marcadores, a primeira linha de cada arquivo é o `---` do frontmatter.
 
 Grave a seção de [readme-env-vars.md](./references/readme-env-vars.md) — abre
 com `## Variáveis de ambiente` — no `README.md` da raiz, criando-o com o
@@ -588,7 +603,7 @@ done
 
 Nenhuma linha `FALTA NO README`.
 
-Os três arquivos de `references/` levam placeholders e marcadores, como
+Os quatro arquivos de `references/` levam placeholders e marcadores, como
 qualquer template. **Conferência de sobras** — sobre tudo o que a skill
 gravou, não só sobre eles:
 
@@ -600,7 +615,8 @@ grep -rnE "<!-- (se|fim se|arquivo se) |(^|[^\$\{]|\$\{)\{($nomes)\}" \
 ```
 
 `<onde>` é `.` do zero; no modo existente, só o que a skill escreveu:
-`{agent-module} <arquivo do SDD> docs/checkpoints/agent-chat.md README.md
+`{agent-module} <arquivo do SDD> docs/checkpoints/agent-chat.md
+docs/checkpoints/relatorio-de-execucoes.md README.md
 Makefile local.env.example local.env.ollama.example langwatch.env.example
 docker-compose.langwatch.yml gradle.properties .gitignore` e, com `postgres`,
 o compose do projeto (`docker-compose.yml`) — ali, linha em trecho que já era
@@ -623,11 +639,11 @@ grep -ho '<testsuite [^>]*' {agent-module}/build/test-results/test/*.xml | grep 
 ls {agent-module}/build/test-results/test/ | grep -c 'IT\.xml$'
 ```
 
-Exija `EXIT=0` e leia a contagem no XML, não no `BUILD SUCCESSFUL`: cinco
-suítes, `failures="0" errors="0"`, somando **39 testes com memória, 37 sem**
+Exija `EXIT=0` e leia a contagem no XML, não no `BUILD SUCCESSFUL`: seis
+suítes, `failures="0" errors="0"`, somando **46 testes com memória, 44 sem**
 (`ChatHandlerTest` 13, `ChatRouteTest` 11, `ConversationIdsTest` 4,
 `LazyMcpToolProviderTest` 5, `AssistantAiServiceTest` 6 — ou 4 em
-`sem-memoria`), e `0` suítes `*IT`. **`EXIT=0` com soma diferente é falha**:
+`sem-memoria` —, `ExecutionMonitorTest` 7), e `0` suítes `*IT`. **`EXIT=0` com soma diferente é falha**:
 menos testes (ou nenhum XML) é filtro herdado do projeto hospedeiro
 escondendo classes; um `*IT` aqui é o `test` subindo container.
 
@@ -642,8 +658,8 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
 
 `ambos` se houver web. Quatro coisas mudam em relação ao que ela faria sozinha:
 
-1. **Não crie dublê para nada sob `anticorruptionLayer/llm`** (`Assistant` e
-   `llm/impl/AssistantAiService`) quando ela chegar ao `TestConfig`: o
+1. **Não crie dublê para nada sob `anticorruptionLayer/llm`** (`Assistant`,
+   `llm/impl/AssistantAiService` e `llm/monitor/ExecutionMonitor`) quando ela chegar ao `TestConfig`: o
    `{doubles}` dele fica vazio neste módulo. Ela cria dublê para interface de
    saída *sem container*, e o LLM tem: o Ollama. O IT existe para exercitar o
    LLM de verdade; um dublê `@Primary` faria o `ChatRouteIT` passar sem chamar
@@ -654,9 +670,10 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
    dois trechos de código pelo nome do servidor MCP do projeto. Sem a camada,
    a verificação dela falha duas vezes: o contexto do `ApplicationContextIT`
    não sobe sem `LLM_*`, e a regra ArchUnit acusa a `ChatRoute` sem
-   `ChatRouteIT`.
-3. Do `templates/source/{language}/it/` só entram `support/OllamaTestContainer`
-   e `presenter/routes/chat/ChatRouteIT`; a base é a que ela gerou (o
+   `ChatRouteIT` e a `DiagnosticsReportRoute` sem `DiagnosticsReportRouteIT`.
+3. Do `templates/source/{language}/it/` só entram `support/OllamaTestContainer`,
+   `presenter/routes/chat/ChatRouteIT` e
+   `presenter/routes/diagnostics/DiagnosticsReportRouteIT`; a base é a que ela gerou (o
    `BaseIntegrationTest` do template é `<!-- arquivo se it-no-modulo -->`).
 4. **O Pitest dela precisa de uma linha a mais.** Ela instala o Pitest no
    módulo de produção que tem a lógica — o `{mutation-module}` dela, que aqui
@@ -672,8 +689,9 @@ escopo=ambos|backend linguagem={language} banco=postgres layout=dedicado
    irmã, não deste scaffold — ver [armadilhas](./references/pitfalls-agent.md).
 
 **Integração, `it-no-modulo`.** Copie `templates/source/{language}/it/` para
-dentro do `{agent-module}` — os três arquivos (`ChatRouteIT`,
-`support/BaseIntegrationTest`, `support/OllamaTestContainer`). A `analizza-integration-test`
+dentro do `{agent-module}` — os quatro arquivos (`ChatRouteIT`,
+`DiagnosticsReportRouteIT`, `support/BaseIntegrationTest`,
+`support/OllamaTestContainer`). A `analizza-integration-test`
 **não** é invocada para o backend: a base de teste dela exige um container de
 banco (não serve a um módulo sem Postgres) e, no modo existente, invocá-la
 reescreveria a configuração de teste do projeto hospedeiro, que esta skill não
@@ -749,7 +767,8 @@ prefixo do módulo, que executaria também os ITs do projeto hospedeiro.
 
 O `build` não precisa de banco, de LLM nem de Docker: os unitários usam LLM
 roteirizado e os ITs ficam fora dele. Nos ITs, exija `EXIT=0`,
-`failures="0" errors="0"` e o `ChatRouteIT` com `tests="3"`; em `it-dedicado`,
+`failures="0" errors="0"`, o `ChatRouteIT` com `tests="3"` e o
+`DiagnosticsReportRouteIT` com `tests="1"`; em `it-dedicado`,
 também `ApplicationContextIT` e `EntrypointHasIntegrationTestIT`.
 
 **Zero testes de integração executados é FALHA, mesmo com `EXIT=0`.** Sem a
@@ -810,11 +829,13 @@ curl -s -D - --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/h
 curl -s -N --max-time 300 -X POST http://localhost:{agent-port}/api/v1/agent/stream \
   -H 'Content-Type: application/json' -d '{"body":"Diga tchau."}'
 curl -s http://localhost:{agent-port}/actuator/prometheus | grep '^chat_requests_total'
+curl -s http://localhost:{agent-port}/diagnostics/report | grep -c 'smoke-1'
 ```
 
 Precisa vir `200` com o header `X-Conversation-Id: smoke-1` ecoado e
 `response` não vazio, linhas `data:` até o fluxo acabar sozinho, e
-`chat_requests_total{outcome="success"}` valendo `2.0` — as duas conversas.
+`chat_requests_total{outcome="success"}` valendo `2.0` — as duas conversas —
+e o relatório com a sessão `smoke-1` (contagem maior que `0`).
 O header só é ecoado quando o cliente o manda: o `curl` do `/stream` acima
 não manda, e a resposta dele vem sem `X-Conversation-Id`.
 **Não corte o SSE** (`| head`, Ctrl+C): fechar a conexão no meio do fluxo é
@@ -958,6 +979,9 @@ andamento ali.
   instalados, então o runbook `docs/checkpoints/agent-chat.md` ficou sem quem o
   conduza; o usuário instala com a skill `test-runbook`
 - Que o primeiro IT baixa ~2 GB e que os ITs ficam fora do `build`
+- Que `GET /diagnostics/report` nasce **sempre ligado e sem autenticação**: mostra
+  o conteúdo cru das tools de todas as conversas, em memória, e some ao
+  reiniciar. A porta do agente não deve ficar exposta fora da rede do time
 - Que o endpoint de chat nasce **sem autenticação** — e, com o id da conversa
   escolhido pelo cliente, quem souber um id lê a memória daquela conversa
 - Que **nenhum profile é ativo por padrão**: o conteúdo das conversas só vai

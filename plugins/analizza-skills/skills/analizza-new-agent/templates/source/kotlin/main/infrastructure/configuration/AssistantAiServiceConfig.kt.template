@@ -1,0 +1,47 @@
+package {base-package}.infrastructure.configuration
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.impl.AssistantAiService
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor.ExecutionMonitor
+<!-- se memoria -->
+import dev.langchain4j.memory.chat.ChatMemoryProvider
+<!-- fim se memoria -->
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
+import dev.langchain4j.service.AiServices
+import dev.langchain4j.service.tool.ToolProvider
+import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+
+/**
+ * Monta o AI Service do assistente. Cada dependencia vai pelo nome do bean,
+ * para que acrescentar um segundo ChatModel ou ToolProvider ao contexto nao
+ * mude em silencio o que este assistente usa.
+ */
+@Configuration
+class AssistantAiServiceConfig {
+
+    @Bean
+    fun assistantAiService(
+        @Qualifier("openAiChatModel") chatModel: ChatModel,
+        @Qualifier("openAiStreamingChatModel") streamingChatModel: StreamingChatModel,
+        @Qualifier("chatToolProvider") toolProvider: ToolProvider,
+<!-- se memoria -->
+        chatMemoryProvider: ChatMemoryProvider,
+<!-- fim se memoria -->
+        monitor: ExecutionMonitor,
+    ): AssistantAiService = AiServices.builder(AssistantAiService::class.java)
+        .chatModel(chatModel)
+        .streamingChatModel(streamingChatModel)
+        .toolProvider(toolProvider)
+<!-- se memoria -->
+        .chatMemoryProvider(chatMemoryProvider)
+<!-- fim se memoria -->
+        // A sessao do relatorio e o id da conversa, primeiro argumento de chat e chatStream.
+        .registerListeners(monitor.listeners(AGENT) { it.methodArguments().first() })
+        .build()
+
+    private companion object {
+        const val AGENT = "{agent-module}"
+    }
+}

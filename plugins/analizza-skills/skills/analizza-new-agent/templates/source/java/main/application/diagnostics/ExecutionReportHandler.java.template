@@ -1,0 +1,22 @@
+package {base-package}.application.diagnostics;
+
+import {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor.ExecutionMonitor;
+import org.springframework.stereotype.Component;
+
+/**
+ * A pagina do relatorio de execucoes, ja em HTML. Handler magro de proposito:
+ * e ele que impede a rota de importar infrastructure/.
+ */
+@Component
+public class ExecutionReportHandler {
+
+    private final ExecutionMonitor monitor;
+
+    public ExecutionReportHandler(ExecutionMonitor monitor) {
+        this.monitor = monitor;
+    }
+
+    public String handle() {
+        return monitor.report();
+    }
+}

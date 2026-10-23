@@ -48,6 +48,7 @@ dependencies {
     implementation "dev.langchain4j:langchain4j-open-ai-spring-boot4-starter:${langchain4jVersion}"
     implementation "dev.langchain4j:langchain4j-spring-boot4-starter:${langchain4jVersion}"
     implementation "dev.langchain4j:langchain4j-mcp:${langchain4jVersion}"
+    implementation "dev.langchain4j:langchain4j-agentic:${langchain4jVersion}"
 <!-- se memoria-jdbc -->
     implementation "dev.langchain4j:langchain4j-community-sql:${langchain4jVersion}"
 <!-- fim se memoria-jdbc -->

@@ -1,0 +1,58 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor;
+
+import dev.langchain4j.agentic.observability.AgentMonitor;
+import dev.langchain4j.agentic.observability.HtmlReportGenerator;
+import dev.langchain4j.invocation.InvocationContext;
+import dev.langchain4j.observability.api.listener.AiServiceListener;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
+import org.springframework.stereotype.Component;
+
+/**
+ * O relatorio de execucoes (GET /diagnostics/report): um AgentMonitor do
+ * langchain4j-agentic, em memoria e por processo, alimentado pelos eventos dos
+ * AI Services que registram os {@code listeners}. O chat nao passa pelo
+ * agentic; a ponte so traduz o que o AI Service ja avisa.
+ */
+@Component
+public class ExecutionMonitor {
+
+    public static final String EMPTY_REPORT_TEXT = "Nenhuma execução registrada ainda.";
+
+    private static final String EMPTY_REPORT = """
+            <!doctype html>
+            <html lang="pt-BR">
+            <head><meta charset="UTF-8"><title>Relatório de execuções</title></head>
+            <body><p>%s</p></body>
+            </html>""".formatted(EMPTY_REPORT_TEXT);
+
+    private final AgentMonitor monitor;
+    private final MonitorBridge bridge;
+
+    public ExecutionMonitor() {
+        this(new AgentMonitor());
+    }
+
+    ExecutionMonitor(AgentMonitor monitor) {
+        this.monitor = monitor;
+        this.bridge = new MonitorBridge(monitor);
+    }
+
+    /**
+     * Os listeners de um AI Service. {@code agent} diz quem respondeu e aparece
+     * no run; {@code session} diz de qual sessao do relatorio e a chamada.
+     */
+    public List<AiServiceListener<?>> listeners(String agent, Function<InvocationContext, Object> session) {
+        return bridge.listeners(agent, session);
+    }
+
+    // O gerador quebra enquanto nada foi registrado: a pagina vazia e nossa.
+    public String report() {
+        return monitor.allMemoryIds().isEmpty() ? EMPTY_REPORT : HtmlReportGenerator.generateReport(monitor);
+    }
+
+    public Set<Object> sessions() {
+        return monitor.allMemoryIds();
+    }
+}

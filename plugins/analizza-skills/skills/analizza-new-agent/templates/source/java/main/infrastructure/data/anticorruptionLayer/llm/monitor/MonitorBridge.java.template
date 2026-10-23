@@ -1,0 +1,227 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor;
+
+import dev.langchain4j.agentic.observability.AfterAgentToolExecution;
+import dev.langchain4j.agentic.observability.AgentInvocationError;
+import dev.langchain4j.agentic.observability.AgentMonitor;
+import dev.langchain4j.agentic.observability.AgentRequest;
+import dev.langchain4j.agentic.observability.AgentResponse;
+import dev.langchain4j.agentic.planner.AgentArgument;
+import dev.langchain4j.agentic.planner.AgentInstance;
+import dev.langchain4j.agentic.planner.AgenticSystemTopology;
+import dev.langchain4j.agentic.planner.Planner;
+import dev.langchain4j.agentic.scope.AgenticScope;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.invocation.InvocationContext;
+import dev.langchain4j.invocation.InvocationParameters;
+import dev.langchain4j.invocation.LangChain4jManaged;
+import dev.langchain4j.model.ModelProvider;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ChatRequestParameters;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.observability.api.event.AiServiceCompletedEvent;
+import dev.langchain4j.observability.api.event.AiServiceErrorEvent;
+import dev.langchain4j.observability.api.event.AiServiceEvent;
+import dev.langchain4j.observability.api.event.AiServiceResponseReceivedEvent;
+import dev.langchain4j.observability.api.event.AiServiceStartedEvent;
+import dev.langchain4j.observability.api.event.ToolExecutedEvent;
+import dev.langchain4j.observability.api.listener.AiServiceListener;
+import dev.langchain4j.service.Result;
+import dev.langchain4j.service.tool.ToolExecution;
+import dev.langchain4j.service.tool.ToolExecutionResult;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.Type;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Traduz os eventos de um AI Service nas chamadas que o AgentMonitor espera de
+ * um agente do agentic. O monitor pede um AgentInstance e um AgenticScope, que
+ * so existem dentro do agentic: os dois sao fabricados aqui. API beta da
+ * biblioteca -- o ExecutionMonitorTest e quem avisa quando ela mudar.
+ *
+ * So observa: um erro aqui e logado e engolido, e o chat responde igual.
+ */
+final class MonitorBridge {
+
+    private static final Logger log = LoggerFactory.getLogger(MonitorBridge.class);
+    private static final String USER_INPUT = "userInput";
+    private static final String AGENT = "agente";
+
+    private final AgentMonitor monitor;
+    private final AgentInstance agent = new ReportAgent();
+    private final Map<Object, AgenticScope> scopes = new ConcurrentHashMap<>();
+
+    // Por invocacao, porque conversas diferentes rodam ao mesmo tempo.
+    private final Map<UUID, AgenticScope> running = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<String, Object>> inputs = new ConcurrentHashMap<>();
+    private final Map<UUID, Exchange> lastExchange = new ConcurrentHashMap<>();
+
+    private record Exchange(ChatRequest request, ChatResponse response) {}
+
+    MonitorBridge(AgentMonitor monitor) {
+        this.monitor = monitor;
+        monitor.setRootAgent(agent);
+    }
+
+    List<AiServiceListener<?>> listeners(String agentLabel, Function<InvocationContext, Object> session) {
+        // O scope e escolhido no inicio e vale ate o fim da invocacao: o evento de tool e o de
+        // fim acham a execucao certa mesmo com dois turnos na mesma sessao.
+        Function<InvocationContext, AgenticScope> scopeOf = context -> {
+            AgenticScope current = running.get(context.invocationId());
+            return current != null ? current : scope(session.apply(context));
+        };
+        return List.of(
+                on(AiServiceStartedEvent.class, event -> {
+                    InvocationContext context = event.invocationContext();
+                    Map<String, Object> asked = Map.of(USER_INPUT, event.userMessage().singleText(), AGENT, agentLabel);
+                    inputs.put(context.invocationId(), asked);
+                    // Escolher a chave livre e registrar a execucao juntos: senao dois inicios ao
+                    // mesmo tempo escolheriam a mesma.
+                    synchronized (this) {
+                        AgenticScope scope = start(session.apply(context));
+                        running.put(context.invocationId(), scope);
+                        monitor.beforeAgentInvocation(new AgentRequest(scope, agent, asked));
+                    }
+                }),
+                on(AiServiceResponseReceivedEvent.class, event -> lastExchange.put(
+                        event.invocationContext().invocationId(), new Exchange(event.request(), event.response()))),
+                on(ToolExecutedEvent.class, event -> {
+                    ToolExecution execution = ToolExecution.builder()
+                            .request(event.request())
+                            .result(ToolExecutionResult.builder().resultText(event.resultText()).build())
+                            .invocationContext(withScope(event.invocationContext(), scopeOf.apply(event.invocationContext())))
+                            .build();
+                    monitor.afterAgentToolExecution(new AfterAgentToolExecution(agent, execution));
+                }),
+                on(AiServiceCompletedEvent.class, event -> {
+                    InvocationContext context = event.invocationContext();
+                    Exchange exchange = lastExchange.remove(context.invocationId());
+                    AgenticScope scope = running.remove(context.invocationId());
+                    monitor.afterAgentInvocation(new AgentResponse(
+                            scope != null ? scope : scopeOf.apply(context), agent,
+                            inputs.getOrDefault(context.invocationId(), Map.of()), text(event.result().orElse(null)),
+                            exchange != null ? exchange.request() : null, exchange != null ? exchange.response() : null));
+                    inputs.remove(context.invocationId());
+                }),
+                on(AiServiceErrorEvent.class, event -> {
+                    InvocationContext context = event.invocationContext();
+                    lastExchange.remove(context.invocationId());
+                    AgenticScope scope = running.remove(context.invocationId());
+                    Map<String, Object> asked = inputs.remove(context.invocationId());
+                    monitor.onAgentInvocationError(new AgentInvocationError(
+                            scope != null ? scope : scopeOf.apply(context), agent,
+                            asked != null ? asked : Map.of(), event.error()));
+                }));
+    }
+
+    private AgenticScope scope(Object key) {
+        return scopes.computeIfAbsent(key, MonitorBridge::reportScope);
+    }
+
+    // O monitor guarda uma execucao em curso por sessao: um segundo turno na mesma sessao,
+    // antes de o primeiro acabar, vai para "<sessao> (paralelo N)" em vez de se misturar a ele.
+    private AgenticScope start(Object key) {
+        if (monitor.ongoingExecutionFor(key) == null) {
+            return scope(key);
+        }
+        int n = 2;
+        while (monitor.ongoingExecutionFor(key + " (paralelo " + n + ")") != null) {
+            n++;
+        }
+        return scope(key + " (paralelo " + n + ")");
+    }
+
+    private <T extends AiServiceEvent> AiServiceListener<T> on(Class<T> type, Consumer<T> handle) {
+        return new AiServiceListener<>() {
+            @Override
+            public Class<T> getEventClass() {
+                return type;
+            }
+
+            @Override
+            public void onEvent(T event) {
+                try {
+                    handle.accept(event);
+                } catch (Exception e) {
+                    // So a classe: a mensagem pode trazer o que o modelo ou a tool devolveram.
+                    log.warn("relatorio de execucoes: evento {} ignorado ({})", type.getSimpleName(), e.getClass().getSimpleName());
+                }
+            }
+        };
+    }
+
+    // O relatorio mostra o toString() do output: sai o texto, nunca Result@hash.
+    private static Object text(Object result) {
+        if (result instanceof Result<?> r) {
+            return r.content() == null ? null : r.content().toString();
+        }
+        if (result instanceof ChatResponse r) {
+            return r.aiMessage() == null ? null : r.aiMessage().text();
+        }
+        return result == null ? null : result.toString();
+    }
+
+    // A linha de tool acha a execucao em curso pelo scope que o contexto carrega.
+    private static InvocationContext withScope(InvocationContext context, AgenticScope scope) {
+        return new InvocationContext() {
+            @Override public UUID invocationId() { return context.invocationId(); }
+            @Override public String interfaceName() { return context.interfaceName(); }
+            @Override public String methodName() { return context.methodName(); }
+            @Override public List<Object> methodArguments() { return context.methodArguments(); }
+            @Override public UserMessage userMessage() { return context.userMessage(); }
+            @Override public Object chatMemoryId() { return context.chatMemoryId(); }
+            @Override public ChatRequestParameters defaultRequestParameters() { return context.defaultRequestParameters(); }
+            @Override public ModelProvider modelProvider() { return context.modelProvider(); }
+            @Override public InvocationParameters invocationParameters() { return context.invocationParameters(); }
+            @Override public Instant timestamp() { return context.timestamp(); }
+
+            @Override
+            public Map<Class<? extends LangChain4jManaged>, LangChain4jManaged> managedParameters() {
+                return Map.of(AgenticScope.class, scope);
+            }
+        };
+    }
+
+    /** O monitor e o gerador so leem memoryId(); o resto responde vazio. */
+    private static AgenticScope reportScope(Object memoryId) {
+        return (AgenticScope) Proxy.newProxyInstance(
+                AgenticScope.class.getClassLoader(), new Class<?>[] {AgenticScope.class}, (proxy, method, args) ->
+                        switch (method.getName()) {
+                            case "memoryId" -> memoryId;
+                            case "state" -> Map.of();
+                            case "agentInvocations" -> List.of();
+                            case "hasState", "completePendingResponse" -> false;
+                            case "pendingResponseIds" -> Set.of();
+                            case "toString" -> "ReportScope(" + memoryId + ")";
+                            case "hashCode" -> memoryId.hashCode();
+                            case "equals" -> args != null && args[0] == proxy;
+                            default -> null;
+                        });
+    }
+
+    /** O agente raiz do relatorio: um so, para todos os AI Services do processo. */
+    private static final class ReportAgent implements AgentInstance {
+        private static final String NAME = "{agent-module}";
+
+        @Override public Class<?> type() { return ExecutionMonitor.class; }
+        @Override public Class<? extends Planner> plannerType() { return null; }
+        @Override public String name() { return NAME; }
+        @Override public String agentId() { return NAME; }
+        @Override public String description() { return NAME; }
+        @Override public Type outputType() { return String.class; }
+        @Override public String outputKey() { return "resposta"; }
+        @Override public boolean async() { return false; }
+        @Override public List<AgentArgument> arguments() { return List.of(new AgentArgument(String.class, USER_INPUT)); }
+        @Override public AgentInstance parent() { return null; }
+        @Override public List<AgentInstance> subagents() { return List.of(); }
+        @Override public AgenticSystemTopology topology() { return AgenticSystemTopology.AI_AGENT; }
+    }
+}
