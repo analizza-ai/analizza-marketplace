@@ -1,0 +1,37 @@
+package {base-package}.presenter.routes.diagnostics
+
+import {base-package}.presenter.routes.chat.ConversationIds
+import {base-package}.support.BaseIntegrationTest
+import org.junit.jupiter.api.Test
+import org.springframework.http.MediaType
+import java.util.UUID
+import kotlin.test.assertTrue
+
+/**
+ * O relatorio de execucoes com o agente inteiro de pe e LLM real. A pagina
+ * vazia nao e afirmada aqui: o contexto e compartilhado entre ITs e outro
+ * teste pode ja ter conversado. Ela esta provada no ExecutionMonitorTest.
+ */
+class DiagnosticsReportRouteIT : BaseIntegrationTest() {
+
+    private fun report(): String = http.get().uri("/diagnostics/report")
+        .exchange()
+        .expectStatus().isOk
+        .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
+        .expectBody(String::class.java)
+        .returnResult().responseBody!!
+
+    @Test
+    fun `um turno do chat aparece no relatorio com o id da conversa`() {
+        val conversationId = "it-report-${UUID.randomUUID()}"
+
+        http.post().uri("/api/v1/agent/http")
+            .contentType(MediaType.APPLICATION_JSON)
+            .header(ConversationIds.HEADER, conversationId)
+            .body("""{"body":"Responda com uma unica palavra: ok"}""")
+            .exchange()
+            .expectStatus().isOk
+
+        assertTrue(report().contains(conversationId), "conversa ausente do relatorio")
+    }
+}

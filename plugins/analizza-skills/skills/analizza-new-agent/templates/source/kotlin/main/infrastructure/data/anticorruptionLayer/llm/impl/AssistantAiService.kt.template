@@ -7,23 +7,13 @@ import dev.langchain4j.service.SystemMessage
 import dev.langchain4j.service.TokenStream
 import dev.langchain4j.service.UserMessage
 import dev.langchain4j.service.V
-import dev.langchain4j.service.spring.AiService
-import dev.langchain4j.service.spring.AiServiceWiringMode
 
 /**
- * AI Service do LangChain4j: o starter gera a implementacao em runtime.
- * Wiring explicito para que acrescentar um segundo ChatModel ou ToolProvider
- * ao contexto nao mude em silencio o que este assistente usa.
+ * A forma do AI Service do assistente. Sem @AiService de proposito: o starter
+ * do Spring nao registra AiServiceListener, e e por eles que o relatorio de
+ * execucoes enxerga cada conversa. Modelo, tools, memoria e listeners sao
+ * ligados por codigo em AssistantAiServiceConfig.
  */
-@AiService(
-    wiringMode = AiServiceWiringMode.EXPLICIT,
-    chatModel = "openAiChatModel",
-    streamingChatModel = "openAiStreamingChatModel",
-    toolProvider = "chatToolProvider",
-<!-- se memoria -->
-    chatMemoryProvider = "chatMemoryProvider",
-<!-- fim se memoria -->
-)
 interface AssistantAiService {
 
     @SystemMessage(fromResource = "prompts/system-prompt.prompt")

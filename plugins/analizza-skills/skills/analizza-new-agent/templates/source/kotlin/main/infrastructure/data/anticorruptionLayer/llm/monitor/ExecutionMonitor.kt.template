@@ -1,0 +1,46 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor
+
+import dev.langchain4j.agentic.observability.AgentMonitor
+import dev.langchain4j.agentic.observability.HtmlReportGenerator
+import dev.langchain4j.invocation.InvocationContext
+import dev.langchain4j.observability.api.listener.AiServiceListener
+import org.springframework.stereotype.Component
+
+/**
+ * O relatorio de execucoes (GET /diagnostics/report): um AgentMonitor do
+ * langchain4j-agentic, em memoria e por processo, alimentado pelos eventos dos
+ * AI Services que registram os `listeners`. O chat nao passa pelo agentic; a
+ * ponte so traduz o que o AI Service ja avisa.
+ */
+@Component
+class ExecutionMonitor internal constructor(private val monitor: AgentMonitor) {
+
+    constructor() : this(AgentMonitor())
+
+    private val bridge = MonitorBridge(monitor)
+
+    /**
+     * Os listeners de um AI Service. `agent` diz quem respondeu e aparece no
+     * run; `session` diz de qual sessao do relatorio e a chamada -- sem ela,
+     * vale o memoryId.
+     */
+    fun listeners(
+        agent: String,
+        session: (InvocationContext) -> Any = { it.chatMemoryId() },
+    ): List<AiServiceListener<*>> = bridge.listeners(agent, session)
+
+    // O gerador quebra enquanto nada foi registrado: a pagina vazia e nossa.
+    fun report(): String = if (monitor.allMemoryIds().isEmpty()) EMPTY_REPORT else HtmlReportGenerator.generateReport(monitor)
+
+    fun sessions(): Set<Any> = monitor.allMemoryIds()
+
+    companion object {
+        const val EMPTY_REPORT_TEXT = "Nenhuma execução registrada ainda."
+
+        private const val EMPTY_REPORT = """<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Relatório de execuções</title></head>
+<body><p>$EMPTY_REPORT_TEXT</p></body>
+</html>"""
+    }
+}

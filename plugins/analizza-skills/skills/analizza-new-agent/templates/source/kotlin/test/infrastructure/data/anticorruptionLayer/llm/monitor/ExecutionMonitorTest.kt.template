@@ -1,0 +1,158 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor
+
+import {base-package}.support.FakeToolProvider
+import {base-package}.support.ScriptedChatModel
+import {base-package}.support.ScriptedChatModel.Companion.answer
+import {base-package}.support.ScriptedChatModel.Companion.callTool
+import dev.langchain4j.agentic.observability.AgentMonitor
+import dev.langchain4j.agentic.observability.AgentRequest
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.UserMessage as ChatUserMessage
+import dev.langchain4j.memory.chat.MessageWindowChatMemory
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.service.AiServices
+import dev.langchain4j.service.MemoryId
+import dev.langchain4j.service.UserMessage
+import dev.langchain4j.service.V
+import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertTrue
+
+/**
+ * A ponte com AI Services de verdade e modelo roteirizado: o que o relatorio
+ * mostra sai dos eventos da biblioteca. As classes do agentic que a ponte usa
+ * sao API beta -- e este teste que quebra quando uma atualizacao as mudar.
+ */
+class ExecutionMonitorTest {
+
+    interface Chat {
+        @UserMessage("{{userInput}}")
+        fun chat(@MemoryId conversationId: String, @V("userInput") userInput: String): String
+    }
+
+    private fun chat(monitor: ExecutionMonitor, model: ChatModel): Chat =
+        AiServices.builder(Chat::class.java)
+            .chatModel(model)
+            .toolProvider(FakeToolProvider.create { """{"status":"ATIVO"}""" })
+            .chatMemoryProvider { MessageWindowChatMemory.withMaxMessages(20) }
+            .registerListeners(monitor.listeners("assistente") { it.methodArguments().first() })
+            .build()
+
+    private fun answers(vararg texts: String) = ScriptedChatModel(texts.map { answer(it) })
+
+    // Devolve "eco <pergunta>"; a pergunta "primeiro" espera ser liberada.
+    private class Echo(private val inside: CountDownLatch? = null, private val release: CountDownLatch? = null) : ChatModel {
+        override fun doChat(request: ChatRequest): ChatResponse {
+            val asked = (request.messages().last() as ChatUserMessage).singleText()
+            if (asked == "primeiro") {
+                inside?.countDown()
+                release?.await(5, TimeUnit.SECONDS)
+            }
+            return ChatResponse.builder().aiMessage(AiMessage.from("eco $asked")).build()
+        }
+    }
+
+    @Test
+    fun `sem execucao o relatorio e a pagina vazia`() {
+        assertTrue(ExecutionMonitor().report().contains(ExecutionMonitor.EMPTY_REPORT_TEXT))
+    }
+
+    @Test
+    fun `cada conversa vira uma sessao e o mesmo id acumula runs`() {
+        val agentMonitor = AgentMonitor()
+        val monitor = ExecutionMonitor(agentMonitor)
+        val service = chat(monitor, answers("um", "dois", "tres"))
+
+        service.chat("a", "oi")
+        service.chat("a", "de novo")
+        service.chat("b", "oi")
+
+        assertEquals(setOf<Any>("a", "b"), monitor.sessions())
+        assertEquals(2, agentMonitor.allExecutionsFor("a").size)
+    }
+
+    @Test
+    fun `a tool aparece com argumento e retorno e o agente no run`() {
+        val monitor = ExecutionMonitor()
+        val model = ScriptedChatModel(listOf(callTool(FakeToolProvider.TOOL, """{"id":"r-1"}"""), answer("achei")))
+
+        chat(monitor, model).chat("a", "cade o r-1?")
+
+        val report = monitor.report()
+        assertTrue(report.contains(FakeToolProvider.TOOL), report)
+        assertTrue(report.contains("r-1"), report)
+        assertTrue(report.contains("ATIVO"), report)
+        assertTrue(report.contains("assistente"), report)
+    }
+
+    @Test
+    fun `erro do modelo aparece como falha e a conversa segue registrando`() {
+        val agentMonitor = AgentMonitor()
+        val monitor = ExecutionMonitor(agentMonitor)
+        val service = chat(monitor, answers("voltou"))
+        val failing = chat(monitor, ScriptedChatModel(emptyList()))
+
+        assertFails { failing.chat("a", "oi") }
+        service.chat("a", "de novo")
+
+        assertEquals(1, agentMonitor.failedExecutions().size)
+        assertEquals(1, agentMonitor.successfulExecutions().size)
+    }
+
+    @Test
+    fun `conversas simultaneas nao se misturam`() {
+        val agentMonitor = AgentMonitor()
+        val monitor = ExecutionMonitor(agentMonitor)
+        val service = chat(monitor, Echo())
+        val pool = Executors.newFixedThreadPool(8)
+        try {
+            (1..8).map { n -> pool.submit { service.chat("c$n", "p$n") } }.forEach { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdown()
+        }
+
+        (1..8).forEach { n ->
+            val run = agentMonitor.allExecutionsFor("c$n").single().topLevelInvocations()
+            assertEquals("p$n", run.inputs()["userInput"])
+            assertEquals("eco p$n", run.output())
+        }
+    }
+
+    @Test
+    fun `dois turnos da mesma conversa ao mesmo tempo nao se misturam`() {
+        val agentMonitor = AgentMonitor()
+        val monitor = ExecutionMonitor(agentMonitor)
+        val inside = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val service = chat(monitor, Echo(inside, release))
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val first = pool.submit<String> { service.chat("x", "primeiro") }
+            inside.await(5, TimeUnit.SECONDS)
+            service.chat("x", "segundo")
+            release.countDown()
+            first.get(5, TimeUnit.SECONDS)
+        } finally {
+            pool.shutdown()
+        }
+
+        val runs = monitor.sessions().flatMap { agentMonitor.allExecutionsFor(it) }.map { it.topLevelInvocations() }
+        assertEquals(2, runs.size)
+        runs.forEach { assertEquals("eco ${it.inputs()["userInput"]}", it.output()) }
+    }
+
+    @Test
+    fun `listener que falha nao muda a resposta`() {
+        val broken = object : AgentMonitor() {
+            override fun beforeAgentInvocation(request: AgentRequest) = error("monitor quebrado")
+        }
+
+        assertEquals("resposta roteirizada", chat(ExecutionMonitor(broken), answers("resposta roteirizada")).chat("a", "oi"))
+    }
+}

@@ -1,0 +1,180 @@
+package {base-package}.infrastructure.data.anticorruptionLayer.llm.monitor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static {base-package}.support.ScriptedChatModel.answer;
+import static {base-package}.support.ScriptedChatModel.callTool;
+
+import {base-package}.support.FakeToolProvider;
+import {base-package}.support.ScriptedChatModel;
+import dev.langchain4j.agentic.observability.AgentInvocation;
+import dev.langchain4j.agentic.observability.AgentMonitor;
+import dev.langchain4j.agentic.observability.AgentRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+import org.junit.jupiter.api.Test;
+
+/**
+ * A ponte com AI Services de verdade e modelo roteirizado: o que o relatorio
+ * mostra sai dos eventos da biblioteca. As classes do agentic que a ponte usa
+ * sao API beta -- e este teste que quebra quando uma atualizacao as mudar.
+ */
+class ExecutionMonitorTest {
+
+    interface Chat {
+        @UserMessage("{{userInput}}")
+        String chat(@MemoryId String conversationId, @V("userInput") String userInput);
+    }
+
+    private Chat chat(ExecutionMonitor monitor, ChatModel model) {
+        return AiServices.builder(Chat.class)
+                .chatModel(model)
+                .toolProvider(FakeToolProvider.create(arguments -> "{\"status\":\"ATIVO\"}"))
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.withMaxMessages(20))
+                .registerListeners(monitor.listeners("assistente", context -> context.methodArguments().get(0)))
+                .build();
+    }
+
+    // Devolve "eco <pergunta>"; a pergunta "primeiro" espera ser liberada.
+    private static ChatModel echo(CountDownLatch inside, CountDownLatch release) {
+        return new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                String asked = ((dev.langchain4j.data.message.UserMessage) request.messages().getLast()).singleText();
+                if (asked.equals("primeiro") && inside != null) {
+                    inside.countDown();
+                    try {
+                        release.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return ChatResponse.builder().aiMessage(AiMessage.from("eco " + asked)).build();
+            }
+        };
+    }
+
+    @Test
+    void semExecucaoORelatorioEAPaginaVazia() {
+        assertThat(new ExecutionMonitor().report()).contains(ExecutionMonitor.EMPTY_REPORT_TEXT);
+    }
+
+    @Test
+    void cadaConversaViraUmaSessaoEOMesmoIdAcumulaRuns() {
+        AgentMonitor agentMonitor = new AgentMonitor();
+        ExecutionMonitor monitor = new ExecutionMonitor(agentMonitor);
+        Chat service = chat(monitor, new ScriptedChatModel(List.of(answer("um"), answer("dois"), answer("tres"))));
+
+        service.chat("a", "oi");
+        service.chat("a", "de novo");
+        service.chat("b", "oi");
+
+        assertThat(monitor.sessions()).isEqualTo(Set.of("a", "b"));
+        assertThat(agentMonitor.allExecutionsFor("a")).hasSize(2);
+    }
+
+    @Test
+    void aToolApareceComArgumentoERetornoEOAgenteNoRun() {
+        ExecutionMonitor monitor = new ExecutionMonitor();
+        ScriptedChatModel model = new ScriptedChatModel(
+                List.of(callTool(FakeToolProvider.TOOL, "{\"id\":\"r-1\"}"), answer("achei")));
+
+        chat(monitor, model).chat("a", "cade o r-1?");
+
+        assertThat(monitor.report()).contains(FakeToolProvider.TOOL, "r-1", "ATIVO", "assistente");
+    }
+
+    @Test
+    void erroDoModeloApareceComoFalhaEAConversaSegueRegistrando() {
+        AgentMonitor agentMonitor = new AgentMonitor();
+        ExecutionMonitor monitor = new ExecutionMonitor(agentMonitor);
+        Chat failing = chat(monitor, new ScriptedChatModel(List.of()));
+        Chat service = chat(monitor, new ScriptedChatModel(List.of(answer("voltou"))));
+
+        assertThatThrownBy(() -> failing.chat("a", "oi"));
+        service.chat("a", "de novo");
+
+        assertThat(agentMonitor.failedExecutions()).hasSize(1);
+        assertThat(agentMonitor.successfulExecutions()).hasSize(1);
+    }
+
+    @Test
+    void conversasSimultaneasNaoSeMisturam() throws Exception {
+        AgentMonitor agentMonitor = new AgentMonitor();
+        Chat service = chat(new ExecutionMonitor(agentMonitor), echo(null, null));
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<String>> turns = IntStream.rangeClosed(1, 8)
+                    .mapToObj(n -> pool.submit(() -> service.chat("c" + n, "p" + n)))
+                    .toList();
+            for (Future<String> turn : turns) {
+                turn.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+        }
+
+        for (int n = 1; n <= 8; n++) {
+            AgentInvocation run = agentMonitor.allExecutionsFor("c" + n).getFirst().topLevelInvocations();
+            assertThat(agentMonitor.allExecutionsFor("c" + n)).hasSize(1);
+            assertThat(run.inputs().get("userInput")).isEqualTo("p" + n);
+            assertThat(run.output()).isEqualTo("eco p" + n);
+        }
+    }
+
+    @Test
+    void doisTurnosDaMesmaConversaAoMesmoTempoNaoSeMisturam() throws Exception {
+        AgentMonitor agentMonitor = new AgentMonitor();
+        ExecutionMonitor monitor = new ExecutionMonitor(agentMonitor);
+        CountDownLatch inside = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Chat service = chat(monitor, echo(inside, release));
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> first = pool.submit(() -> service.chat("x", "primeiro"));
+            inside.await(5, TimeUnit.SECONDS);
+            service.chat("x", "segundo");
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdown();
+        }
+
+        List<AgentInvocation> runs = monitor.sessions().stream()
+                .flatMap(session -> agentMonitor.allExecutionsFor(session).stream())
+                .map(execution -> execution.topLevelInvocations())
+                .toList();
+        assertThat(runs).hasSize(2);
+        runs.forEach(run -> assertThat(run.output()).isEqualTo("eco " + run.inputs().get("userInput")));
+    }
+
+    @Test
+    void listenerQueFalhaNaoMudaAResposta() {
+        AgentMonitor broken = new AgentMonitor() {
+            @Override
+            public void beforeAgentInvocation(AgentRequest request) {
+                throw new IllegalStateException("monitor quebrado");
+            }
+        };
+
+        String answer = chat(new ExecutionMonitor(broken), new ScriptedChatModel(List.of(answer("resposta roteirizada"))))
+                .chat("a", "oi");
+
+        assertThat(answer).isEqualTo("resposta roteirizada");
+    }
+}

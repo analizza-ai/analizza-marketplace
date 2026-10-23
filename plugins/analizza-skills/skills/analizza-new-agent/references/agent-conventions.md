@@ -24,6 +24,8 @@ mesmo módulo, e a seta entre elas é convenção, não regra de build.
 | Validação, orquestração e classificação de falha | `application/chat/` |
 | As exceções que o caso de uso lança | `application/chat/` — não em `presenter/`, senão o handler importaria a entrada |
 | O LLM, atrás de uma interface | `infrastructure/data/anticorruptionLayer/llm/Assistant` e `impl/` |
+| Montagem do AI Service (modelo, tools, memória, listeners) | `infrastructure/configuration/AssistantAiServiceConfig` |
+| Relatório de execuções (`GET /diagnostics/report`) | `presenter/routes/diagnostics/`, `application/diagnostics/ExecutionReportHandler` e `infrastructure/data/anticorruptionLayer/llm/monitor/` |
 | Cliente MCP | `infrastructure/data/anticorruptionLayer/mcp/` e `infrastructure/configuration/{mcp-class}Config` |
 <!-- se memoria -->
 | Memória de conversa | `infrastructure/configuration/ChatMemoryConfig` |
@@ -115,8 +117,8 @@ com outro nome e prefixo, e troque o bean `chatToolProvider` por um
 
 Para uma tool **local** (código deste módulo, não um servidor): escreva a
 classe em `infrastructure/data/anticorruptionLayer/<vendor>/` e registre-a no
-AI Service (`AssistantAiService`) — o wiring dele é explícito, nada entra
-sozinho. Toda tool é uma decisão sobre que dado o modelo passa a ver: confira
+AI Service em `AssistantAiServiceConfig` — o wiring dele é explícito, nada
+entra sozinho. Toda tool é uma decisão sobre que dado o modelo passa a ver: confira
 campo a campo o que ela devolve.
 
 #### Falhas da conversa
@@ -222,6 +224,19 @@ agente.
   respondeu no erro inclusive. As quatro flags de conteúdo não cobrem isso.
 - **Métricas** em `/actuator/prometheus`: `chat_requests_total`, com a tag
   `outcome` (`success` ou `failure`), e `chat_request_duration_seconds`.
+- **Relatório de execuções** em `GET /diagnostics/report`: a página do
+  `HtmlReportGenerator` do `langchain4j-agentic`, com cada conversa desde que
+  o agente subiu (pergunta, resposta, tools com argumentos e retorno, tokens e
+  duração), sem infra. O chat não passa pelo agentic: o
+  `AssistantAiServiceConfig` registra os listeners do `ExecutionMonitor`, que
+  traduz os eventos do AI Service. É por isso que o AI Service não usa
+  `@AiService`: o starter do Spring não registra listener. A rota fica sempre
+  ligada, sem chave. O monitor fica em memória e some ao reiniciar. A página
+  mostra o conteúdo cru das tools de todas as conversas: não exponha a porta
+  do agente fora da rede do time sem restringir quem a vê. Dois turnos ao
+  mesmo tempo na mesma conversa vão para `<id> (paralelo N)`. As classes do
+  agentic que a ponte usa são API beta, e o `ExecutionMonitorTest` quebra
+  quando uma atualização da família LangChain4j as mudar.
 - **LangWatch local:** `cp langwatch.env.example langwatch.env`, troque os
   quatro segredos, `make langwatch-up`, interface em `http://localhost:5560`.
   Crie a chave na interface e ponha em `LANGWATCH_API_KEY` no `local.env` (e

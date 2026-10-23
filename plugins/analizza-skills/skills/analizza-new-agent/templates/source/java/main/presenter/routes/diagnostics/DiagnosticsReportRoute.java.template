@@ -1,0 +1,26 @@
+package {base-package}.presenter.routes.diagnostics;
+
+import {base-package}.application.diagnostics.ExecutionReportHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * O relatorio de execucoes para abrir no navegador: cada conversa desde que o
+ * agente subiu, com pergunta, resposta, tools, tokens e duracao. Mostra o
+ * conteudo cru das tools de todas as conversas: nao exponha esta rota fora da
+ * rede do time sem restringir quem a ve.
+ */
+@RestController
+public class DiagnosticsReportRoute {
+
+    private final ExecutionReportHandler handler;
+
+    public DiagnosticsReportRoute(ExecutionReportHandler handler) {
+        this.handler = handler;
+    }
+
+    @GetMapping(value = "/diagnostics/report", produces = "text/html;charset=UTF-8")
+    public String report() {
+        return handler.handle();
+    }
+}

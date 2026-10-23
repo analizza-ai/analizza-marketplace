@@ -1,0 +1,39 @@
+package {base-package}.presenter.routes.diagnostics;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import {base-package}.presenter.routes.chat.ConversationIds;
+import {base-package}.support.BaseIntegrationTest;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+
+/**
+ * O relatorio de execucoes com o agente inteiro de pe e LLM real. A pagina
+ * vazia nao e afirmada aqui: o contexto e compartilhado entre ITs e outro
+ * teste pode ja ter conversado. Ela esta provada no ExecutionMonitorTest.
+ */
+class DiagnosticsReportRouteIT extends BaseIntegrationTest {
+
+    @Test
+    void umTurnoDoChatApareceNoRelatorioComOIdDaConversa() {
+        String conversationId = "it-report-" + UUID.randomUUID();
+
+        http.post().uri("/api/v1/agent/http")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(ConversationIds.HEADER, conversationId)
+                .body("{\"body\":\"Responda com uma unica palavra: ok\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        String report = http.get().uri("/diagnostics/report")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(report).contains(conversationId);
+    }
+}

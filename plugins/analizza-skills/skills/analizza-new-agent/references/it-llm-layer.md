@@ -19,11 +19,12 @@ outros módulos do Testcontainers:
     testImplementation 'org.testcontainers:testcontainers-ollama'    // groovy
 ```
 
-## 2. `OllamaTestContainer` e `ChatRouteIT`
+## 2. `OllamaTestContainer`, `ChatRouteIT` e `DiagnosticsReportRouteIT`
 
 Copie de `templates/source/{language}/it/` para o módulo de IT, pela regra de
-espelhamento: `support/OllamaTestContainer` e
-`presenter/routes/chat/ChatRouteIT`. **Não** copie o `support/BaseIntegrationTest`
+espelhamento: `support/OllamaTestContainer`,
+`presenter/routes/chat/ChatRouteIT` e
+`presenter/routes/diagnostics/DiagnosticsReportRouteIT`. **Não** copie o `support/BaseIntegrationTest`
 do template — ele é do layout `it-no-modulo`; aqui a base é a que a
 `analizza-integration-test` gerou.
 
@@ -64,9 +65,10 @@ informado). É por ele que a base desliga o cliente MCP nos ITs.
 ./gradlew :{project-name}-integration-tests:integrationTest --console=plain > /tmp/agent-it.log 2>&1; echo "EXIT=$?"
 ```
 
-`EXIT=0`, com `ChatRouteIT`, `ApplicationContextIT` e
-`EntrypointHasIntegrationTestIT` no XML de resultado. A regra ArchUnit passa
-porque a `ChatRoute` — o único `@RestController` — tem o `ChatRouteIT`.
+`EXIT=0`, com `ChatRouteIT`, `DiagnosticsReportRouteIT`, `ApplicationContextIT`
+e `EntrypointHasIntegrationTestIT` no XML de resultado. A regra ArchUnit passa
+porque os dois `@RestController` têm IT: a `ChatRoute` tem o `ChatRouteIT`, e a
+`DiagnosticsReportRoute`, o `DiagnosticsReportRouteIT`.
 
 A primeira execução baixa a imagem do Ollama e o modelo (~2 GB) e grava a
 imagem local `tc-ollama-<modelo>`; as seguintes sobem direto dela.
