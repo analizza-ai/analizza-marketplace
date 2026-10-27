@@ -62,10 +62,22 @@ copilot plugin install analizza-skills@analizza-marketplace
 
 ### skills.sh (`npx skills`)
 
+As skills deste repositório aparecem em [skills.sh](https://skills.sh). Para ver quais existem:
+
+```bash
+npx skills add analizza-ai/analizza-marketplace --list
+```
+
 Instala uma skill avulsa, sem plugin, em qualquer agente suportado:
 
 ```bash
-npx skills add analizza-ai/analizza-marketplace --skill yeroon-play-plug
+npx skills add analizza-ai/analizza-marketplace --skill domain-context-map
+```
+
+Ou todas de uma vez:
+
+```bash
+npx skills add analizza-ai/analizza-marketplace
 ```
 
 ## Skills do plugin `analizza-skills`
