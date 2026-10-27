@@ -1,5 +1,0 @@
-package {base-package}.application.video.getVideo
-
-import java.util.UUID
-
-data class GetVideoQuery(val videoId: UUID)

@@ -1,5 +1,0 @@
-package {base-package}.application.webhook.receiveYeroonEvent
-
-import java.util.UUID
-
-data class ReceiveYeroonEventCommand(val deliveryId: String, val eventType: String, val videoId: UUID)

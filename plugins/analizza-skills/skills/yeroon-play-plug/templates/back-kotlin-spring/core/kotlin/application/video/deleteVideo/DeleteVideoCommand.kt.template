@@ -1,5 +1,0 @@
-package {base-package}.application.video.deleteVideo
-
-import java.util.UUID
-
-data class DeleteVideoCommand(val videoId: UUID)

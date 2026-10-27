@@ -1,8 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
-
-/** 422 da /v1: regra quebrada. Os errors[] são repassados ao chamador. */
-class YeroonRejectedException(errors: List<YeroonError>) :
-    RuntimeException("A /v1 do yeroon play recusou a requisição.") {
-
-    val errors: List<YeroonError> = errors.toList()
-}

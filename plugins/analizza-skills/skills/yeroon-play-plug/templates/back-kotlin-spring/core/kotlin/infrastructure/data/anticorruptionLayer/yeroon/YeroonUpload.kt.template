@@ -1,8 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
-
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import java.util.UUID
-
-/** Resposta de POST /v1/videos/uploads. */
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class YeroonUpload(val videoId: UUID, val partSizeBytes: Long, val partCount: Int)

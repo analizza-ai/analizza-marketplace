@@ -1,5 +1,0 @@
-package {base-package}.infrastructure.repositories
-
-import org.springframework.data.jpa.repository.JpaRepository
-
-internal interface WebhookReceiptJpaRepository : JpaRepository<WebhookReceiptJpaEntity, String>

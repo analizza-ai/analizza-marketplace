@@ -1,6 +1,0 @@
-package {base-package}.application.video.initUpload
-
-import java.util.UUID
-
-/** Mesmo formato da /v1: o front calcula as partes a partir disto. */
-data class InitUploadResult(val videoId: UUID, val partSizeBytes: Long, val partCount: Int)

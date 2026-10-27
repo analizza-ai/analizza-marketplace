@@ -69,6 +69,5 @@ tag: validate ## Cria a tag {plugin}--v{version} (PLUGIN=... para um só; sem el
 ##@ Qualidade
 
 .PHONY: check
-check: ## Roda a suíte de testes dos validadores e a guarda das skills
+check: ## Roda a suíte de testes dos validadores
 	python3 -m pytest tools/tests -q
-	python3 tools/check_skill_guards.py

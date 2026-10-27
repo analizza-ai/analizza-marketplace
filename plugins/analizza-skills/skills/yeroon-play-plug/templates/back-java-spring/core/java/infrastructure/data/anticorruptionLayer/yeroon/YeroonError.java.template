@@ -1,3 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
-
-public record YeroonError(String code, String message) {}

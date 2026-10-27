@@ -1,9 +1,0 @@
-package {base-package}.infrastructure.configuration
-
-import org.springframework.boot.context.properties.EnableConfigurationProperties
-import org.springframework.context.annotation.Configuration
-
-/** Registra [YeroonProperties] sem mexer na classe @SpringBootApplication. */
-@Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(YeroonProperties::class)
-class YeroonConfiguration

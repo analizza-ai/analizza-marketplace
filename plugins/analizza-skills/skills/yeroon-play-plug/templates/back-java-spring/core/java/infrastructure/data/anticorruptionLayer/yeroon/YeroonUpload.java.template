@@ -1,6 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
-
-import java.util.UUID;
-
-/** Resposta de POST /v1/videos/uploads. */
-public record YeroonUpload(UUID videoId, long partSizeBytes, int partCount) {}

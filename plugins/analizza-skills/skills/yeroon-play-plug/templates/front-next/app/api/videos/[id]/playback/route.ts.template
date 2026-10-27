@@ -1,9 +1,0 @@
-import { repasseVideo } from "@/lib/videoId";
-
-export async function POST(
-  request: Request,
-  ctx: RouteContext<"/api/videos/[id]/playback">,
-) {
-  const { id } = await ctx.params;
-  return repasseVideo(request, id, "/playback");
-}

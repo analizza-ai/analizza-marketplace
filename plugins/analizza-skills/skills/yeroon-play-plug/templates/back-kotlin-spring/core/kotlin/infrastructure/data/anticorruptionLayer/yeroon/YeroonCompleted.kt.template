@@ -1,7 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
-
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import java.util.UUID
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class YeroonCompleted(val videoId: UUID, val status: String)

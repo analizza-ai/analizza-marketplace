@@ -1,3 +1,0 @@
-package {base-package}.application.video.listVideos;
-
-public record ListVideosQuery() {}

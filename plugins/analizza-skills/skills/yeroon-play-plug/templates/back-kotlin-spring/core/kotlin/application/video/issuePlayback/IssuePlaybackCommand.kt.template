@@ -1,5 +1,0 @@
-package {base-package}.application.video.issuePlayback
-
-import java.util.UUID
-
-data class IssuePlaybackCommand(val videoId: UUID)

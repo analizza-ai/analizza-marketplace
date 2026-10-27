@@ -1,3 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
-
-data class YeroonPart(val partNumber: Int, val etag: String)

@@ -1,5 +1,0 @@
-package {base-package}.application.video.listUploadedParts
-
-import java.util.UUID
-
-data class ListUploadedPartsQuery(val videoId: UUID)

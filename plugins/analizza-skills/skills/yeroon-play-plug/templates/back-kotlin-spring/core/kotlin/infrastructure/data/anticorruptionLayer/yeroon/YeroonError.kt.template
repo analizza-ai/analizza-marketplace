@@ -1,6 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon
-
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class YeroonError(val code: String? = null, val message: String? = null)

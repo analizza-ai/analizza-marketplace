@@ -1,6 +1,0 @@
-# TRECHO — vai para {api-module}/src/main/resources/application.properties (ou o
-# equivalente em application.yml: yeroon.api-url, yeroon.api-key, yeroon.webhook-secret).
-# Só referências a variáveis: os valores ficam no .env do back, nunca aqui.
-yeroon.api-url=${YEROON_API_URL:https://api.dev.play.yeroon.video}
-yeroon.api-key=${YEROON_API_KEY:}
-yeroon.webhook-secret=${YEROON_WEBHOOK_SECRET:}

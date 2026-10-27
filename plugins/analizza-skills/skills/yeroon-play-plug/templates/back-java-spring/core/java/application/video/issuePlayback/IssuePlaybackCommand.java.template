@@ -1,5 +1,0 @@
-package {base-package}.application.video.issuePlayback;
-
-import java.util.UUID;
-
-public record IssuePlaybackCommand(UUID videoId) {}

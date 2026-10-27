@@ -1,6 +1,0 @@
-package {base-package}.infrastructure.repositories;
-
-import org.springframework.data.jpa.repository.JpaRepository;
-
-interface WebhookReceiptJpaRepository extends JpaRepository<WebhookReceiptJpaEntity, String> {
-}

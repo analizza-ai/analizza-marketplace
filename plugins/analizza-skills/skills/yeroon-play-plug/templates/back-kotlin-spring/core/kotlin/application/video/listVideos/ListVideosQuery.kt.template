@@ -1,3 +1,0 @@
-package {base-package}.application.video.listVideos
-
-data object ListVideosQuery

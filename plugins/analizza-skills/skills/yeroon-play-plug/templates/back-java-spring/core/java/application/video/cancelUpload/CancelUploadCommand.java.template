@@ -1,5 +1,0 @@
-package {base-package}.application.video.cancelUpload;
-
-import java.util.UUID;
-
-public record CancelUploadCommand(UUID videoId) {}

@@ -1,5 +1,0 @@
-package {base-package}.application.video.deleteVideo;
-
-import java.util.UUID;
-
-public record DeleteVideoCommand(UUID videoId) {}

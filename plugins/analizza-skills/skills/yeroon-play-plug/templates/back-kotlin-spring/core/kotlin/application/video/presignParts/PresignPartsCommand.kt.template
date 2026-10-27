@@ -1,5 +1,0 @@
-package {base-package}.application.video.presignParts
-
-import java.util.UUID
-
-data class PresignPartsCommand(val videoId: UUID, val partNumbers: List<Int>?)

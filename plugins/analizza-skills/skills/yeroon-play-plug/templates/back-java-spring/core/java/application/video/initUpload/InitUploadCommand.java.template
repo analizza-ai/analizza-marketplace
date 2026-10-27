@@ -1,3 +1,0 @@
-package {base-package}.application.video.initUpload;
-
-public record InitUploadCommand(String fileName, String contentType, Long sizeBytes) {}

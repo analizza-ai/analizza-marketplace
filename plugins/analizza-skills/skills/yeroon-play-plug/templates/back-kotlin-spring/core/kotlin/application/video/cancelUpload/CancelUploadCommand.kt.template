@@ -1,5 +1,0 @@
-package {base-package}.application.video.cancelUpload
-
-import java.util.UUID
-
-data class CancelUploadCommand(val videoId: UUID)

@@ -1,9 +1,0 @@
-package {base-package}.domain.repositories
-
-import java.time.Instant
-import java.util.UUID
-
-interface WebhookReceiptRepository {
-    /** true só na primeira vez que o deliveryId é registrado (dedupe do webhook). */
-    fun registerIfNew(deliveryId: String, eventType: String, videoId: UUID, at: Instant): Boolean
-}

@@ -1,4 +1,0 @@
-package {base-package}.domain
-
-/** O id não está na tabela {video-table}: 404 sem chamar a /v1. */
-class {video-entity}NotFoundException : RuntimeException("Vídeo não encontrado.")

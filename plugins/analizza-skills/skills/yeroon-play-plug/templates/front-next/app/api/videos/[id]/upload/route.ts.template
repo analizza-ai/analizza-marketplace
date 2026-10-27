@@ -1,9 +1,0 @@
-import { repasseVideo } from "@/lib/videoId";
-
-export async function DELETE(
-  request: Request,
-  ctx: RouteContext<"/api/videos/[id]/upload">,
-) {
-  const { id } = await ctx.params;
-  return repasseVideo(request, id, "/upload");
-}

@@ -1,8 +1,0 @@
-package {base-package}.domain;
-
-/** O id não está na tabela {video-table}: 404 sem chamar a /v1. */
-public class {video-entity}NotFoundException extends RuntimeException {
-    public {video-entity}NotFoundException() {
-        super("Vídeo não encontrado.");
-    }
-}

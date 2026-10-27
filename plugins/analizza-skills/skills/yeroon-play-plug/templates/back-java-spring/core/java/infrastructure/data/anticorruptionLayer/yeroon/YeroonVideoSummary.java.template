@@ -1,9 +1,0 @@
-package {base-package}.infrastructure.data.anticorruptionLayer.yeroon;
-
-import java.net.URI;
-import java.time.Instant;
-import java.util.UUID;
-
-/** Item de GET /v1/videos. */
-public record YeroonVideoSummary(
-        UUID videoId, String fileName, String status, Instant createdAt, URI thumbnailUrl, Long sizeBytes) {}
