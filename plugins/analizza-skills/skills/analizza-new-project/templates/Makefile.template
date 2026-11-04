@@ -15,7 +15,7 @@ SHELL := /bin/bash
 .PHONY: help
 help: ## Mostra esta ajuda
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUso:\n  make \033[36m<alvo>\033[0m\n"} \
-		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } \
+		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 } \
 		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 	@echo ""
 
@@ -79,7 +79,8 @@ test-web: $(WEB_DIR)/node_modules ## Roda o lint do web (scaffold não tem teste
 	cd $(WEB_DIR) && npm run lint
 
 .PHONY: doctor-mobile
-doctor-mobile: $(MOBILE_DIR)/node_modules ## Confere as dependências do Expo
+doctor-mobile: $(MOBILE_DIR)/node_modules ## Confere as dependências do Expo (versões casadas com o SDK)
+	cd $(MOBILE_DIR) && npx expo install --check
 	cd $(MOBILE_DIR) && npx expo-doctor
 
 ##@ Execução
@@ -106,12 +107,114 @@ run-web: $(WEB_DIR)/node_modules ## Roda somente o web (dev)
 run-mobile: $(MOBILE_DIR)/node_modules ## Roda o Metro do mobile (fora do make run)
 	cd $(MOBILE_DIR) && npx expo start
 
+##@ Mobile no simulador, no emulador e no aparelho
+
+# Caminho sem loja: `expo prebuild` gera ios/ e android/ (fora do git) e
+# `expo run:*` builda e instala. Simulador e emulador usam Debug com Metro; no
+# aparelho o build é Release, com o JS embutido: não precisa de Expo Go nem de
+# Metro de pé. Preparação da máquina e do aparelho: runbook do mobile em
+# docs/checkpoints/.
+
+# Locale UTF-8: sem ele o Ruby do CocoaPods morre em Encoding::CompatibilityError.
+LOCALE_UTF8 = LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+# O ExpoModulesJSI é buildado fora do repositório (EXPO_CUSTOM_BUILD_ROOT): com o
+# repositório no iCloud (~/Documents, ~/Desktop) o CodeSign falha com "resource
+# fork, Finder information, or similar detritus". A pasta leva a versão do
+# pacote, então subir o expo gera um cache novo (apague os velhos com
+# rm -rf ~/Library/Caches/{project-name}-mobile). Expandida só na receita,
+# depois que o node_modules existe.
+JSI_VERSION = $(or $(shell node -p "require('./$(MOBILE_DIR)/node_modules/expo-modules-jsi/package.json').version" 2>/dev/null),sem-versao)
+JSI_ROOT    = $(HOME)/Library/Caches/{project-name}-mobile/expo-modules-jsi-$(JSI_VERSION)
+IOS_ENV     = $(LOCALE_UTF8) EXPO_CUSTOM_BUILD_ROOT="$(JSI_ROOT)"
+# Endereços locais que o app lê; no Android chegam ao emulador por adb reverse.
+LOCAL_URLS  = EXPO_PUBLIC_API_URL=http://localhost:$(API_PORT) EXPO_PUBLIC_WEB_URL=http://localhost:$(WEB_PORT)
+METRO_PORT ?= 8081
+
+# Com mais de um Android conectado: make <alvo> ANDROID_SERIAL=emulator-5554
+ADB          = adb$(if $(ANDROID_SERIAL), -s $(ANDROID_SERIAL))
+EXPO_ANDROID = $(if $(ANDROID_SERIAL),--device $(ANDROID_SERIAL))
+
+# Falha cedo, antes de qualquer prebuild: exige um Android no estado "device"
+# (o serial pedido, se houver) e, sem ANDROID_SERIAL, que seja um só.
+ADB_DEVICE_CHECK = adb devices | awk -v s="$(ANDROID_SERIAL)" \
+	'NR>1 && $$2=="device" { n++; if ($$1==s) f=1 } \
+	 END { \
+	   if (s != "" && !f) { print "ANDROID_SERIAL=" s " não aparece no estado device em adb devices."; exit 1 } \
+	   if (s == "" && n == 0) { print "Nenhum Android conectado: abra um emulador ou plugue o aparelho com depuração USB (adb devices deve listar device)."; exit 1 } \
+	   if (s == "" && n > 1) { print "Mais de um Android conectado: rode de novo com ANDROID_SERIAL=<serial do adb devices>."; exit 1 } }'
+
+# Exige um iPhone na seção "Devices" (não em "Devices Offline") do xctrace.
+IOS_DEVICE_CHECK = xcrun xctrace list devices 2>/dev/null \
+	| awk '/^== /{s=($$0=="== Devices ==");next} s && /\([0-9][0-9.]*\) \(/{f=1} END{exit !f}' \
+	|| { echo "Nenhum iPhone conectado: plugue o aparelho, desbloqueie e aceite Confiar neste computador."; exit 1; }
+
+.PHONY: doctor-mobile-ios
+doctor-mobile-ios: ## Confere Xcode e CocoaPods para buildar o iOS
+	@xcodebuild -version >/dev/null 2>&1 || { echo "Xcode não encontrado: instale o Xcode e rode 'sudo xcode-select -s /Applications/Xcode.app'."; exit 1; }
+	@command -v pod >/dev/null 2>&1 || { echo "CocoaPods não encontrado: brew install cocoapods."; exit 1; }
+
+.PHONY: doctor-mobile-android
+doctor-mobile-android: ## Confere o Android SDK (adb no PATH e ANDROID_HOME)
+	@command -v adb >/dev/null 2>&1 || { echo "adb não está no PATH: instale o Android SDK (platform-tools)."; exit 1; }
+	@[ -n "$$ANDROID_HOME" ] || { echo "ANDROID_HOME vazio: aponte para o Android SDK."; exit 1; }
+
+# Copia o ExpoModulesJSI.xcframework buildado fora do iCloud de volta para
+# apple/Products, que o podspec lê (link simbólico não serve: o CocoaPods deixa
+# de ver o xcframework), e refaz o pod install. Idempotente; com o cache vazio
+# não faz nada: o 1o build o gera e o alvo que chamou tenta de novo.
+.PHONY: mobile-ios-nosync
+mobile-ios-nosync:
+	@mkdir -p "$(JSI_ROOT)/Products"
+	@p=$(MOBILE_DIR)/node_modules/expo-modules-jsi/apple/Products; \
+		if [ -d "$(JSI_ROOT)/Products/ExpoModulesJSI.xcframework" ]; then \
+			rsync -a --delete "$(JSI_ROOT)/Products/" "$$p/" && xattr -cr "$$p" \
+			&& cd $(MOBILE_DIR)/ios && $(LOCALE_UTF8) pod install >/dev/null; \
+		fi
+
+# Roda `expo run:ios <args>` com o contorno do iCloud. Só tenta de novo se o
+# cache do JSI estava vazio antes: uma falha de build de verdade não roda duas vezes.
+define IOS_RUN
+	ja=0; [ -d "$(JSI_ROOT)/Products/ExpoModulesJSI.xcframework" ] && ja=1; \
+		cd $(MOBILE_DIR) && $(IOS_ENV) $(1) npx expo run:ios $(2) \
+		|| { [ "$$ja" = 0 ] || exit 1; \
+		     $(MAKE) -C $(CURDIR) --no-print-directory mobile-ios-nosync \
+		     && cd $(CURDIR)/$(MOBILE_DIR) && $(IOS_ENV) $(1) npx expo run:ios $(2); }
+endef
+
+.PHONY: mobile-ios-sim
+mobile-ios-sim: doctor-mobile-ios $(MOBILE_DIR)/node_modules ## Builda (Debug) e abre o app no simulador iOS, falando com api e web locais
+	cd $(MOBILE_DIR) && $(IOS_ENV) npx expo prebuild --platform ios
+	@$(MAKE) --no-print-directory mobile-ios-nosync
+	$(call IOS_RUN,$(LOCAL_URLS),)
+
+.PHONY: mobile-ios-device
+mobile-ios-device: doctor-mobile-ios $(MOBILE_DIR)/node_modules ## Instala o app (Release) no iPhone conectado; exige APPLE_TEAM_ID
+	@[ -n "$$APPLE_TEAM_ID" ] || { echo "Exporte APPLE_TEAM_ID (Xcode > Settings > Accounts > Personal Team)."; exit 1; }
+	@$(IOS_DEVICE_CHECK)
+	cd $(MOBILE_DIR) && $(IOS_ENV) npx expo prebuild --clean --platform ios
+	@$(MAKE) --no-print-directory mobile-ios-nosync
+	$(call IOS_RUN,,--device --configuration Release)
+
+.PHONY: mobile-android-emu
+mobile-android-emu: doctor-mobile-android $(MOBILE_DIR)/node_modules ## Builda (Debug) e abre o app no emulador, com api, web e Metro via adb reverse
+	@$(ADB_DEVICE_CHECK)
+	$(ADB) reverse tcp:$(API_PORT) tcp:$(API_PORT)
+	$(ADB) reverse tcp:$(WEB_PORT) tcp:$(WEB_PORT)
+	$(ADB) reverse tcp:$(METRO_PORT) tcp:$(METRO_PORT)
+	cd $(MOBILE_DIR) && $(LOCAL_URLS) npx expo run:android $(EXPO_ANDROID)
+
+.PHONY: mobile-android-device
+mobile-android-device: doctor-mobile-android $(MOBILE_DIR)/node_modules ## Instala o app (Release) no Android conectado por USB
+	@$(ADB_DEVICE_CHECK)
+	cd $(MOBILE_DIR) && npx expo prebuild --clean --platform android
+	cd $(MOBILE_DIR) && npx expo run:android --variant release $(or $(EXPO_ANDROID),--device)
+
 ##@ Limpeza
 
 .PHONY: clean
-clean: ## Remove artefatos de build dos quatro módulos
+clean: ## Remove artefatos de build dos quatro módulos (inclui ios/ e android/ gerados)
 	$(GRADLEW) clean
-	rm -rf $(WEB_DIR)/.next $(MOBILE_DIR)/.expo
+	rm -rf $(WEB_DIR)/.next $(MOBILE_DIR)/.expo $(MOBILE_DIR)/ios $(MOBILE_DIR)/android
 
 .PHONY: clean-all
 clean-all: clean ## Limpeza completa, incluindo node_modules

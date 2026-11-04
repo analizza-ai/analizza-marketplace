@@ -29,7 +29,7 @@ argument-hint: "Sem argumentos — o nome vem da pasta raiz; linguagem, group, p
 ├── {project-name}-api/          Spring Boot: presenter/ (rotas e configuração de entrada)
 ├── {project-name}-core/         application/, domain/, infrastructure/ — pode usar Spring
 ├── {project-name}-web/          Next.js
-├── {project-name}-mobile/       Expo
+├── {project-name}-mobile/       Expo (app.config.ts; ios/ e android/ gerados, fora do git)
 ├── docs/domain/                 guia de domínio (gerado depois, pela domain-context-map)
 ├── docker-compose.yml           Postgres
 ├── Makefile
@@ -256,13 +256,48 @@ done
   && echo "mobile OK" || echo "mobile FALHOU"
 ```
 
+Prepare o mobile para rodar no simulador, no emulador e no aparelho sem loja
+(o caminho e o porquê de cada item estão em
+[mobile-device.md](./references/mobile-device.md)):
+
+1. Copie [mobile/app.config.ts.template](./templates/mobile/app.config.ts.template)
+   para `{project-name}-mobile/app.config.ts`. Ele estende o `app.json` gerado
+   (que continua sendo a configuração do app) com o `ios.appleTeamId` lido de
+   `APPLE_TEAM_ID` — o Team ID do Apple ID gratuito nunca entra no repositório.
+2. Grave já os scripts que o primeiro `expo prebuild` escreveria, para que um
+   `make mobile-*` não deixe o `package.json` modificado:
+
+   ```bash
+   cd {project-name}-mobile && npm pkg set scripts.ios="expo run:ios" scripts.android="expo run:android"
+   ```
+
+3. Confirme que as versões dos pacotes do Expo casam com o SDK — um patch
+   descasado faz o app instalar e fechar ao abrir, sem erro de build:
+
+   ```bash
+   cd {project-name}-mobile && npx expo install --check; echo "EXIT=$?"
+   ```
+
+   `EXIT` diferente de zero: rode `npx expo install --fix` e confira de novo.
+
+`ios/` e `android/` **não** são gerados aqui: quem os gera é o `expo prebuild`
+dos alvos `mobile-*`, e eles ficam fora do git (Passo 7).
+
 ### Passo 7 — Arquivos da raiz
 
 Copie [Makefile.template](./templates/Makefile.template) para `Makefile` e
 [docker-compose.template](./templates/docker-compose.template) para
 `docker-compose.yml`, substituindo `{project-name}` e `{db-name}`. Acrescente
 [gitignore-extra.template](./templates/gitignore-extra.template) ao fim do
-`.gitignore` que veio do Initializr — não o substitua.
+`.gitignore` que veio do Initializr, substituindo `{project-name}` — não o
+substitua. Ele ignora o `ios/` e o `android/` que o `expo prebuild` gera.
+
+O Makefile traz, além de build, testes e execução, os alvos do mobile fora do
+Expo Go: `mobile-ios-sim`, `mobile-android-emu`, `mobile-ios-device` e
+`mobile-android-device`, com os `doctor-mobile-ios`/`doctor-mobile-android` que
+eles chamam antes do prebuild. Não os simplifique: cada variável do bloco
+(locale UTF-8, `EXPO_CUSTOM_BUILD_ROOT`, `adb reverse`, `ANDROID_SERIAL`)
+contorna uma falha descrita em [mobile-device.md](./references/mobile-device.md).
 
 Confirme que a indentação das receitas do Makefile ficou com TAB:
 
@@ -340,7 +375,7 @@ Se ainda não for repositório, `git init`. Antes de commitar, audite o que entr
 
 ```bash
 git add -A
-git diff --cached --name-only | grep -cE 'node_modules|\.next/|\.expo/|build/'
+git diff --cached --name-only | grep -cE 'node_modules|\.next/|\.expo/|build/|-mobile/(ios|android)/'
 git ls-files --stage | grep -c '^160000'
 ```
 
@@ -392,8 +427,19 @@ O log precisa mostrar o Flyway relatando zero migrations e o HikariPool
 inicializando — é o que prova que o Postgres foi conectado de fato.
 
 Encerre com SIGINT no grupo de processos do make, confirme que 8080 e 3000
-ficaram livres e que não sobrou processo órfão. Depois `make doctor-mobile` e,
-por último, `make down`.
+ficaram livres e que não sobrou processo órfão. Depois `make doctor-mobile`
+(que roda `expo install --check` e `expo-doctor`) e, por último, `make down`.
+
+Os alvos `mobile-*` **não** entram nesta verificação: o build nativo leva de
+10 minutos para cima e o de aparelho precisa de hardware no cabo. Confira só
+que o make os lista:
+
+```bash
+[ "$(make help | grep -cE 'mobile-(ios|android)')" -eq 6 ] && echo "alvos mobile OK" || echo "alvos mobile FALHOU"
+```
+
+Não use `make -n` neles: o make executa de verdade, mesmo em dry-run, as linhas
+que chamam `$(MAKE)`, e os alvos de iOS chamam.
 
 ### Passo 11 — Relatar
 
@@ -412,6 +458,14 @@ Informe ao usuário:
   rodar `/domain-context-map` na raiz do projeto gera
   `docs/domain/domain-guide.md`, e rodar de novo mais tarde confere se ele
   ficou velho. A skill vem neste mesmo plugin, então não há o que instalar
+- Como rodar o mobile fora do Expo Go: `make mobile-ios-sim` e
+  `make mobile-android-emu` (Debug, contra api e web locais) e
+  `make mobile-ios-device` / `make mobile-android-device` (Release, JS
+  embutido, sem Metro). Para o iPhone com Apple ID gratuito: `APPLE_TEAM_ID`
+  exportado, Modo Desenvolvedor, "Confiar neste computador" e o certificado
+  confiado no aparelho; o app vence em 7 dias. Quando o mobile ganhar a
+  primeira funcionalidade, o runbook dela em `docs/checkpoints/` leva esses
+  passos de preparação (a fonte é [mobile-device.md](./references/mobile-device.md))
 - Que a skill vai acionar, a seguir, o guardrail de testes de integração (Passo 12)
 
 ### Passo 12 — Acionar o guardrail de testes de integração
@@ -450,8 +504,10 @@ resuma o checklist de conclusão dela aqui; cada skill responde pelo que fez.
 ## Fora de escopo
 
 Endpoint ou entidade de exemplo, paginação, upload de arquivos, versionamento
-da API, observabilidade além do Actuator, Dockerfile da aplicação, CI/CD e
-integração entre os frontends e o backend.
+da API, observabilidade além do Actuator, Dockerfile da aplicação, CI/CD,
+publicação do app em loja (EAS, TestFlight, Play Console) e integração entre
+os frontends e o backend — os alvos mobile passam `EXPO_PUBLIC_API_URL` e
+`EXPO_PUBLIC_WEB_URL`, mas o código que as lê é da primeira fatia.
 
 Teste de arquitetura executável (ArchUnit, Testcontainers, `BaseIntegrationTest`)
 não é escrito por esta skill diretamente — o Passo 12 aciona a skill irmã
@@ -481,4 +537,7 @@ implementar, seguindo o arquivo do SDD.
 - O `create-next-app` também gera `AGENTS.md` e `CLAUDE.md` dentro do `-web`.
 - `test-web` roda lint, não testes: o scaffold do Next não traz framework de
   teste. Troque quando houver um.
-- `make run` não sobe o mobile. O Metro fica em `run-mobile`.
+- `make run` não sobe o mobile. O Metro fica em `run-mobile`; o app nativo,
+  nos alvos `mobile-*` (ver [mobile-device.md](./references/mobile-device.md)).
+- Os alvos `mobile-ios-*` assumem macOS com Xcode. Os `mobile-android-*` rodam
+  em qualquer sistema com Android SDK, mas o bloco foi provado só no Mac.

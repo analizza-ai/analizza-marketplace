@@ -14,3 +14,7 @@ dist/
 
 # --- macOS ---
 .DS_Store
+
+# --- Mobile: gerados pelo expo prebuild ---
+{project-name}-mobile/ios/
+{project-name}-mobile/android/
