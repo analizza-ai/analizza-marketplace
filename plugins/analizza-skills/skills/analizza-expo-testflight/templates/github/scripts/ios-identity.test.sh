@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Testes do ios-identity.sh: guardas de branch e de tag, commit na branch padrão,
+# e leitura da identidade do app (.properties) sem executar nada do arquivo.
+# Rodar de qualquer lugar: bash <pasta>/ios-identity.test.sh
+set -uo pipefail
+
+SCRIPT="$(cd "$(dirname "$0")" && pwd)/ios-identity.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+casos=0
+falha() { echo "FALHOU: $1" >&2; exit 1; }
+
+# espera <nome> <exit esperado> <comando...>; guarda stdout/stderr em $TMP/out e $TMP/err
+espera() {
+  local nome="$1" codigo="$2"; shift 2
+  casos=$((casos + 1))
+  "$@" >"$TMP/out" 2>"$TMP/err"
+  local obtido=$?
+  [[ "$obtido" == "$codigo" ]] || falha "$nome: exit $obtido, esperado $codigo (stderr: $(cat "$TMP/err"))"
+}
+contem() { grep -qxF -- "$2" "$TMP/$1" || falha "$3: $1 nao contem a linha '$2' (tem: $(cat "$TMP/$1"))"; }
+cita() { grep -qF -- "$2" "$TMP/$1" || falha "$3: $1 nao cita '$2' (tem: $(cat "$TMP/$1"))"; }
+nao_cita() { ! grep -qF -- "$2" "$TMP/$1" || falha "$3: $1 nao deveria citar '$2'"; }
+
+# --- guardas de ref ---------------------------------------------------------
+
+espera branch_feature_aceita 0 bash "$SCRIPT" guard-branch refs/heads/feat/x main
+espera branch_padrao_recusada 1 bash "$SCRIPT" guard-branch refs/heads/main main
+cita err "::error::" branch_padrao_recusada
+cita err "main" branch_padrao_recusada
+espera branch_recusa_tag 1 bash "$SCRIPT" guard-branch refs/tags/v1.0.0 main
+
+espera tag_igual_a_versao 0 bash "$SCRIPT" guard-tag refs/tags/v1.2.3 1.2.3
+espera tag_diferente_da_versao 1 bash "$SCRIPT" guard-tag refs/tags/v1.2.3 1.2.4
+cita err "v1.2.3" tag_diferente_da_versao
+cita err "1.2.4" tag_diferente_da_versao
+espera tag_recusa_branch 1 bash "$SCRIPT" guard-tag refs/heads/v1.2.3 1.2.3
+
+# --- commit da tag contido na branch padrão ---------------------------------
+
+REPO="$TMP/repo"
+git init -q -b main "$REPO"
+git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+espera commit_na_padrao 0 bash -c "cd '$REPO' && bash '$SCRIPT' on-default main"
+git -C "$REPO" switch -q -c feat
+git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fora
+espera commit_fora_da_padrao 1 bash -c "cd '$REPO' && bash '$SCRIPT' on-default main"
+cita err "::error::" commit_fora_da_padrao
+
+# --- identidade -------------------------------------------------------------
+
+cat >"$TMP/ok.properties" <<'EOF'
+# identidade de exemplo
+APP_NAME="Meu App Dev"
+IOS_BUNDLE_ID=com.exemplo.app.dev
+APPLE_TEAM_ID=ABCDE12345
+EXPO_PUBLIC_API_URL=https://api.dev.exemplo.com
+EOF
+espera load_completo 0 bash "$SCRIPT" load "$TMP/ok.properties"
+contem out "app_name=Meu App Dev" load_completo
+contem out "ios_bundle_id=com.exemplo.app.dev" load_completo
+contem out "apple_team_id=ABCDE12345" load_completo
+
+sed "s/^APP_NAME=.*/APP_NAME='A B'/" "$TMP/ok.properties" >"$TMP/aspas.properties"
+espera aspas_e_espacos 0 bash "$SCRIPT" load "$TMP/aspas.properties"
+contem out "app_name=A B" aspas_e_espacos
+
+# O $(...) é literal de propósito: o teste prova que ele não executa.
+# shellcheck disable=SC2016
+{ cat "$TMP/ok.properties"; printf 'EXPO_PUBLIC_X=$(touch %s/pwn)\n' "$TMP"; } >"$TMP/sub.properties"
+espera valor_com_subshell_nao_executa 0 bash "$SCRIPT" public-env "$TMP/sub.properties"
+contem out "EXPO_PUBLIC_X=\$(touch $TMP/pwn)" valor_com_subshell_nao_executa
+[[ ! -e "$TMP/pwn" ]] || falha "valor_com_subshell_nao_executa: o subshell rodou"
+
+printf 'APP_NAME=So o nome\n' >"$TMP/falta.properties"
+espera faltando_lista_todas 1 bash "$SCRIPT" load "$TMP/falta.properties"
+cita err "IOS_BUNDLE_ID" faltando_lista_todas
+cita err "APPLE_TEAM_ID" faltando_lista_todas
+
+sed 's/^APPLE_TEAM_ID=.*/APPLE_TEAM_ID=TEAM/' "$TMP/ok.properties" >"$TMP/team.properties"
+espera team_invalido 1 bash "$SCRIPT" load "$TMP/team.properties"
+cita err "APPLE_TEAM_ID" team_invalido
+
+{ cat "$TMP/ok.properties"; echo "API_URL=x"; } >"$TMP/desconhecida.properties"
+espera chave_desconhecida 1 bash "$SCRIPT" load "$TMP/desconhecida.properties"
+cita err "API_URL" chave_desconhecida
+
+espera public_env_so_publicas 0 bash "$SCRIPT" public-env "$TMP/ok.properties"
+contem out "EXPO_PUBLIC_API_URL=https://api.dev.exemplo.com" public_env_so_publicas
+nao_cita out "APP_NAME" public_env_so_publicas
+
+echo "OK ($casos casos)"
