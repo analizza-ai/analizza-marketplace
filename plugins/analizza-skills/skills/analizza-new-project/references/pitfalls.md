@@ -193,10 +193,27 @@ Na versão 14, `fireEvent.press(...)` (e os demais) devolve uma Promise. Sem
 passa por acaso) com aviso de `act(...)`. Escreva `await fireEvent.press(...)`
 e use `findBy*` para o que aparece depois do toque.
 
+### Mocks no formato real da resposta
+
+Os testes do mobile mockam o cliente HTTP. Se o mock devolve um formato
+diferente do que o backend devolve de verdade, o teste passa e o app cai no
+aparelho. Caso real: a rota de listagem devolvia `{ "videos": [...] }`, os
+testes mockavam o array cru, e o app quebrava no Release logo depois do login
+com `RCTFatal ... undefined is not a function` (um `.find` sobre um objeto).
+
+Monte o mock a partir do DTO de resposta do `-api` (o record/data class que a
+rota devolve), não do que o componente espera receber. Quando o contrato
+mudar, o teste do mobile tem que quebrar junto. Para achar a mensagem de um
+crash desses no aparelho, ver [mobile-device.md](./mobile-device.md), "Crash
+de JS no Release".
+
 ### Rodar no aparelho tem armadilhas próprias
 
-Apple ID gratuito, repositório dentro do iCloud quebrando o CodeSign, locale
-UTF-8 do CocoaPods e `adb reverse` no emulador estão em
+Apple ID gratuito (perfil de provisionamento, certificado não confiável,
+`ddiServicesAvailable: false`), o iPhone achado pelo `devicectl` e não pelo
+`xctrace`, o UDID passado explicitamente ao `expo run:ios`, repositório dentro
+do iCloud quebrando o CodeSign, locale UTF-8 do CocoaPods e `adb reverse` no
+emulador estão em
 [mobile-device.md](./mobile-device.md), junto do caminho
 `prebuild` + `run --device` em Release que os alvos `mobile-*` do Makefile
 seguem.

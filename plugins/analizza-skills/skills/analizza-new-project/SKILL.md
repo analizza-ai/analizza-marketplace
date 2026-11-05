@@ -56,6 +56,7 @@ argument-hint: "Sem argumentos — o nome vem da pasta raiz; linguagem, group, p
 | `dependencies` | Perguntar | `web,actuator,postgresql,data-jpa,flyway` |
 | `boot-version` | Do metadata do Initializr | `default` do metadata |
 | `db-name` | Derivado | `{project-name}` com `-` trocado por `_` |
+| `app-id` | Derivado | `{package}` sem `-` nem `_`, mais `.mobile` (bundle id do iOS e package do Android) |
 | `initializr-type` | Derivado de `language` | `gradle-project-kotlin` se `kotlin`, `gradle-project` se `java` |
 | `dsl-ext` | Derivado de `language` | `.kts` se `kotlin`, vazio se `java` |
 
@@ -271,7 +272,20 @@ Prepare o mobile para rodar no simulador, no emulador e no aparelho sem loja
    cd {project-name}-mobile && npm pkg set scripts.ios="expo run:ios" scripts.android="expo run:android"
    ```
 
-3. Confirme que as versões dos pacotes do Expo casam com o SDK — um patch
+3. Grave os identificadores nativos no `app.json`: sem eles o `expo prebuild`
+   pergunta (e falha sem terminal), e o `mobile-ios-device` precisa do bundle
+   para achar o perfil de provisionamento. Use `{app-id}` = `{package}` sem
+   `-` nem `_`, mais `.mobile` (o `android.package` não aceita hífen):
+
+   ```bash
+   cd {project-name}-mobile && node -e '
+     const fs = require("fs"), f = "app.json", j = JSON.parse(fs.readFileSync(f));
+     j.expo.ios = { ...j.expo.ios, bundleIdentifier: "{app-id}" };
+     j.expo.android = { ...j.expo.android, package: "{app-id}" };
+     fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");'
+   ```
+
+4. Confirme que as versões dos pacotes do Expo casam com o SDK — um patch
    descasado faz o app instalar e fechar ao abrir, sem erro de build:
 
    ```bash
@@ -462,8 +476,9 @@ Informe ao usuário:
   `make mobile-android-emu` (Debug, contra api e web locais) e
   `make mobile-ios-device` / `make mobile-android-device` (Release, JS
   embutido, sem Metro). Para o iPhone com Apple ID gratuito: `APPLE_TEAM_ID`
-  exportado, Modo Desenvolvedor, "Confiar neste computador" e o certificado
-  confiado no aparelho; o app vence em 7 dias. Quando o mobile ganhar a
+  exportado, Modo Desenvolvedor, "Confiar neste computador", o iPhone
+  destravado durante o build e o perfil confiado no aparelho depois da
+  primeira instalação; o app vence em 7 dias e o mesmo `make` renova o perfil. Quando o mobile ganhar a
   primeira funcionalidade, o runbook dela em `docs/checkpoints/` leva esses
   passos de preparação (a fonte é [mobile-device.md](./references/mobile-device.md))
 - Que a skill vai acionar, a seguir, o guardrail de testes de integração (Passo 12)

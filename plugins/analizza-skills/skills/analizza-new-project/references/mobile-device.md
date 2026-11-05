@@ -46,9 +46,11 @@ Todo alvo confere o que precisa **antes** do prebuild, que leva minutos:
 - `doctor-mobile-ios`: `xcodebuild -version` (Xcode instalado e selecionado) e
   `pod` no PATH (o prebuild do iOS roda `pod install`).
 - `doctor-mobile-android`: `adb` no PATH e `ANDROID_HOME` definido.
-- `mobile-ios-device`: `APPLE_TEAM_ID` definido e um iPhone na seção
-  `== Devices ==` de `xcrun xctrace list devices` (não em `Devices Offline`,
-  onde ele aparece bloqueado ou sem "Confiar neste computador").
+- `mobile-ios-device`: `APPLE_TEAM_ID` definido, `expo.ios.bundleIdentifier`
+  no `app.json` e um iPhone **pareado e no cabo** segundo
+  `xcrun devicectl list devices` (o mesmo que o Expo usa; ver "Achar o
+  iPhone"). O UDID é conferido de novo logo antes do `expo run:ios`, porque o
+  aparelho pode cair durante os minutos do prebuild.
 - `mobile-android-*`: `adb devices` filtrado por `$2=="device"` — `unauthorized`
   e `offline` não contam. Sem `ANDROID_SERIAL`, exige **um** aparelho só; com
   ele, exige aquele serial.
@@ -66,13 +68,70 @@ Cada mensagem diz o que fazer, não só o que faltou.
    (pede reinício).
 4. Cabo, iPhone destravado, aceite **"Confiar neste computador?"** e digite a
    senha do aparelho. Sem isso o Mac não o lista como conectado.
-5. `make mobile-ios-device`.
+5. `make mobile-ios-device`, com o iPhone **destravado** durante o build.
 6. Na primeira instalação: Ajustes > Geral > VPN e Gerenciamento de
-   Dispositivos > **confie no certificado** do desenvolvedor. Até lá o app
-   instala e não abre.
+   Dispositivos > toque no perfil do Apple ID > **Confiar**. Até lá o `make`
+   instala o app mas termina com "Unable to launch ... profile has not been
+   explicitly trusted by the user", e o iPhone mostra "Desenvolvedor não
+   confiável". Depois de confiar, abra o app pelo ícone.
 
 Com Apple ID gratuito o perfil vence em **7 dias**: o app para de abrir e basta
-rodar o `make` de novo. É limite da Apple, não defeito do build.
+rodar o `make` de novo, que renova o perfil sozinho (próxima seção). É limite
+da Apple, não defeito do build.
+
+### Achar o iPhone: `devicectl`, não `xctrace`
+
+`xcrun xctrace list devices` joga o iPhone em "Devices Offline" sempre que a
+tela bloqueia, **mesmo no cabo** — o alvo falharia a cada descanso de tela. O
+Makefile lê o JSON do `xcrun devicectl list devices --json-output /dev/stdout`
+(direto no pipe, sem arquivo temporário) e pega o primeiro aparelho com
+`platform == "iOS"`, `pairingState == "paired"` e `transportType == "wired"`;
+o UDID dele está em `hardwareProperties.udid`. `IOS_DEVICE=<udid>` fixa um
+aparelho quando houver mais de um.
+
+### Passe o UDID ao `expo run:ios`, sempre
+
+- `--device` sem valor abre um seletor (o próprio Mac aparece como destino) e
+  falha sem terminal interativo.
+- `--device ""` — o que sai quando a busca do UDID não acha nada — **cai em
+  silêncio no simulador ligado**: o build "funciona" e o app vai para o lugar
+  errado.
+
+Por isso a receita confere `[ -n "$udid" ]` imediatamente antes do run e roda
+`expo run:ios --device "$udid" --configuration Release`.
+
+### Perfil de provisionamento: "No profiles for '<bundle>' were found"
+
+O Expo só passa `-allowProvisioningUpdates` ao `xcodebuild` quando é ele quem
+escolhe o time. Com o `appleTeamId` fixado pelo `APPLE_TEAM_ID`, não passa, e
+sem um perfil já baixado o build falha com `No profiles for '<bundle>' were
+found`.
+
+O alvo procura em `~/Library/Developer/Xcode/UserData/Provisioning Profiles`
+um perfil cujo `Entitlements.application-identifier` seja
+`$APPLE_TEAM_ID.<bundle>` (lido com `security cms -D` + `plutil -extract`) e
+cujo `ExpirationDate` ainda não passou. O bundle vem de
+`expo.ios.bundleIdentifier` no `app.json`. Sem perfil válido, roda **uma vez**:
+
+```bash
+xcodebuild -workspace <app>.xcworkspace -scheme <app> -configuration Release \
+  -destination "id=$udid" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+  DEVELOPMENT_TEAM="$APPLE_TEAM_ID" build
+```
+
+que pede o perfil à Apple (o Apple ID precisa estar em Xcode > Settings >
+Accounts), e confere de novo. O `expo run:ios` que vem depois só reaproveita o
+perfil. É o mesmo passo que renova o perfil de 7 dias do Apple ID gratuito.
+
+### "ddiServicesAvailable: false"
+
+O Expo diz que não acha o aparelho, e o `devicectl` mostra
+`ddiServicesAvailable: false`: a imagem de desenvolvedor não está montada no
+iPhone. Monte uma vez com:
+
+```bash
+xcrun devicectl device info ddiServices --device <identifier do devicectl>
+```
 
 ## Repositório dentro do iCloud: o CodeSign falha
 
@@ -154,3 +213,21 @@ não casar. O sintoma é `dyld: Symbol not found` no crash report
 `npx expo install --fix` o corrige. Desligar os pré-compilados não é saída
 confiável: compilar o `expo-modules-core` do fonte pode travar o compilador
 Swift do Xcode.
+
+### Crash de JS no Release: pegue a mensagem pelo console
+
+Se o app abre e cai depois (num toque, logo após o login), o mais provável é
+erro de JavaScript: no Release ele vira `RCTFatal` e mata o app. O `.ips` do
+crash report **não traz** a mensagem do erro JS. Para vê-la, lance o app pelo
+`devicectl` com o console ligado e repita o caminho:
+
+```bash
+xcrun devicectl device process launch --console --terminate-existing \
+  --device <identifier do devicectl> <bundle id>
+```
+
+A razão da `RCTFatalException` (por exemplo `undefined is not a function`)
+aparece no terminal. Um caso real: a lista vinha do backend como
+`{ "videos": [...] }`, o app tratava como array, e os testes não pegaram
+porque mockavam o array cru (ver [armadilhas](./pitfalls.md), "Mocks no formato
+real da resposta").

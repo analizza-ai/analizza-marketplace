@@ -143,10 +143,24 @@ ADB_DEVICE_CHECK = adb devices | awk -v s="$(ANDROID_SERIAL)" \
 	   if (s == "" && n == 0) { print "Nenhum Android conectado: abra um emulador ou plugue o aparelho com depuração USB (adb devices deve listar device)."; exit 1 } \
 	   if (s == "" && n > 1) { print "Mais de um Android conectado: rode de novo com ANDROID_SERIAL=<serial do adb devices>."; exit 1 } }'
 
-# Exige um iPhone na seção "Devices" (não em "Devices Offline") do xctrace.
-IOS_DEVICE_CHECK = xcrun xctrace list devices 2>/dev/null \
-	| awk '/^== /{s=($$0=="== Devices ==");next} s && /\([0-9][0-9.]*\) \(/{f=1} END{exit !f}' \
-	|| { echo "Nenhum iPhone conectado: plugue o aparelho, desbloqueie e aceite Confiar neste computador."; exit 1; }
+# UDID do iPhone pareado e no cabo, pelo devicectl (o mesmo que o Expo usa). Não
+# use `xcrun xctrace list devices`: ele joga o iPhone em "Devices Offline" sempre
+# que a tela bloqueia, mesmo no cabo. IOS_DEVICE=<udid> fixa um aparelho.
+IOS_UDID = xcrun devicectl list devices --quiet --json-output /dev/stdout 2>/dev/null \
+	| node -e 'const d=JSON.parse(require("fs").readFileSync(0)).result.devices.find(x=>x.hardwareProperties?.platform==="iOS"&&x.connectionProperties?.pairingState==="paired"&&x.connectionProperties?.transportType==="wired"); if(d) console.log(d.hardwareProperties.udid)' 2>/dev/null
+
+# Bundle id lido do app.json (ios.bundleIdentifier), usado para achar o perfil.
+IOS_BUNDLE_ID = $(shell node -p "require('./$(MOBILE_DIR)/app.json').expo.ios?.bundleIdentifier || ''" 2>/dev/null)
+
+# Sucesso se existe perfil de provisionamento não vencido para $APPLE_TEAM_ID.<bundle>.
+# O expo só passa -allowProvisioningUpdates ao xcodebuild quando ele mesmo escolhe
+# o time; com o appleTeamId vindo do APPLE_TEAM_ID ele não passa, e sem perfil o
+# build falha com "No profiles for '<bundle>' were found".
+IOS_PROFILE_OK = agora=$$(date -u +%Y-%m-%dT%H:%M:%SZ); ok=1; \
+	for p in "$$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision; do \
+	[ -f "$$p" ] || continue; x=$$(security cms -D -i "$$p" 2>/dev/null); \
+	[ "$$(printf '%s' "$$x" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null)" = "$$APPLE_TEAM_ID.$(IOS_BUNDLE_ID)" ] || continue; \
+	[ "$$(printf '%s' "$$x" | plutil -extract ExpirationDate raw - 2>/dev/null)" \> "$$agora" ] && ok=0; done; [ $$ok = 0 ]
 
 .PHONY: doctor-mobile-ios
 doctor-mobile-ios: ## Confere Xcode e CocoaPods para buildar o iOS
@@ -190,10 +204,22 @@ mobile-ios-sim: doctor-mobile-ios $(MOBILE_DIR)/node_modules ## Builda (Debug) e
 .PHONY: mobile-ios-device
 mobile-ios-device: doctor-mobile-ios $(MOBILE_DIR)/node_modules ## Instala o app (Release) no iPhone conectado; exige APPLE_TEAM_ID
 	@[ -n "$$APPLE_TEAM_ID" ] || { echo "Exporte APPLE_TEAM_ID (Xcode > Settings > Accounts > Personal Team)."; exit 1; }
-	@$(IOS_DEVICE_CHECK)
+	@[ -n "$(IOS_BUNDLE_ID)" ] || { echo "Falta expo.ios.bundleIdentifier no $(MOBILE_DIR)/app.json."; exit 1; }
+	@[ -n "$${IOS_DEVICE:-$$($(IOS_UDID))}" ] || { echo "Nenhum iPhone pareado no cabo: plugue, desbloqueie e aceite Confiar neste computador."; exit 1; }
 	cd $(MOBILE_DIR) && $(IOS_ENV) npx expo prebuild --clean --platform ios
 	@$(MAKE) --no-print-directory mobile-ios-nosync
-	$(call IOS_RUN,,--device --configuration Release)
+	@# --device sem valor pergunta o destino (o próprio Mac é um) e falha sem terminal;
+	@# --device "" cai em silêncio no simulador ligado. Por isso o UDID é conferido aqui.
+	udid="$${IOS_DEVICE:-$$($(IOS_UDID))}"; \
+		[ -n "$$udid" ] || { echo "O iPhone ficou offline durante o build: desbloqueie e rode de novo."; exit 1; }; \
+		$(IOS_PROFILE_OK) || { \
+			echo "Sem perfil de provisionamento válido para $(IOS_BUNDLE_ID): o xcodebuild vai pedir um à Apple."; \
+			ws=$$(ls -d $(MOBILE_DIR)/ios/*.xcworkspace | head -1); \
+			( cd $(MOBILE_DIR)/ios && $(IOS_ENV) xcodebuild -workspace "$$(basename "$$ws")" -scheme "$$(basename "$$ws" .xcworkspace)" \
+				-configuration Release -destination "id=$$udid" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+				DEVELOPMENT_TEAM="$$APPLE_TEAM_ID" COMPILER_INDEX_STORE_ENABLE=NO -quiet build >/dev/null ) || true; \
+			$(IOS_PROFILE_OK) || { echo "O Xcode não criou o perfil: confira o Apple ID em Xcode > Settings > Accounts."; exit 1; }; }; \
+		$(call IOS_RUN,,--device "$$udid" --configuration Release)
 
 .PHONY: mobile-android-emu
 mobile-android-emu: doctor-mobile-android $(MOBILE_DIR)/node_modules ## Builda (Debug) e abre o app no emulador, com api, web e Metro via adb reverse
