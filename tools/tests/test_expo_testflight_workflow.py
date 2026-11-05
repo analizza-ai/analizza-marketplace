@@ -88,3 +88,41 @@ def test_actionlint_limpo(env, tmp_path):
         capture_output=True, text=True,
     )
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+RUNBOOK = SKILL / "templates/docs/testflight-ios.md.template"
+VALORES_RUNBOOK = {
+    "app-name": "Exemplo Dev",
+    "bundle-id": "com.exemplo.app.dev",
+    "team-id": "ABCDE12345",
+    "sku": "exemplo-dev",
+    "github-environment": "exemplo-dev",
+    "github-repo": "dono/repo",
+    "default-branch": "main",
+    "testers-group": "Equipe",
+    "properties-file": ".github/apps/exemplo-dev.properties",
+    "public-urls": "- `EXPO_PUBLIC_API_URL`: https://api.dev.exemplo.com",
+}
+SECOES = [
+    "## 1. O que precisa bater",
+    "## 2. O que tentar para ver se quebra",
+    "## 3. O que não está na lista",
+    "## 4. O que este checkpoint já pegou",
+]
+
+
+@pytest.mark.parametrize("blocos", [{"dev", "primeiro-do-time"}, {"prod"}])
+def test_runbook_renderizado_dev_e_prod(blocos):
+    env = "dev" if "dev" in blocos else "prod"
+    texto = renderizar(RUNBOOK.read_text(encoding="utf-8"), {**VALORES_RUNBOOK, "env": env}, blocos)
+    assert not MARCADOR.findall(texto)
+    assert texto.startswith("---\ntype: screen-mobile\n---")
+    posicoes = [texto.index(s) for s in SECOES]
+    assert posicoes == sorted(posicoes)
+    if env == "prod":
+        assert "v<versão>" in texto
+        assert "workflow_dispatch" not in texto
+        assert "Solicitar acesso" not in texto  # chave e certificado já existem no time
+    else:
+        assert "Solicitar acesso" in texto
+        assert "Apple Distribution" in texto
