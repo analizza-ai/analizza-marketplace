@@ -1,0 +1,70 @@
+import type { ConfigContext, ExpoConfig } from "expo/config";
+
+// Testes do app.config.ts: a identidade do build iOS (nome exibido, bundle, time,
+// número do build) vem do ambiente no CI; sem as variáveis, vale o app.json.
+// Os valores esperados saem do próprio app.json, então o teste serve a qualquer app.
+
+const ORIGINAL = { ...process.env };
+const VARIAVEIS = ["APP_DISPLAY_NAME", "IOS_BUNDLE_ID", "IOS_BUILD_NUMBER", "APPLE_TEAM_ID"];
+
+function appJson(): ExpoConfig {
+  return structuredClone((require("../app.json") as { expo: ExpoConfig }).expo);
+}
+
+// Gera a config como o expo faz: o app.json vira `config` e o app.config.ts decide o resto.
+function gerar(): ExpoConfig {
+  jest.resetModules();
+  const criar = require("../app.config").default as (ctx: ConfigContext) => ExpoConfig;
+  return criar({ config: appJson() } as ConfigContext);
+}
+
+beforeEach(() => {
+  for (const v of VARIAVEIS) delete process.env[v];
+});
+
+afterEach(() => {
+  process.env = { ...ORIGINAL };
+});
+
+test("semVariaveisMantemAppJson", () => {
+  const base = appJson();
+  const c = gerar();
+  expect(c.name).toBe(base.name);
+  expect(c.ios?.bundleIdentifier).toBe(base.ios?.bundleIdentifier);
+  expect(c.ios?.infoPlist?.CFBundleDisplayName).toBe(base.ios?.infoPlist?.CFBundleDisplayName);
+  expect(c.ios?.buildNumber).toBe(base.ios?.buildNumber);
+  expect(c.ios?.appleTeamId).toBe(base.ios?.appleTeamId);
+});
+
+test("identidadeVemDoAmbiente", () => {
+  const base = appJson();
+  process.env.APP_DISPLAY_NAME = "Exemplo Dev";
+  process.env.IOS_BUNDLE_ID = "com.exemplo.app.dev";
+  process.env.IOS_BUILD_NUMBER = "42";
+  process.env.APPLE_TEAM_ID = "ABCDE12345";
+  const c = gerar();
+  expect(c.name).toBe(base.name); // o name gera o projeto e o scheme do Xcode: não muda
+  expect(c.scheme).toEqual(base.scheme); // o scheme costuma estar no retorno de login (OAuth)
+  expect(c.ios?.infoPlist?.CFBundleDisplayName).toBe("Exemplo Dev");
+  expect(c.ios?.bundleIdentifier).toBe("com.exemplo.app.dev");
+  expect(c.ios?.buildNumber).toBe("42");
+  expect(c.ios?.appleTeamId).toBe("ABCDE12345");
+});
+
+test("variavelVaziaContaComoAusente", () => {
+  const base = appJson();
+  process.env.APP_DISPLAY_NAME = "";
+  process.env.IOS_BUNDLE_ID = "";
+  const c = gerar();
+  expect(c.ios?.infoPlist?.CFBundleDisplayName).toBe(base.ios?.infoPlist?.CFBundleDisplayName);
+  expect(c.ios?.bundleIdentifier).toBe(base.ios?.bundleIdentifier);
+});
+
+test("buildNumberInvalidoEhIgnorado", () => {
+  process.env.IOS_BUILD_NUMBER = "abc";
+  expect(gerar().ios?.buildNumber).toBe(appJson().ios?.buildNumber);
+});
+
+test("declaraCriptografiaIsenta", () => {
+  expect(gerar().ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBe(false);
+});

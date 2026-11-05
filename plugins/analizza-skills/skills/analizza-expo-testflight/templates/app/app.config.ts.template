@@ -1,0 +1,31 @@
+import type { ConfigContext, ExpoConfig } from "expo/config";
+
+// Estende o app.json (que continua sendo a fonte da configuração do app) com a
+// identidade do build iOS, que vem do ambiente no CI do TestFlight:
+//   APP_DISPLAY_NAME  nome no ícone (CFBundleDisplayName)
+//   IOS_BUNDLE_ID     bundle do app do ambiente (Dev ou Prod)
+//   APPLE_TEAM_ID     time da Apple que assina; nunca entra no repositório
+//   IOS_BUILD_NUMBER  número do build, só dígitos
+// Sem as variáveis, vale o app.json: o build local continua igual. O `name` e o
+// `scheme` nunca mudam: o name gera o projeto do Xcode e o scheme costuma estar
+// no retorno de login.
+export default ({ config }: ConfigContext): ExpoConfig => {
+  const nomeExibido = process.env.APP_DISPLAY_NAME || undefined;
+  const build = process.env.IOS_BUILD_NUMBER;
+  return {
+    ...(config as ExpoConfig),
+    ios: {
+      ...config.ios,
+      bundleIdentifier: process.env.IOS_BUNDLE_ID || config.ios?.bundleIdentifier,
+      appleTeamId: process.env.APPLE_TEAM_ID || config.ios?.appleTeamId,
+      ...(build && /^\d+$/.test(build) ? { buildNumber: build } : {}),
+      infoPlist: {
+        ...config.ios?.infoPlist,
+        ...(nomeExibido ? { CFBundleDisplayName: nomeExibido } : {}),
+        // O app só usa a criptografia do sistema (HTTPS): sem isso, todo build
+        // fica parado em "Missing Compliance" no TestFlight.
+        ITSAppUsesNonExemptEncryption: false,
+      },
+    },
+  };
+};
