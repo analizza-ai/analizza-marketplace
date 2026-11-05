@@ -1,7 +1,8 @@
 # Guia das telas da Apple
 
 Conferido em **2026-11-05**, no navegador embutido do app Claude, com uma conta
-de time pago. A Apple muda as telas sem aviso: se uma tela não bater com este
+de time pago, numa primeira configuração real de ponta a ponta (App ID, app,
+grupo, tester e primeiro build no TestFlight). A Apple muda as telas sem aviso: se uma tela não bater com este
 guia, siga pelo que está vendo, diga à pessoa o que mudou e anote a diferença
 no relatório final para atualizar este arquivo.
 
@@ -17,6 +18,17 @@ no relatório final para atualizar este arquivo.
   ache botões com `find` pelo nome acessível.
 - O botão `+` da lista de Apps tem o nome acessível **"Novo app"** (não
   "Adicionar apps", que é o texto visível só quando a lista está vazia).
+- **Screenshot vencido engana.** Depois de um clique que troca de tela, o
+  screenshot seguinte pode ainda mostrar a tela anterior. Na sequência do App
+  ID, o **Register** aparece exatamente onde estava o **Continue**: um segundo
+  clique "no Continue" registra sem confirmação. Depois de cada clique, espere
+  e tire um screenshot novo antes do próximo, e nunca clique duas vezes no
+  mesmo lugar sem conferir o que está ali.
+- No developer.apple.com, o formulário do App ID não aparece no `read_page` nem
+  no `find`: use screenshot, clique por coordenada e `type`. O botão Continue
+  só habilita depois que o campo do bundle perde o foco (Tab).
+- No App Store Connect, `form_input` em lista (`select`) troca o valor mas o
+  screenshot logo depois pode não mostrar; confira com `read_page` do modal.
 - Se o SMS de dois fatores não chegar: "Reenviar código" com opção de ligação,
   ou código gerado num aparelho logado na conta (Ajustes → nome → Iniciar
   Sessão e Segurança → Obter Código de Verificação). Não há o que a skill faça
@@ -31,6 +43,10 @@ no relatório final para atualizar este arquivo.
 - **Termos de serviço do App Store Connect** (primeiro acesso): caixa "Eu li e
   concordo com os termos apresentados acima." e **Concordar**. Aceitar é da
   pessoa.
+- **"Review the updated Paid Applications Schedule"** (em inglês, mesmo com a
+  conta em português): segundo contrato, só do titular, em Negócios. Não
+  bloqueou criar app nem enviar build ao TestFlight interno; bloqueia apps
+  pagos, compras dentro do app e envio à App Store. Avise e siga.
 - **Limite de certificados de distribuição.** Se o time já estiver no limite,
   pare: revogar um certificado derruba o deploy de outro app.
 
@@ -71,6 +87,11 @@ Já existe? Procure o bundle na lista antes do passo 1.
    - Acesso de usuário: "Acesso total" ou "Acesso limitado"
 3. **Criar**. A lista de Apps mostra o app com "iOS 1.0 Preparar para envio".
 
+Ao criar, a Apple pode mostrar "Não foi possível salvar seus ajustes de acesso
+de usuário" mesmo com o app criado: o texto diz que "todos os usuários têm
+acesso ao app". Para usuários que já tinham acesso só a apps específicos, isso
+**não** vale: eles continuam sem o app novo (ver Testers).
+
 Nome já usado na App Store: o modal recusa; pergunte uma variação à pessoa (o
 nome no ícone vem do `.properties`, não daqui).
 
@@ -91,7 +112,14 @@ não gere outra.
 distribuição automática** (o próprio modal avisa que não muda depois) → Criar.
 
 **Testers.** O modal "Adicionar testers ao grupo" só lista quem já é usuário do
-App Store Connect.
+App Store Connect **e tem acesso ao app**. Usuário que já existe mas não aparece:
+Usuários e acesso → a pessoa → Apps → **Gerenciar apps** → marcar o app novo →
+Concluído → **Salvar**. Mudar acesso de usuário é ação da pessoa (peça o ok).
+Se a seleção cobrir todos os apps do time, a Apple a troca por **"Todos os
+apps"**, que inclui os apps futuros: mostre isso antes de Salvar.
+
+Usuários com função acima de Desenvolvedor (Gerente de apps, Administrador)
+servem como testers internos; não mude a função para isso.
 1. Usuários e acesso → aba **Pessoas** → `+` → "Novo usuário": Nome, Sobrenome,
    E-mail, Funções (ex.: Desenvolvedor) → Próximo → convite por e-mail.
 2. O usuário aparece com convite pendente ("Reenviar convite") até aceitar.

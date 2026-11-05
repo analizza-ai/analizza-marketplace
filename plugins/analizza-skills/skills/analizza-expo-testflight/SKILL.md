@@ -178,15 +178,19 @@ painel do navegador está à mostra; se estiver oculto, peça para trazê-lo
 8. **Grupo e testers** — a skill avisa que a distribuição automática não muda
    depois e, **com o ok**, cria o grupo. Quem ainda não é usuário do App Store
    Connect: **com o ok para cada convite**, a skill cria o usuário; o convidado
-   aceita por e-mail (fica pendente, a skill segue). Quem já aceitou entra no
-   grupo.
+   aceita por e-mail (fica pendente, a skill segue). Usuário que já existe mas
+   não tem acesso ao app novo não aparece no modal de testers: **com o ok**, dê
+   acesso ao app (o guia diz como, e o que muda se virar "Todos os apps"). Quem
+   tem acesso entra no grupo.
 
 **No segundo ambiente do mesmo time, pule** os passos 6 e 7: a chave e o
 certificado valem para o time inteiro. Reaproveite os mesmos arquivos `.p8` e
 `.p12` da pasta segura e não gere outra chave nem outro certificado.
 
 Um ok vale para **um** clique. Antes de cada Register, Criar, Gerar, Concordar
-ou convite, mostre o que vai ser enviado e espere a resposta.
+ou convite, mostre o que vai ser enviado e espere a resposta. **Depois de cada
+clique, espere e tire um screenshot novo antes do próximo**: a tela muda de
+lugar e um botão sem volta pode aparecer onde estava um botão de avançar.
 
 ## Fase 3 — GitHub
 
@@ -196,7 +200,11 @@ ou convite, mostre o que vai ser enviado e espere a resposta.
    segundo ambiente, os mesmos arquivos vão para o outro environment.
 2. **Aprovação obrigatória** no environment (Settings → Environments →
    Required reviewers). Mudança de configuração do repositório: só com o ok da
-   pessoa, pelo navegador ou com `gh api` que você mostra antes.
+   pessoa, pelo navegador ou com `gh api` que você mostra antes. Em repositório
+   privado sem plano Team ou Enterprise o GitHub recusa (HTTP 422, "billing plan
+   supports the required reviewers"): diga isso, liste quem tem push
+   (`gh api repos/<repo>/collaborators --jq '.[] | select(.permissions.push) | .login'`)
+   e deixe a pessoa decidir; o run segue sem aprovação.
 3. **Merge do PR** pela pessoa. Em Dev, o botão "Run workflow" só aparece com o
    workflow na branch padrão.
 
