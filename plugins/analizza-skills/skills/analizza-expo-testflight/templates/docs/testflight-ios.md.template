@@ -1,0 +1,195 @@
+---
+type: screen-mobile
+---
+
+# Checkpoint: deploy iOS {env} para o TestFlight ({app-name})
+
+<!-- se dev -->
+Um botão no GitHub Actions (**Mobile iOS TestFlight Dev**) builda o app Expo como
+**{app-name}**, apontando para o ambiente de desenvolvimento, e manda para o
+TestFlight. Dali qualquer tester interno instala pelo app TestFlight, sem cabo e
+sem o vencimento de 7 dias do build local. Dispara de qualquer branch, menos
+`{default-branch}` e tags, que ficam para produção.
+<!-- fim se dev -->
+<!-- se prod -->
+Uma tag `v<versão>` (igual ao `version` do `app.json`) num commit da
+`{default-branch}` dispara o **Mobile iOS TestFlight Prod**, que builda o app
+Expo como **{app-name}**, apontando para produção, e manda para o TestFlight.
+Do TestFlight, a promoção para a App Store é feita à mão no App Store Connect.
+<!-- fim se prod -->
+
+| | valor |
+|---|---|
+| nome no aparelho | {app-name} |
+| bundle | `{bundle-id}` |
+| time Apple | `{team-id}` |
+| SKU no App Store Connect | `{sku}` |
+| environment do GitHub | `{github-environment}` |
+| grupo de testes | {testers-group} |
+
+Endereços que o app usa neste ambiente:
+
+{public-urls}
+
+Onde mora cada peça:
+- workflow: `.github/workflows/mobile-ios-testflight-{env}.yml`
+- identidade (nome, bundle, time, endereços): `{properties-file}`
+- guardas e leitura da identidade: `.github/scripts/ios-identity.sh`
+  (teste: `bash .github/scripts/ios-identity.test.sh`)
+- credenciais: environment `{github-environment}`, gravadas por
+  `make mobile-ios-secrets ENV={github-environment}`
+- nome exibido, bundle e build no app: `app.config.ts`
+
+## Preparação única
+
+Feita uma vez por quem é **Titular da conta ou Administrador** do time
+`{team-id}` na Apple. O portal developer.apple.com aparece em inglês e o App
+Store Connect em português; os rótulos abaixo seguem cada um.
+
+**Antes de tudo: contrato da Apple.** Se o App Store Connect mostrar "Contrato de
+licença atualizado do Apple Developer Program", só o **titular da conta** pode
+aceitar, em developer.apple.com/account. Enquanto não aceitar, a Apple recusa app
+novo e build novo.
+
+**Login com dois fatores.** Se o SMS não chegar: "Reenviar código" com a opção
+de ligação, ou gere o código num aparelho logado na conta (Ajustes → nome →
+Iniciar Sessão e Segurança → Obter Código de Verificação).
+
+1. **App ID.** developer.apple.com → Certificates, Identifiers & Profiles →
+   Identifiers → `+` → App IDs → Continue → App → Continue. Description
+   "{app-name}", Bundle ID **Explicit** `{bundle-id}`. Capabilities como vêm.
+   Continue → Register.
+2. **Termos do App Store Connect.** No primeiro acesso a appstoreconnect.apple.com
+   aparece "Termos de serviço": marque "Eu li e concordo…" e clique em
+   **Concordar**.
+3. **App no App Store Connect.** Apps → `+` (**Novo app**):
+   - Plataformas: iOS
+   - Nome da empresa: só aparece no primeiro app do time
+   - Nome: **{app-name}** (único na App Store; se estiver tomado, use uma
+     variação: o nome no ícone vem de `{properties-file}`, não daqui)
+   - Idioma principal, ID do pacote `{bundle-id}` (a lista só mostra App IDs já
+     registrados no passo 1), SKU `{sku}`, Acesso de usuário
+   - **Criar**
+<!-- se primeiro-do-time -->
+4. **Chave da API e certificado (uma vez por time).**
+
+   **Chave da App Store Connect API.** Usuários e acesso →
+   Integrações → API do App Store Connect. Na primeira vez aparece
+   **Solicitar acesso**; depois da aprovação, **Gerar chave de API**: nome "CI TestFlight",
+   acesso **Administrador** → **Gerar**. Clique em **Baixar** na linha da chave
+   (só baixa uma vez) e guarde o `AuthKey_<KEYID>.p8` numa pasta **fora do
+   repositório**. Anote o **ID da chave** (Key ID) e o **Issuer ID**, que fica
+   acima da tabela.
+   **Certificado Apple Distribution.** Antes, em Certificates,
+   conte os de distribuição: a Apple limita quantos existem. **Se o limite
+   estiver cheio, pare e combine**; revogar um certificado derruba o deploy de
+   outro app. Com vaga, numa pasta fora do repositório:
+
+   ```bash
+   openssl genrsa -out distribution.key 2048
+   openssl req -new -key distribution.key -out distribution.csr \
+     -subj "/emailAddress=<e-mail da conta>/CN=<nome da empresa>/C=BR"
+   ```
+
+   Certificates → `+` → **Apple Distribution** (não a iOS Distribution legada)
+   → Continue → envie o `distribution.csr` → Download. Gere o `.p12` com o
+   `openssl` do próprio macOS (`/usr/bin/openssl`), digitando uma senha quando
+   pedir:
+
+   ```bash
+   /usr/bin/openssl x509 -inform DER -in distribution.cer -out distribution.pem
+   /usr/bin/openssl pkcs12 -export -inkey distribution.key -in distribution.pem -out distribution.p12
+   ```
+
+   O `/usr/bin/openssl` gera um `.p12` que o keychain do runner importa. O
+   OpenSSL 3 ou mais novo (Homebrew) só gera um compatível com `-legacy`; sem
+   isso o import falha com "MAC verification failed".
+<!-- fim se primeiro-do-time -->
+<!-- se reaproveita -->
+4. **Chave da API e certificado.** Já existem no time (criados na fatia de outro
+   ambiente ou de outro app). Não gere outros: use os mesmos `AuthKey_<KEYID>.p8`
+   e `distribution.p12` guardados fora do repositório, no passo das credenciais.
+<!-- fim se reaproveita -->
+5. **Testers.** O grupo só aceita quem já é usuário do App Store Connect.
+   Quem ainda não é: Usuários e acesso → Pessoas → `+` (**Novo usuário**) →
+   nome, sobrenome, e-mail, função → convite por e-mail, que a pessoa aceita.
+   Depois: app {app-name} → TestFlight → **TESTES INTERNOS** → `+` → **Criar novo
+   grupo interno** "{testers-group}" com **Ativar distribuição automática**
+   marcado (não dá para mudar depois) → Criar → Convidar testers.
+6. **Credenciais no GitHub.** Com `gh auth login` numa conta admin de
+   `{github-repo}`:
+
+   ```bash
+   export APPLE_API_KEY_ID=<Key ID> APPLE_API_ISSUER_ID=<Issuer ID>
+   export APPLE_API_KEY_P8="$(cat <pasta-segura>/AuthKey_<KEYID>.p8)"
+   export IOS_DISTRIBUTION_CERT_BASE64="$(base64 -i <pasta-segura>/distribution.p12)"
+   export IOS_CERTIFICATE_PASSWORD=<senha do .p12>
+   make mobile-ios-secrets ENV={github-environment}
+   ```
+
+   Esperado: `environment {github-environment} criado` (ou `já existe`) e uma
+   linha `gravado` para cada um dos cinco.
+7. **Proteja o environment.** GitHub → Settings → Environments →
+   {github-environment} → **Required reviewers**: marque quem aprova. Cada run
+   passa a esperar um clique antes de receber as credenciais. Por quê: o
+   workflow roda o arquivo da ref escolhida, e a chave Administrador e o
+   certificado valem para **todos** os apps do time `{team-id}`.
+<!-- se dev -->
+8. **O workflow na `{default-branch}`.** O GitHub só mostra o botão "Run
+   workflow" de um workflow que existe na branch padrão: até o merge, ele não
+   aparece em Actions.
+<!-- fim se dev -->
+
+## 1. O que precisa bater
+
+<!-- se dev -->
+- **Disparo.** GitHub → Actions → **Mobile iOS TestFlight Dev** → Run workflow →
+  uma branch de trabalho (não a `{default-branch}`) → Run. O run aparece como
+  `iOS dev — <branch>`.
+<!-- fim se dev -->
+<!-- se prod -->
+- **Disparo.** Com o `version` do `app.json` em `X.Y.Z` e o commit na
+  `{default-branch}`: `git tag vX.Y.Z && git push origin vX.Y.Z`. O run aparece
+  como `iOS prod — vX.Y.Z` em **Mobile iOS TestFlight Prod**.
+<!-- fim se prod -->
+- **Aprovação.** O run espera a aprovação do environment; aprove.
+- **Run verde** em até ~30 min. O resumo traz o nome **{app-name}**, o bundle
+  `{bundle-id}`, a versão `X.Y.Z (<número do run>)` e os endereços do app.
+- **App Store Connect.** {app-name} → TestFlight → o build aparece como
+  "Processando" e depois pronto para teste. **Não** pode ficar em "Missing
+  Compliance".
+- **Instalação sem cabo.** Num iPhone desplugado, com o app TestFlight e a conta
+  de um tester do grupo {testers-group}: o aviso chega e o app instala.
+- **Nome e ambiente.** O ícone se chama **{app-name}**, e o app fala com os
+  endereços da tabela acima (faça login e confira um dado que só existe neste
+  ambiente).
+
+## 2. O que tentar para ver se quebra
+
+<!-- se dev -->
+- **Disparar da `{default-branch}`.** Deve falhar no passo **Guarda de
+  branch**, antes de qualquer credencial.
+- **Disparar de uma tag.** Run workflow → aba Tags: falha na mesma guarda.
+<!-- fim se dev -->
+<!-- se prod -->
+- **Tag que não bate com o `app.json`.** Uma tag `v9.9.9` com outro `version`
+  falha em **Guarda de tag**, antes de qualquer credencial. Apague a tag depois.
+- **Tag num commit fora da `{default-branch}`.** Falha em **Guarda do commit**.
+<!-- fim se prod -->
+- **Re-run de um run que já subiu.** O número do build se repete: o que o App
+  Store Connect responde no upload? (Esperado: recusa por build duplicado.)
+- **Credencial faltando.** Renomeie um secret do environment e dispare: o passo
+  **Credenciais presentes** cita o nome que falta. Desfaça depois.
+- **Identidade quebrada.** Num PR, troque o `APPLE_TEAM_ID` de
+  `{properties-file}` por `TEAM`: falha em **Identidade do app**.
+
+## 3. O que não está na lista
+
+Estranhe qualquer coisa que apareça sem ter sido pedida: um e-mail da Apple
+sobre o build (ícone, permissão, criptografia), um aviso amarelo no
+TestFlight, um passo do run que imprime algo parecido com chave ou senha, ou o
+app falando com um endereço de outro ambiente.
+
+## 4. O que este checkpoint já pegou
+
+(Preencher depois de cada conferência, com data e o achado real.)
