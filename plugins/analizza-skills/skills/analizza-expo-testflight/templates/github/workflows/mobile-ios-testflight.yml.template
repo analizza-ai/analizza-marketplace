@@ -22,6 +22,10 @@ name: Mobile iOS TestFlight Prod
 # Store Connect API, que cria o perfil de distribuição na hora. Nenhum perfil
 # de provisionamento vira secret.
 #
+# As actions ficam fixadas por commit (SHA), não por tag: a chave da API vale
+# para todos os apps do time e passa por elas. Para atualizar, troque o SHA de
+# propósito, conferindo a release.
+#
 # Runbook: docs/checkpoints/testflight-ios-{env}.md
 
 on:
@@ -53,7 +57,7 @@ jobs:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 # se prod
         with:
           fetch-depth: 0
@@ -102,19 +106,23 @@ jobs:
           fi
 
       - name: Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: latest-stable
 
-      - uses: actions/setup-node@v4
+# se pnpm
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+# fim se pnpm
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: {app-dir}/package-lock.json
+          cache: {node-cache}
+          cache-dependency-path: {lockfile}
 
       - name: Dependências
-        working-directory: {app-dir}
-        run: npm ci
+        working-directory: {install-dir}
+        run: {install-command}
 
       - name: Versão
         id: version
@@ -238,7 +246,7 @@ jobs:
           echo "path=${IPA_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Upload para o TestFlight
-        uses: Apple-Actions/upload-testflight-build@v1
+        uses: Apple-Actions/upload-testflight-build@54dc215b4cd5529730db39f11c84efdb71414e07 # v1
         with:
           app-path: ${{ steps.artifact.outputs.path }}
           issuer-id: ${{ secrets.APPLE_API_ISSUER_ID }}

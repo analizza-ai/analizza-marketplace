@@ -7,7 +7,10 @@ from tools.tests.expo_testflight_render import MARCADOR
 
 SKILL = Path("plugins/analizza-skills/skills/analizza-expo-testflight")
 SKILL_MD = SKILL / "SKILL.md"
-CLIENTE = re.compile(r"yeroon|XF98CA5PDT|bjjdream|analizza-tube", re.IGNORECASE)
+CLIENTE = re.compile(r"yeroon|bjjdream|analizza-tube", re.IGNORECASE)
+# Team ID da Apple: 10 letras maiúsculas e dígitos, com ao menos um de cada.
+TEAM_ID = re.compile(r"\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{10}\b")
+TEAM_ID_DE_EXEMPLO = "ABCDE12345"
 
 
 def arquivos(pasta: str) -> list[Path]:
@@ -70,3 +73,25 @@ def test_skill_reaproveita_credenciais_do_time():
     assert "segundo ambiente" in fase2
     assert "chave" in fase2 and "certificado" in fase2
     assert re.search(r"\b[Pp]ule\b", fase2)
+
+
+def test_nenhum_team_id_real():
+    # Nos arquivos da skill e nos testes dela, só o Team ID de exemplo.
+    alvos = [p for p in SKILL.rglob("*") if p.is_file()] + sorted(Path("tools/tests").glob("*expo_testflight*"))
+    achados = [
+        f"{p}: {m}" for p in alvos
+        for m in TEAM_ID.findall(p.read_text(encoding="utf-8")) if m != TEAM_ID_DE_EXEMPLO
+    ]
+    assert achados == []
+
+
+def test_fase1_diz_o_que_fazer_sem_jest():
+    fase1 = secao("## Fase 1")
+    assert "jest-expo" in fase1
+    assert re.search(r"[Ss]em .{0,40}jest", fase1)
+
+
+def test_fase0_detecta_gerenciador_e_lockfile():
+    fase0 = secao("## Fase 0")
+    for termo in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml"):
+        assert termo in fase0

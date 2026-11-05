@@ -71,14 +71,16 @@ Iniciar Sessão e Segurança → Obter Código de Verificação).
      registrados no passo 1), SKU `{sku}`, Acesso de usuário
    - **Criar**
 <!-- se primeiro-do-time -->
-4. **Chave da App Store Connect API (uma por time).** Usuários e acesso →
+4. **Chave da API e certificado (uma vez por time).**
+
+   **Chave da App Store Connect API.** Usuários e acesso →
    Integrações → API do App Store Connect. Na primeira vez aparece
    **Solicitar acesso**; depois da aprovação, **Gerar chave de API**: nome "CI TestFlight",
    acesso **Administrador** → **Gerar**. Clique em **Baixar** na linha da chave
    (só baixa uma vez) e guarde o `AuthKey_<KEYID>.p8` numa pasta **fora do
    repositório**. Anote o **ID da chave** (Key ID) e o **Issuer ID**, que fica
    acima da tabela.
-5. **Certificado Apple Distribution (um por time).** Antes, em Certificates,
+   **Certificado Apple Distribution.** Antes, em Certificates,
    conte os de distribuição: a Apple limita quantos existem. **Se o limite
    estiver cheio, pare e combine**; revogar um certificado derruba o deploy de
    outro app. Com vaga, numa pasta fora do repositório:
@@ -103,18 +105,18 @@ Iniciar Sessão e Segurança → Obter Código de Verificação).
    OpenSSL 3 ou mais novo (Homebrew) só gera um compatível com `-legacy`; sem
    isso o import falha com "MAC verification failed".
 <!-- fim se primeiro-do-time -->
-<!-- se prod -->
-4. **Chave da API e certificado.** Já existem no time (criados na fatia de
-   Dev ou de outro app). Use os mesmos arquivos `.p8` e `.p12` guardados fora do
-   repositório no passo das credenciais.
-<!-- fim se prod -->
-6. **Testers.** O grupo só aceita quem já é usuário do App Store Connect.
+<!-- se reaproveita -->
+4. **Chave da API e certificado.** Já existem no time (criados na fatia de outro
+   ambiente ou de outro app). Não gere outros: use os mesmos `AuthKey_<KEYID>.p8`
+   e `distribution.p12` guardados fora do repositório, no passo das credenciais.
+<!-- fim se reaproveita -->
+5. **Testers.** O grupo só aceita quem já é usuário do App Store Connect.
    Quem ainda não é: Usuários e acesso → Pessoas → `+` (**Novo usuário**) →
    nome, sobrenome, e-mail, função → convite por e-mail, que a pessoa aceita.
    Depois: app {app-name} → TestFlight → **TESTES INTERNOS** → `+` → **Criar novo
    grupo interno** "{testers-group}" com **Ativar distribuição automática**
    marcado (não dá para mudar depois) → Criar → Convidar testers.
-7. **Credenciais no GitHub.** Com `gh auth login` numa conta admin de
+6. **Credenciais no GitHub.** Com `gh auth login` numa conta admin de
    `{github-repo}`:
 
    ```bash
@@ -127,13 +129,13 @@ Iniciar Sessão e Segurança → Obter Código de Verificação).
 
    Esperado: `environment {github-environment} criado` (ou `já existe`) e uma
    linha `gravado` para cada um dos cinco.
-8. **Proteja o environment.** GitHub → Settings → Environments →
+7. **Proteja o environment.** GitHub → Settings → Environments →
    {github-environment} → **Required reviewers**: marque quem aprova. Cada run
    passa a esperar um clique antes de receber as credenciais. Por quê: o
    workflow roda o arquivo da ref escolhida, e a chave Administrador e o
    certificado valem para **todos** os apps do time `{team-id}`.
 <!-- se dev -->
-9. **O workflow na `{default-branch}`.** O GitHub só mostra o botão "Run
+8. **O workflow na `{default-branch}`.** O GitHub só mostra o botão "Run
    workflow" de um workflow que existe na branch padrão: até o merge, ele não
    aparece em Actions.
 <!-- fim se dev -->

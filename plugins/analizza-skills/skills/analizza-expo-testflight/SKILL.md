@@ -33,8 +33,13 @@ linhas próprias: `# se <bloco>` … `# fim se <bloco>` no YAML e
 blocos que valem, remova as linhas de abertura e fechamento, e troque todos os
 marcadores. Nenhum marcador pode sobrar no arquivo gerado.
 
-**Blocos:** `dev` e `prod` (o ambiente da fatia); `primeiro-do-time` (a chave
-da API e o certificado ainda não existem no time e serão criados nesta fatia).
+**Blocos:**
+- `dev` ou `prod`: o ambiente da fatia (exatamente um).
+- `primeiro-do-time` ou `reaproveita` (exatamente um, só no runbook): a chave da
+  API e o certificado serão criados nesta fatia, ou já existem no time e são
+  reaproveitados. Ir direto para Prod num time sem chave é `prod` +
+  `primeiro-do-time`; Dev depois de Prod é `dev` + `reaproveita`.
+- `pnpm`: só quando o projeto usa pnpm (acrescenta o `pnpm/action-setup`).
 
 | Marcador | Valor | Exemplo |
 |---|---|---|
@@ -51,6 +56,10 @@ da API e o certificado ainda não existem no time e serão criados nesta fatia).
 | `{team-id}` | Team ID da Apple | `ABCDE12345` |
 | `{sku}` | SKU no App Store Connect | `meu-app-dev` |
 | `{testers-group}` | grupo de testes interno | `Equipe` |
+| `{node-cache}` | gerenciador de pacotes: `npm`, `yarn` ou `pnpm` | `yarn` |
+| `{lockfile}` | lockfile, relativo à raiz (num monorepo com workspaces, o da raiz) | `yarn.lock` |
+| `{install-dir}` | pasta onde a instalação roda: a do lockfile | `.` |
+| `{install-command}` | `npm ci`, `yarn install --frozen-lockfile` ou `pnpm install --frozen-lockfile` | `yarn install --frozen-lockfile` |
 | `{public-urls}` | lista Markdown, uma linha por `EXPO_PUBLIC_*`: `` - `NOME`: valor `` | `` - `EXPO_PUBLIC_API_URL`: https://… `` |
 
 Confira `{xcode-workspace}` depois do primeiro `npx expo prebuild --platform ios`
@@ -71,9 +80,15 @@ local, se puder: é o nome do `.xcworkspace` dentro de `ios/`.
    pelo workflow e pelo `.properties` que ele lê, e **não é reescrita**, mesmo que
    esteja num formato diferente do destes moldes. Aponte as diferenças no
    relatório e ofereça a migração como passo separado, só com o ok da pessoa.
-4. **Qual ambiente.** Pergunte: Dev, Prod ou os dois (sugira Dev, ou o que
+4. **Gerenciador de pacotes.** Procure o lockfile subindo de `<app-dir>` até a
+   raiz: `package-lock.json` (npm), `yarn.lock` (yarn) ou `pnpm-lock.yaml`
+   (pnpm). O primeiro achado define `{node-cache}`, `{lockfile}`,
+   `{install-dir}` e `{install-command}`. Sem lockfile, ou com outro gerenciador
+   (bun), pare e diga que o workflow precisa de um lockfile versionado de npm,
+   yarn ou pnpm.
+5. **Qual ambiente.** Pergunte: Dev, Prod ou os dois (sugira Dev, ou o que
    falta). Os dois = duas fatias, uma depois da outra.
-5. **Os dados.** Siga [references/dados-de-entrada.md](references/dados-de-entrada.md).
+6. **Os dados.** Siga [references/dados-de-entrada.md](references/dados-de-entrada.md).
    Levante as variáveis públicas que o app lê:
 
    ```bash
@@ -96,9 +111,9 @@ Numa branch nova (`feat/testflight-ios-<env>`), gere:
 | [templates/github/workflows/mobile-ios-testflight.yml.template](templates/github/workflows/mobile-ios-testflight.yml.template) | `.github/workflows/mobile-ios-testflight-{env}.yml` | blocos `dev` ou `prod` |
 | (sem molde) | `{properties-file}` | `APP_NAME`, `IOS_BUNDLE_ID`, `APPLE_TEAM_ID` e uma linha por `EXPO_PUBLIC_*`, valores entre aspas quando têm espaço |
 | [templates/app/app.config.ts.template](templates/app/app.config.ts.template) | `{app-dir}/app.config.ts` | ver abaixo |
-| [templates/app/app-config-test.ts.template](templates/app/app-config-test.ts.template) | `{app-dir}/__tests__/app-config-test.ts` | cópia |
+| [templates/app/app-config-test.ts.template](templates/app/app-config-test.ts.template) | `{app-dir}/__tests__/app-config-test.ts` | cópia, só se o app já roda jest com `jest-expo` |
 | [templates/makefile/mobile-ios-secrets.mk.template](templates/makefile/mobile-ios-secrets.mk.template) | fim do `Makefile` da raiz | só se o alvo `mobile-ios-secrets` não existir; cria o `Makefile` se não houver |
-| [templates/docs/testflight-ios.md.template](templates/docs/testflight-ios.md.template) | `docs/checkpoints/testflight-ios-{env}.md` | blocos do ambiente; `primeiro-do-time` se a chave e o certificado serão criados agora |
+| [templates/docs/testflight-ios.md.template](templates/docs/testflight-ios.md.template) | `docs/checkpoints/testflight-ios-{env}.md` | `dev` ou `prod`, mais `primeiro-do-time` ou `reaproveita` |
 
 **`app.config.ts`:**
 - não existe: copie o molde;
@@ -113,7 +128,10 @@ Numa branch nova (`feat/testflight-ios-<env>`), gere:
   scheme costuma estar no retorno de login. Só o nome exibido muda.
 - A pasta `ios/` do app precisa estar no `.gitignore`.
 - Rode os testes antes do commit: `bash .github/scripts/ios-identity.test.sh` e o
-  jest do app (`npx jest __tests__/app-config-test.ts`). Rode o actionlint no
+  jest do app (`npx jest __tests__/app-config-test.ts`). Sem jest configurado no
+  app (sem `jest-expo` no `package.json`), não copie o teste nem instale nada:
+  diga no relatório que o `app.config.ts` ficou sem teste e que a
+  `analizza-integration-test` configura o jest-expo. Rode o actionlint no
   workflow se houver Docker
   (`docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest`).
 - Se o projeto exige runbook por funcionalidade (`CLAUDE.md`, convenções),

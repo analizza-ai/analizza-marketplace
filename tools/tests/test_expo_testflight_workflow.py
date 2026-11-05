@@ -1,6 +1,7 @@
 """Workflows do TestFlight (Dev e Prod) gerados pela analizza-expo-testflight."""
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,11 +21,25 @@ VALORES = {
     "default-branch": "main",
     "xcode-workspace": "exemplomobile",
     "xcode-scheme": "exemplomobile",
+    "node-cache": "npm",
+    "lockfile": "apps/mobile/package-lock.json",
+    "install-dir": "apps/mobile",
+    "install-command": "npm ci",
+}
+
+GERENCIADORES = {
+    "npm": {"node-cache": "npm", "lockfile": "apps/mobile/package-lock.json",
+            "install-dir": "apps/mobile", "install-command": "npm ci"},
+    "yarn": {"node-cache": "yarn", "lockfile": "yarn.lock",
+             "install-dir": ".", "install-command": "yarn install --frozen-lockfile"},
+    "pnpm": {"node-cache": "pnpm", "lockfile": "pnpm-lock.yaml",
+             "install-dir": ".", "install-command": "pnpm install --frozen-lockfile"},
 }
 
 
-def texto(env: str) -> str:
-    return renderizar(MOLDE.read_text(encoding="utf-8"), {**VALORES, "env": env}, {env})
+def texto(env: str, pm: str = "npm") -> str:
+    blocos = {env} | ({"pnpm"} if pm == "pnpm" else set())
+    return renderizar(MOLDE.read_text(encoding="utf-8"), {**VALORES, **GERENCIADORES[pm], "env": env}, blocos)
 
 
 def wf(env: str) -> dict:
@@ -76,12 +91,31 @@ def test_sem_marcador_sobrando(env):
 
 
 @pytest.mark.parametrize("env", ["dev", "prod"])
-def test_actionlint_limpo(env, tmp_path):
+def test_acoes_fixadas_por_sha(env):
+    for p in passos(env):
+        if "uses" in p:
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", p["uses"]), p["uses"]
+
+
+@pytest.mark.parametrize("pm", ["npm", "yarn", "pnpm"])
+def test_instalacao_segue_o_gerenciador(pm):
+    lista = yaml.load(texto("dev", pm), Loader=yaml.BaseLoader)["jobs"]["build-and-upload"]["steps"]
+    node = next(i for i, p in enumerate(lista) if p.get("uses", "").startswith("actions/setup-node@"))
+    assert lista[node]["with"]["cache"] == GERENCIADORES[pm]["node-cache"]
+    assert lista[node]["with"]["cache-dependency-path"] == GERENCIADORES[pm]["lockfile"]
+    instala = next(p for p in lista if p.get("run") == GERENCIADORES[pm]["install-command"])
+    assert instala["working-directory"] == GERENCIADORES[pm]["install-dir"]
+    tem_pnpm = [i for i, p in enumerate(lista) if p.get("uses", "").startswith("pnpm/action-setup@")]
+    assert (tem_pnpm and tem_pnpm[0] < node) if pm == "pnpm" else not tem_pnpm
+
+
+@pytest.mark.parametrize("env,pm", [("dev", "npm"), ("prod", "npm"), ("dev", "yarn"), ("dev", "pnpm")])
+def test_actionlint_limpo(env, pm, tmp_path):
     if shutil.which("docker") is None:
         pytest.skip("sem docker para rodar o actionlint")
     destino = tmp_path / ".github/workflows/mobile-ios-testflight.yml"
     destino.parent.mkdir(parents=True)
-    destino.write_text(texto(env), encoding="utf-8")
+    destino.write_text(texto(env, pm), encoding="utf-8")
     r = subprocess.run(
         ["docker", "run", "--rm", "-v", f"{tmp_path}:/repo", "--workdir", "/repo",
          "rhysd/actionlint:latest", "-no-color", ".github/workflows/mobile-ios-testflight.yml"],
@@ -111,7 +145,10 @@ SECOES = [
 ]
 
 
-@pytest.mark.parametrize("blocos", [{"dev", "primeiro-do-time"}, {"prod"}])
+@pytest.mark.parametrize("blocos", [
+    {"dev", "primeiro-do-time"}, {"prod", "reaproveita"},
+    {"prod", "primeiro-do-time"}, {"dev", "reaproveita"},
+])
 def test_runbook_renderizado_dev_e_prod(blocos):
     env = "dev" if "dev" in blocos else "prod"
     texto = renderizar(RUNBOOK.read_text(encoding="utf-8"), {**VALORES_RUNBOOK, "env": env}, blocos)
@@ -122,7 +159,11 @@ def test_runbook_renderizado_dev_e_prod(blocos):
     if env == "prod":
         assert "v<versão>" in texto
         assert "workflow_dispatch" not in texto
-        assert "Solicitar acesso" not in texto  # chave e certificado já existem no time
+    if "primeiro-do-time" in blocos:
+        assert "Solicitar acesso" in texto and "Apple Distribution" in texto
+        assert "Já existem no time" not in texto
     else:
-        assert "Solicitar acesso" in texto
-        assert "Apple Distribution" in texto
+        assert "Solicitar acesso" not in texto
+        assert "Já existem no time" in texto
+    numeros = re.findall(r"^(\d+)\. \*\*", texto, re.MULTILINE)
+    assert len(numeros) == len(set(numeros)), f"passos com número repetido: {numeros}"
