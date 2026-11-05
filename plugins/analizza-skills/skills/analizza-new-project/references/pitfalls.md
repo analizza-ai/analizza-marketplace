@@ -148,6 +148,76 @@ cd $(MOBILE_DIR) && [ -f expo-env.d.ts ] || echo '/// <reference types="expo/typ
 É texto estático e documentado pela própria CLI do Expo (não é um número que
 envelhece como o `junit-bom` do core), então não precisa de manutenção.
 
+O `expo-env.d.ts` cobre os imports de CSS, **não as rotas tipadas**. Com
+`experiments.typedRoutes` (ligado no template do expo-router), os tipos de
+`href` moram em `.expo/types/`, que também é gerado e ignorado, e só o
+`expo start` os escreve. Quando o app ganhar rotas próprias, um `tsc` num clone
+novo acusa rotas que "não existem". A preparação de qualquer clone é rodar
+`npx expo start` uma vez e sair (Ctrl+C depois do QR code); diga isso no
+runbook do mobile. Se o `build-mobile` (ou o `typecheck` que a
+`analizza-integration-test` acrescenta) passar a acusar rotas num clone novo, a
+causa é essa, não o código.
+
+### `expo prebuild` reescreve os scripts do `package.json`
+
+O primeiro `expo prebuild` troca os scripts `ios` e `android` do template
+(`expo start --ios`/`--android`) por `expo run:ios`/`expo run:android`, e o
+`package.json` aparece modificado depois de um `make mobile-*`. O Passo 6 grava
+esses valores logo no scaffold, para que o prebuild não tenha o que mudar. Se
+um dia o `git status` mostrar o `package.json` alterado depois de um prebuild,
+o Expo mudou de ideia: commite a mudança uma vez, não brigue com ela.
+
+### Versões dos módulos do Expo descasadas dentro do mesmo SDK
+
+Módulos que o Expo distribui pré-compilados (`expo-video`, por exemplo) são
+compilados contra uma versão exata do `expo-modules-core`. Uma versão de patch
+do `expo` que fixa um core mais velho faz o app **instalar e fechar ao abrir**
+(`dyld: Symbol not found`), sem erro nenhum no build. `npx expo install --check`
+pega isso; por isso ele roda no `doctor-mobile`, antes do `expo-doctor`. A
+correção é `npx expo install --fix` — nunca `npm install <pacote>@latest`, que
+sai do range do SDK. Detalhe em [mobile-device.md](./mobile-device.md).
+
+### `jest-expo` só em `devDependencies`
+
+`npx expo install jest-expo` sem mais nada grava o pacote em `dependencies`, e
+ele passa a fazer parte do app que vai para o aparelho. Ferramenta de teste fica
+em `devDependencies`: `npx expo install jest-expo -- --save-dev` (o que vem
+depois do `--` vai para o npm, e a versão continua sendo a do SDK). O mesmo
+vale para o `@testing-library/react-native`. A `analizza-integration-test`
+instala o jest-expo; confira o `package.json` depois dela.
+
+### `fireEvent` é assíncrono no `@testing-library/react-native` 14
+
+Na versão 14, `fireEvent.press(...)` (e os demais) devolve uma Promise. Sem
+`await`, a asserção roda antes do efeito do toque e o teste falha (ou, pior,
+passa por acaso) com aviso de `act(...)`. Escreva `await fireEvent.press(...)`
+e use `findBy*` para o que aparece depois do toque.
+
+### Mocks no formato real da resposta
+
+Os testes do mobile mockam o cliente HTTP. Se o mock devolve um formato
+diferente do que o backend devolve de verdade, o teste passa e o app cai no
+aparelho. Caso real: a rota de listagem devolvia `{ "videos": [...] }`, os
+testes mockavam o array cru, e o app quebrava no Release logo depois do login
+com `RCTFatal ... undefined is not a function` (um `.find` sobre um objeto).
+
+Monte o mock a partir do DTO de resposta do `-api` (o record/data class que a
+rota devolve), não do que o componente espera receber. Quando o contrato
+mudar, o teste do mobile tem que quebrar junto. Para achar a mensagem de um
+crash desses no aparelho, ver [mobile-device.md](./mobile-device.md), "Crash
+de JS no Release".
+
+### Rodar no aparelho tem armadilhas próprias
+
+Apple ID gratuito (perfil de provisionamento, certificado não confiável,
+`ddiServicesAvailable: false`), o iPhone achado pelo `devicectl` e não pelo
+`xctrace`, o UDID passado explicitamente ao `expo run:ios`, repositório dentro
+do iCloud quebrando o CodeSign, locale UTF-8 do CocoaPods e `adb reverse` no
+emulador estão em
+[mobile-device.md](./mobile-device.md), junto do caminho
+`prebuild` + `run --device` em Release que os alvos `mobile-*` do Makefile
+seguem.
+
 ### O Metro não entra no smoke test
 
 O `create-expo-app` não gera alvo de build de CI — `expo export` empacota para

@@ -1,0 +1,9 @@
+import type { ConfigContext, ExpoConfig } from "expo/config";
+
+// Estende o app.json (que continua sendo a fonte da configuração do app) com o
+// que só pode vir do ambiente. O Team ID da Apple vem de APPLE_TEAM_ID e nunca
+// entra no repositório: sem ele, o build no iPhone não tem com o que assinar.
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...(config as ExpoConfig),
+  ios: { ...config.ios, appleTeamId: process.env.APPLE_TEAM_ID || undefined },
+});
