@@ -1,0 +1,29 @@
+import type { ConfigContext, ExpoConfig } from "expo/config";
+
+// Estende o app.json (que continua sendo a fonte da configuração do app) com a
+// identidade do build Android, que vem do ambiente no CI do Google Play:
+//   APP_DISPLAY_NAME      nome no ícone (app_name, pelo plugin android-display-name)
+//   ANDROID_PACKAGE       pacote do app do ambiente (Dev ou Prod)
+//   ANDROID_VERSION_CODE  versionCode, só dígitos
+// A assinatura do release vai pelo plugin android-release-signing, que só
+// escreve no build.gradle os nomes das variáveis do keystore; o Gradle lê os
+// valores do ambiente. Sem as variáveis, vale o app.json e o release assina com
+// a chave de debug: o build local continua igual. O `name` e o `scheme` nunca
+// mudam: o name gera o projeto nativo e o scheme costuma estar no retorno de login.
+export default ({ config }: ConfigContext): ExpoConfig => {
+  const nomeExibido = process.env.APP_DISPLAY_NAME || undefined;
+  const versionCode = process.env.ANDROID_VERSION_CODE;
+  return {
+    ...(config as ExpoConfig),
+    android: {
+      ...config.android,
+      package: process.env.ANDROID_PACKAGE || config.android?.package,
+      ...(versionCode && /^\d+$/.test(versionCode) ? { versionCode: Number(versionCode) } : {}),
+    },
+    plugins: [
+      ...(config.plugins ?? []),
+      "./plugins/android-release-signing",
+      ...(nomeExibido ? [["./plugins/android-display-name", { nome: nomeExibido }] as [string, any]] : []),
+    ],
+  };
+};

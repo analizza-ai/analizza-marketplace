@@ -1,0 +1,241 @@
+# se dev
+name: Mobile Android Play Dev
+
+# Builda o app Expo como o app de desenvolvimento e envia o .aab ao teste
+# interno do Google Play. Disparo manual, de qualquer branch menos a
+# {default-branch}; tag nunca. A {default-branch} e as tags ficam para produção.
+# fim se dev
+# se prod
+name: Mobile Android Play Prod
+
+# Builda o app Expo como o app de produção e envia o .aab ao teste interno do
+# Google Play. Disparo por tag v<versão>, igual ao "version" do app.json, num
+# commit que já está na {default-branch}. Do teste interno, a promoção para
+# fechado, aberto ou produção é manual no Play Console.
+# fim se prod
+#
+# As guardas rodam antes de qualquer passo que leia credencial.
+# Identidade não secreta: {properties-file}, versionada para que toda mudança
+# apareça num PR. Credenciais: environment {github-environment} do GitHub,
+# gravadas por `make mobile-android-secrets ENV={github-environment}`.
+#
+# Assinatura: o .aab sai assinado com a upload key (keystore em secret) e o
+# Google re-assina com a chave do app (Play App Signing). O keystore e as
+# senhas só existem no runner; o build.gradle gerado lê os valores do ambiente
+# ({app-dir}/plugins/android-release-signing.js).
+#
+# Primeiro envio: enquanto o app estiver em rascunho no Play Console, dispare
+# com status=draft (prod: a primeira tag sai em draft automaticamente se a
+# variável PLAY_FIRST_UPLOAD do environment for "true"), ou envie pela tela o
+# .aab que fica nos artefatos do run.
+#
+# As actions ficam fixadas por commit (SHA), não por tag: a service account
+# publica no Play e passa por elas. Para atualizar, troque o SHA de propósito,
+# conferindo a release.
+#
+# Runbook: docs/checkpoints/play-android-{env}.md
+
+on:
+# se dev
+  workflow_dispatch:
+    inputs:
+      status:
+        description: "Status do release no teste interno (draft enquanto o app estiver em rascunho no Play Console)"
+        type: choice
+        options:
+          - completed
+          - draft
+        default: completed
+# fim se dev
+# se prod
+  push:
+    tags:
+      - "v*"
+# fim se prod
+
+run-name: "Android {env} — ${{ github.ref_name }}"
+
+concurrency:
+  group: android-play-{env}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-upload:
+    name: Build e upload para o Google Play
+    runs-on: ubuntu-latest
+    environment: {github-environment}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+# se prod
+        with:
+          fetch-depth: 0
+# fim se prod
+
+# se dev
+      - name: Guarda de branch
+        env:
+          REF: ${{ github.ref }}
+        run: bash .github/scripts/android-identity.sh guard-branch "$REF" "{default-branch}"
+# fim se dev
+# se prod
+      - name: Guarda de tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          versao=$(node -p "require('./{app-dir}/app.json').expo.version")
+          bash .github/scripts/android-identity.sh guard-tag "$REF" "$versao"
+
+      - name: Guarda do commit na {default-branch}
+        run: bash .github/scripts/android-identity.sh on-default "{default-branch}"
+# fim se prod
+
+      - name: Identidade do app
+        id: identity
+        run: |
+          bash .github/scripts/android-identity.sh load {properties-file} >> "$GITHUB_OUTPUT"
+          # As variáveis públicas do app (EXPO_PUBLIC_*) valem para o prebuild e o bundle
+          # do JavaScript, que o Gradle gera dentro do bundleRelease.
+          bash .github/scripts/android-identity.sh public-env {properties-file} >> "$GITHUB_ENV"
+
+      - name: Credenciais presentes
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        run: |
+          faltando=()
+          for nome in ANDROID_KEYSTORE_BASE64 ANDROID_STORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD GOOGLE_PLAY_SERVICE_ACCOUNT; do
+            [[ -n "${!nome:-}" ]] || faltando+=("$nome")
+          done
+          if (( ${#faltando[@]} > 0 )); then
+            echo "::error::O environment {github-environment} está sem: ${faltando[*]}. Veja make mobile-android-secrets ENV={github-environment}."
+            exit 1
+          fi
+
+      # Temurin, nunca GraalVM: o jlink do GraalVM quebra o JdkImageTransform do Android.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+# se pnpm
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+# fim se pnpm
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: {node-cache}
+          cache-dependency-path: {lockfile}
+
+      - name: Dependências
+        working-directory: {install-dir}
+        run: {install-command}
+
+      - name: Versão
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          # Nome da versão vem do app.json; o versionCode vem do run, único e
+          # crescente, porque o Google Play recusa versionCode repetido. O
+          # attempt entra para que um "Re-run" não repita o número.
+          versao=$(node -p "require('./{app-dir}/app.json').expo.version")
+          version_code=$(( RUN_NUMBER * 10 + RUN_ATTEMPT ))
+          echo "version=${versao}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
+          echo "Versão ${versao} (${version_code})"
+
+      - name: Prebuild
+        working-directory: {app-dir}
+        env:
+          APP_DISPLAY_NAME: ${{ steps.identity.outputs.app_name }}
+          ANDROID_PACKAGE: ${{ steps.identity.outputs.android_package }}
+          ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: npx expo prebuild --clean --platform android --no-install
+
+      - name: Keystore de upload
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --ignore-garbage --decode > "${RUNNER_TEMP}/upload.jks"
+          echo "ANDROID_KEYSTORE_FILE=${RUNNER_TEMP}/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Bundle de release
+        working-directory: {app-dir}/android
+        env:
+          APP_DISPLAY_NAME: ${{ steps.identity.outputs.app_name }}
+          ANDROID_PACKAGE: ${{ steps.identity.outputs.android_package }}
+          ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Service account do Google Play
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT" > "${RUNNER_TEMP}/play-service-account.json"
+          chmod 600 "${RUNNER_TEMP}/play-service-account.json"
+
+# se prod
+      - name: Status do envio
+        id: status
+        env:
+          PRIMEIRO: ${{ vars.PLAY_FIRST_UPLOAD }}
+        run: |
+          if [[ "$PRIMEIRO" == "true" ]]; then echo "status=draft" >> "$GITHUB_OUTPUT"; else echo "status=completed" >> "$GITHUB_OUTPUT"; fi
+
+# fim se prod
+      - name: Upload para o teste interno
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
+        with:
+          serviceAccountJson: ${{ runner.temp }}/play-service-account.json
+          packageName: ${{ steps.identity.outputs.android_package }}
+          releaseFiles: {app-dir}/android/app/build/outputs/bundle/release/app-release.aab
+          track: ${{ steps.identity.outputs.play_track }}
+# se dev
+          status: ${{ inputs.status }}
+# fim se dev
+# se prod
+          status: ${{ steps.status.outputs.status }}
+# fim se prod
+
+      - name: Guarda o .aab
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: {properties-slug}-${{ steps.version.outputs.version_code }}.aab
+          path: {app-dir}/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Resumo
+        env:
+          APP_NAME: ${{ steps.identity.outputs.app_name }}
+          PACOTE: ${{ steps.identity.outputs.android_package }}
+          FAIXA: ${{ steps.identity.outputs.play_track }}
+          VERSAO: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          {
+            echo "### ${APP_NAME} enviado ao Google Play"
+            echo "- Pacote: \`${PACOTE}\`"
+            echo "- Faixa: ${FAIXA}"
+            echo "- Versão: ${VERSAO} (${VERSION_CODE})"
+            echo "- Ref: \`${REF_NAME}\`"
+            env | grep '^EXPO_PUBLIC_' | sort | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove material de credencial
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/upload.jks" "${RUNNER_TEMP}/play-service-account.json"
