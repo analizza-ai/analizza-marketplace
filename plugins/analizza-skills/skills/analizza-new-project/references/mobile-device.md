@@ -193,8 +193,25 @@ Com emulador e aparelho conectados ao mesmo tempo, `adb reverse` falha com
   Xcode 26 ele não vem junto (Xcode > Settings > Components).
 - **Android:** Android Studio com SDK, Platform-Tools e um AVD;
   `ANDROID_HOME=$HOME/Library/Android/sdk` e `$ANDROID_HOME/platform-tools` no
-  PATH. Se o Gradle do React Native recusar o JDK do sistema, use o do Android
-  Studio: `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
+  PATH. Sem o Android Studio, pelo Homebrew: `brew install --cask
+  android-commandlinetools` (SDK em `$(brew --prefix)/share/android-commandlinetools`)
+  e `sdkmanager` com `platform-tools`, `platforms;android-<compileSdk>`,
+  `build-tools;<buildTools>`, `build-tools;36.0.0`, `cmake;3.22.1` e
+  `ndk;<ndkVersion>` (versões em
+  `node_modules/react-native/gradle/libs.versions.toml`; sem o Build-Tools 36 e o
+  CMake na lista, o Gradle baixa no meio do primeiro build).
+- **JDK do Android:** 17 ou 21, **OpenJDK comum (Temurin, o `jbr` do Android
+  Studio), nunca GraalVM**: com o GraalVM o Release para em
+  `compileReleaseJavaWithJavac` com `Execution failed for JdkImageTransform` (o
+  `jlink` dele não gera a imagem que o Android pede). Pelo SDKMAN, `sdk install
+  java 21.0.13.0+9-tem`; ou `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
+- **Android no cabo:** Opções do desenvolvedor (7 toques em "Número da versão") >
+  Depuração USB; cabo com a tela desbloqueada, modo "Transferência de arquivos" e
+  "Permitir depuração USB". Se o Mac vê o aparelho no USB e o `adb devices` não,
+  a depuração não está ativa de fato: desligue e ligue a Depuração USB com o cabo
+  plugado. O primeiro `make mobile-android-device` leva de 10 a 30 min; na
+  instalação o Google Play Protect pode perguntar se envia o app para análise
+  (pergunta da pessoa: a instalação segue com qualquer resposta).
 - **Typecheck:** num clone novo, rode `npx expo start` uma vez e saia antes do
   primeiro `tsc` (ver [armadilhas](./pitfalls.md), "Frontends").
 - O Expo abre o simulador por `osascript`; na primeira vez o macOS pede
