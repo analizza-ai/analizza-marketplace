@@ -1,0 +1,58 @@
+import type { ConfigContext, ExpoConfig } from "expo/config";
+
+const ORIGINAL = { ...process.env };
+const VARIAVEIS = ["APP_DISPLAY_NAME", "ANDROID_PACKAGE", "ANDROID_VERSION_CODE"];
+const NOME = "./plugins/android-display-name";
+const ASSINATURA = "./plugins/android-release-signing";
+const plugin = (c: ExpoConfig, nome: string) =>
+  (c.plugins ?? []).find((p) => (Array.isArray(p) ? p[0] : p) === nome);
+
+// Gera a config como o expo faz: o app.json vira `config` e o app.config.ts decide o resto.
+function gerar(): ExpoConfig {
+  jest.resetModules();
+  const appJson = require("../app.json") as { expo: ExpoConfig };
+  const criar = require("../app.config").default as (ctx: ConfigContext) => ExpoConfig;
+  return criar({ config: structuredClone(appJson.expo) } as ConfigContext);
+}
+
+beforeEach(() => {
+  for (const v of VARIAVEIS) delete process.env[v];
+});
+
+afterEach(() => {
+  process.env = { ...ORIGINAL };
+});
+
+test("semVariaveisMantemAppJsonNoAndroid", () => {
+  const appJson = require("../app.json") as { expo: ExpoConfig };
+  const c = gerar();
+  expect(c.name).toBe(appJson.expo.name);
+  expect(c.android?.package).toBe(appJson.expo.android?.package);
+  expect(c.android?.versionCode).toBe(appJson.expo.android?.versionCode);
+  expect(plugin(c, NOME)).toBeUndefined();
+});
+
+test("identidadeAndroidVemDoAmbiente", () => {
+  const appJson = require("../app.json") as { expo: ExpoConfig };
+  process.env.APP_DISPLAY_NAME = "Meu App Dev";
+  process.env.ANDROID_PACKAGE = "com.exemplo.app.dev";
+  process.env.ANDROID_VERSION_CODE = "42";
+  const c = gerar();
+  expect(c.name).toBe(appJson.expo.name); // name gera o projeto nativo: não muda
+  expect(c.scheme).toBe(appJson.expo.scheme); // retorno de login
+  expect(c.android?.package).toBe("com.exemplo.app.dev");
+  expect(c.android?.versionCode).toBe(42);
+  expect(plugin(c, NOME)).toEqual([NOME, { nome: "Meu App Dev" }]);
+});
+
+test("versionCodeInvalidoEhIgnorado", () => {
+  process.env.ANDROID_VERSION_CODE = "abc";
+  const appJson = require("../app.json") as { expo: ExpoConfig };
+  expect(gerar().android?.versionCode).toBe(appJson.expo.android?.versionCode);
+});
+
+test("assinaturaReleaseSempreRegistrada", () => {
+  expect(plugin(gerar(), ASSINATURA)).toBe(ASSINATURA);
+  process.env.ANDROID_PACKAGE = "com.exemplo.app.dev";
+  expect(plugin(gerar(), ASSINATURA)).toBe(ASSINATURA);
+});

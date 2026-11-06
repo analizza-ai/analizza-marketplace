@@ -1,0 +1,217 @@
+---
+type: screen-mobile
+---
+
+# Checkpoint: deploy Android {env} para o teste interno do Google Play ({app-name})
+
+<!-- se dev -->
+Um botão no GitHub Actions (**Mobile Android Play Dev**) builda o app Expo como
+**{app-name}**, apontando para o ambiente de desenvolvimento, e manda o `.aab`
+para o **teste interno** do Google Play. Dali quem está na lista de testers
+instala pela Play Store, sem cabo. Dispara de qualquer branch, menos
+`{default-branch}` e tags, que ficam para produção.
+<!-- fim se dev -->
+<!-- se prod -->
+Uma tag `v<versão>` (igual ao `version` do `app.json`) num commit da
+`{default-branch}` dispara o **Mobile Android Play Prod**, que builda o app Expo
+como **{app-name}**, apontando para produção, e manda o `.aab` para o teste
+interno. Do teste interno, a promoção para fechado, aberto ou produção é feita à
+mão no Play Console.
+<!-- fim se prod -->
+
+| | valor |
+|---|---|
+| nome no aparelho | {app-name} |
+| pacote | `{android-package}` |
+| conta do Play Console | {play-account} |
+| service account | `{service-account}` |
+| alias da upload key | `{key-alias}` |
+| environment do GitHub | `{github-environment}` |
+| lista de testers | {testers-list} |
+
+Endereços que o app usa neste ambiente:
+
+{public-urls}
+
+Onde mora cada peça:
+- workflow: `.github/workflows/mobile-android-play-{env}.yml`
+- identidade (nome, pacote, faixa, endereços): `{properties-file}`
+- guardas e leitura da identidade: `.github/scripts/android-identity.sh`
+  (teste: `bash .github/scripts/android-identity.test.sh`)
+- credenciais: environment `{github-environment}`, gravadas por
+  `make mobile-android-secrets ENV={github-environment}`
+- pacote e versionCode no app: `{app-dir}/app.config.ts`; nome exibido e
+  assinatura do release: `{app-dir}/plugins/android-display-name.js` e
+  `android-release-signing.js` (o Gradle lê o keystore do ambiente; nenhum
+  segredo fica no `android/` gerado)
+
+## Preparação única
+
+Feita por quem é **Proprietário ou Administrador** da conta de desenvolvedor
+{play-account} no Play Console. Senhas, códigos de dois fatores, o keystore e o
+JSON da service account nunca passam por chat nem por repositório: ficam em
+`{secrets-dir}`, fora de qualquer repositório.
+
+1. **App no Play Console.** play.google.com/console → **Criar app**: nome
+   **{app-name}**, **nome do pacote `{android-package}`** (o formulário pede o
+   pacote e ele fica preso ao app: clique em "Ver disponibilidade"), idioma
+   padrão, **App**, **Gratuito**. Marque as duas declarações (Políticas do
+   programa e Leis de exportação dos EUA) e **Criar app**. A "proteção
+   automática" vem ligada; ela não atrapalha o build pelo cabo, que usa outro
+   pacote.
+<!-- se primeira-service-account -->
+2. **Service account no Google Cloud.** console.cloud.google.com, logado na mesma
+   conta → escolha o projeto `{gcp-project}` → **APIs e serviços → Biblioteca →
+   Google Play Android Developer API → Ativar** (se já estiver "Ativado", siga) →
+   **IAM e administrador → Contas de serviço → Criar conta de serviço**: nome
+   `{service-account-name}`, **Criar e fechar** (sem nenhum papel no projeto) →
+   na conta → aba **Chaves → Adicionar chave → Criar nova chave → JSON →
+   Criar**. O arquivo baixa uma vez só, nos Downloads, como
+   `<projeto>-<id>.json`: mova para `{secrets-dir}/{service-account-name}.json`
+   com permissão `600`, sem abrir.
+3. **Convite da service account.** Play Console → **Usuários e permissões →
+   Convidar novos usuários** → e-mail `{service-account}` → **Permissões do app
+   → Adicionar app → {app-name} → Aplicar**. No diálogo, mantenha as duas de
+   leitura que vêm marcadas e marque **Liberar apps para as faixas de teste** →
+   Aplicar → **Convidar usuário → Enviar convite**. Nada de Administrador,
+   produção, dados financeiros nem permissões da conta. A conta aparece como
+   **Ativo** na hora.
+<!-- fim se primeira-service-account -->
+<!-- se reaproveita-service-account -->
+2. **Service account.** Reaproveita a `{service-account}` e a chave que já estão
+   em `{secrets-dir}`. Só falta dar acesso ao app novo: Play Console → Usuários e
+   permissões → a service account → **Permissões do app → Adicionar app →
+   {app-name}** → marque **Liberar apps para as faixas de teste** → Aplicar →
+   Salvar.
+<!-- fim se reaproveita-service-account -->
+4. **Keystore de upload, novo.** No seu terminal (o `keytool` vem com o JDK; use
+   Temurin):
+
+   ```bash
+   keytool -genkeypair -v -keystore {secrets-dir}/{key-alias}.jks \
+     -alias {key-alias} -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+   Responda `yes` em "Is CN=… correct?" (senão ele pergunta tudo de novo e não
+   grava); o fim é `[Storing …/{key-alias}.jks]`. Guarde o `.jks` e a senha num
+   cofre: perder o keystore obriga a pedir troca da upload key ao Google. O
+   **Play App Signing** fica ligado (padrão em app novo).
+5. **Credenciais no GitHub.** Com `gh auth login` feito numa conta com acesso de
+   admin ao `{github-repo}`, no seu terminal:
+
+   ```bash
+   bash <skill>/scripts/gravar-secrets-android.sh {github-environment} \
+     {secrets-dir}/{key-alias}.jks {key-alias} \
+     {secrets-dir}/{service-account-name}.json <raiz-do-repositório> [caminho do keytool]
+   ```
+
+   Ele pede a senha sem eco, **confere contra o keystore** antes de enviar, e
+   chama `make mobile-android-secrets ENV={github-environment}`. Esperado:
+   `environment … já existe (proteção mantida)` (ou `criado`) e 5 linhas
+   `gravado`. Confira os nomes com
+   `gh secret list --repo {github-repo} --env {github-environment}`.
+6. **Proteja o environment.** GitHub → Settings → Environments →
+   {github-environment} → **Required reviewers**: marque quem aprova. Por quê: o
+   workflow roda o arquivo da ref escolhida, e o keystore com a service account
+   publicam no Play. O `make` não mexe nessa proteção.
+7. **O workflow na `{default-branch}`.** O GitHub só mostra "Run workflow" (e só
+   reage a tags) com o workflow na branch padrão: merge do PR antes do primeiro
+   disparo.
+8. **Testers.** Testar e lançar → **Teste interno → Testadores**. As listas de
+   e-mail são da conta inteira: se já existir uma com as pessoas certas, marque
+   ela; senão **Criar lista de e-mails** {testers-list}. **Salvar**. O link de
+   participação só aparece depois do primeiro lançamento.
+9. **Primeiro envio.** O app novo fica em rascunho até o primeiro lançamento, e
+   a API só aceita release `draft` em app rascunho.
+<!-- se dev -->
+   Dispare com **status = draft**.
+<!-- fim se dev -->
+<!-- se prod -->
+   Crie a variável `PLAY_FIRST_UPLOAD=true` no environment antes da primeira tag
+   e apague depois do primeiro lançamento.
+<!-- fim se prod -->
+   Depois: Teste interno → Versões → o rascunho → **Revisar e lançar**. Se a API
+   recusar mesmo assim, baixe o `.aab` dos artefatos do run e envie pela tela
+   (Teste interno → Criar nova versão).
+10. **Tarefas do painel.** O Painel do app lista o que falta (política de
+    privacidade, acesso ao app, anúncios, classificação, público-alvo, segurança
+    dos dados, ícone 512×512). Para o teste interno, responda só as que a tela
+    marcar como obrigatórias.
+<!-- se prod -->
+    **Conta pessoal:** contas de desenvolvedor pessoais novas precisam de um
+    teste fechado com pelo menos 12 testers por 14 dias antes de pedir acesso
+    à produção. Planeje isso antes da data de lançamento.
+<!-- fim se prod -->
+
+## 1. O que precisa bater
+
+<!-- se dev -->
+- **Disparo.** Actions → **Mobile Android Play Dev** → Run workflow → uma branch
+  de trabalho (não a `{default-branch}`) → status `completed` → Run. O run
+  aparece como `Android dev — <branch>` e espera a aprovação do revisor.
+<!-- fim se dev -->
+<!-- se prod -->
+- **Disparo.** `git tag v<version do app.json> && git push origin v<versão>` num
+  commit da `{default-branch}`. O run aparece como `Android prod — v<versão>`.
+<!-- fim se prod -->
+- **Run verde.** No resumo: "{app-name} enviado ao Google Play", pacote
+  `{android-package}`, faixa `internal`, versão `<version> (<versionCode>)` e os
+  endereços do ambiente.
+- **Play Console.** {app-name} → Teste interno → Versões: a versão aparece como
+  disponível para testadores internos.
+- **Instalação sem cabo.** Num Android desplugado, logado numa conta da lista:
+  link de participação → **Tornar-se testador** → **Baixar no Google Play**. O
+  ícone se chama **{app-name}**; uma versão nova chega como atualização.
+- **Ambiente certo.** Login e uma tela com dados funcionam contra os endereços
+  da tabela acima.
+- **Fluxo local intacto.** Com o aparelho no cabo, `make mobile-android-device`
+  ainda instala o app local (outro pacote), ao lado deste.
+
+## 2. O que tentar para ver se quebra
+
+<!-- se dev -->
+- **Disparar da `{default-branch}`.** Falha em **Guarda de branch**, antes de
+  qualquer credencial.
+- **Disparar de uma tag.** Falha na mesma guarda.
+<!-- fim se dev -->
+<!-- se prod -->
+- **Tag que não bate com o `version` do `app.json`.** Falha em **Guarda de tag**.
+- **Tag num commit fora da `{default-branch}`.** Falha em **Guarda do commit**.
+<!-- fim se prod -->
+- **Credencial faltando.** Renomeie um secret do environment e dispare:
+  **Credenciais presentes** cita o nome. Desfaça depois.
+- **Mudança na identidade.** Num PR, troque `PLAY_TRACK=internal` por
+  `production`: falha em **Identidade do app**, antes de qualquer credencial.
+- **Procure segredo no log.** Nos passos **Keystore de upload**, **Bundle de
+  release** e **Service account**, nada parecido com senha, base64 longo ou
+  `private_key` pode aparecer.
+- **Login com os dois apps instalados** (cabo e Play): o retorno de login volta
+  para qual dos dois? Anote.
+
+## 3. O que não está na lista
+
+Estranhe qualquer coisa que apareça sem ter sido pedida: e-mail do Google Play
+sobre a versão (política, permissão, API de destino antiga), aviso no Painel,
+permissão nova na página da Play Store, versão diferente da do `app.json`, ou o
+app falando com um endereço que não é o deste ambiente.
+
+## 4. O que este checkpoint já pegou
+
+(Preencher depois de cada conferência, com data e o achado real.)
+
+## FAQ
+
+**"Google Play Android Developer API has not been used in project … or it is
+disabled."** Ative a API no projeto da service account e dispare de novo.
+
+**"The caller does not have permission."** O convite não inclui {app-name}, ou
+ainda não propagou: confira em Usuários e permissões.
+
+**"Only releases with status draft may be created on draft app."** Primeiro
+envio: veja o passo 9.
+
+**"Version code … has already been used."** Dispare de novo em vez de usar
+"Re-run" num run que já enviou.
+
+**Build para em `compileReleaseJavaWithJavac` com `JdkImageTransform`.** JDK
+GraalVM; use Temurin.
