@@ -1,0 +1,10 @@
+
+##@ Deploy
+
+.PHONY: deploy-check
+deploy-check: ## Confere o compose de {env} (nome, limites, portas) e que nenhum .env com valor esta versionado
+	deploy/check-compose.sh
+
+.PHONY: version
+version: ## Mostra a versao do produto; com V=X.Y.Z grava a mesma em todas as fontes
+	@if [ -n "$(V)" ]; then .github/scripts/version.sh set "$(V)"; else .github/scripts/version.sh check; fi

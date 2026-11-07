@@ -1,0 +1,61 @@
+# Ambiente {env} do {project} na VPS. Copiado para {remote-dir} pelo
+# .github/workflows/backend-deploy-{env}.yml, junto com o .env.{env} montado a
+# partir dos secrets e o images.env com as tags das imagens.
+#
+# O compose recria um container quando a configuracao dele muda, inclusive o
+# que vem de env_file. Por isso a tag que muda a cada deploy fica no images.env,
+# que so entra na interpolacao (--env-file), e nunca no .env.{env}: se mudasse o
+# .env.{env}, cada deploy recriaria tambem o banco.
+#
+# Todo servico tem mem_limit (a VPS e compartilhada) e nenhum publica porta: as
+# aplicacoes sao alcancadas pelo proxy reverso da VPS na rede `{proxy-network}`.
+# Nome explicito: sem ele o projeto seria o nome da pasta na VPS, e o compose
+# poderia mexer na rede e nos volumes de outro projeto com a pasta de mesmo nome.
+name: {compose-name}
+
+services:
+# se postgres
+  postgres:
+    image: postgres:17-alpine
+    container_name: {compose-name}-postgres
+    # So o que o Postgres usa: um secret da aplicacao que mude nao reinicia o banco.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [internal]
+    mem_limit: {postgres-mem}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# fim se postgres
+# por app
+  {app-service}:
+    image: ${DOCKERHUB_USERNAME}/{app-module}:${{app-tag-var}:-{env}}
+    container_name: {app-container}
+    env_file: .env.{env}
+# se postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+# fim se postgres
+    networks: [{app-networks}]
+    mem_limit: {app-mem}
+    restart: unless-stopped
+
+# fim por app
+networks:
+  internal:
+  {proxy-network}:
+    external: true
+# se postgres
+
+volumes:
+  postgres-data:
+# fim se postgres

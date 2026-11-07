@@ -1,0 +1,103 @@
+---
+type: screen-web
+---
+
+# Checkpoint: deploy do web em {env} (Cloudflare Workers)
+
+O **Web Deploy {Env}** (`.github/workflows/web-deploy-{env}.yml`) publica o web
+Next.js como Cloudflare Worker, via OpenNext (`{web-dir}/wrangler.jsonc`). Só
+roda à mão (Run workflow), de qualquer branch: push nenhum publica. Da
+`{default-branch}`, **gerar_tag** cria `v<versão>` depois do deploy (a mesma
+tag dos outros deploys do produto; `.github/scripts/release-tag.sh`).
+
+| O quê | Onde |
+|---|---|
+| Web | `{web-url}` |
+| Worker | `{worker-name}` (também em `*.workers.dev`) |
+| Environment do GitHub | `{github-environment}` em `{github-repo}` |
+<!-- se r2-cors -->
+| CORS do bucket | `{r2-bucket}`, de `{r2-cors-file}` |
+<!-- fim se r2-cors -->
+
+## Preparação, uma vez
+
+**Cloudflare (painel)**
+
+1. Token de API, que vira o secret `CLOUDFLARE_API_TOKEN`, com:
+   - Account → Workers Scripts: Edit
+<!-- se r2-cors -->
+   - Account → Workers R2 Storage: Edit
+<!-- fim se r2-cors -->
+<!-- se dominio -->
+   - Zone `{zone}` → Workers Routes: Edit e DNS: Edit (o domínio próprio do
+     Worker cria o registro `{web-host}` no deploy)
+<!-- fim se dominio -->
+2. O Account ID (barra lateral de Workers & Pages), que vira o secret
+   `CLOUDFLARE_ACCOUNT_ID`.
+<!-- se dominio -->
+3. **Não** crie o registro `{web-host}` no DNS: se ele existir, o deploy com
+   `custom_domain` falha.
+<!-- fim se dominio -->
+
+**GitHub (environment `{github-environment}`)**
+
+4. No seu shell, cada valor digitado no prompt (nunca na linha de comando):
+
+   ```bash
+   for s in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do gh secret set "$s" --env {github-environment} -R {github-repo}; done
+   ```
+
+**Primeiro deploy**
+
+5. `gh workflow run web-deploy-{env}.yml -R {github-repo} --ref {default-branch}`
+   e `gh run watch`. Esperado: verde, e o log mostra a URL `*.workers.dev`.
+<!-- se dominio -->
+   O log mostra também `{web-host} (custom domain)`.
+<!-- fim se dominio -->
+
+## 1. O que precisa bater
+
+1. **A página abre:** `{web-url}` no navegador, sem erro no console, e as
+   chamadas à API indo para o endereço de `{env}` (aba Network).
+2. **Versão:** o passo **Guarda de tag e versao** do run imprime
+   `Versao X.Y.Z (todas as fontes iguais)`, a mesma de `make version`.
+3. **Preview local igual ao deploy:** `cd {web-dir} && {preview-command}` abre
+   o Worker local com o `.dev.vars`.
+<!-- se r2-cors -->
+4. **Preflight do CORS** (troque `<account>`):
+   `curl -si -X OPTIONS -H 'Origin: {web-url}' -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type' https://<account>.r2.cloudflarestorage.com/{r2-bucket}/x`.
+   Esperado: `access-control-allow-origin: {web-url}` e `ETag` em
+   `access-control-expose-headers`.
+<!-- fim se r2-cors -->
+5. **gerar_tag na `{default-branch}`:** dispare com a caixa marcada. Esperado: o
+   job **Tag v<versao>** verde; se outro deploy já criou a tag no mesmo commit,
+   ele diz que já existe e fica verde.
+
+## 2. O que tentar para ver se quebra
+
+- **Push na `{default-branch}` que muda o web.** Esperado: nenhum
+  `Web Deploy {Env}` aparece em Actions.
+- **`gerar_tag` fora da `{default-branch}`.** Esperado: falha em **Guarda de tag
+  e versao** com "So a {default-branch} gera tag", antes de qualquer secret.
+- **Versão divergente.** Numa branch, mude só uma das fontes de
+  `.github/versao.fontes` e dispare. Esperado: falha em **Guarda de tag e
+  versao** com "Versao divergente".
+- **Token sem uma permissão** (ex.: sem DNS: Edit). Esperado: o deploy falha
+  dizendo qual; o Worker antigo continua no ar.
+<!-- se r2-cors -->
+- **Origem fora do CORS:** suba a partir de uma origem que não está em
+  `{r2-cors-file}` (ex.: outra porta local). Esperado: o PUT falha por CORS no
+  console. Se passar, o CORS está aberto demais.
+<!-- fim se r2-cors -->
+- **Disparo de outra branch.** Esperado: publica o código daquela branch em
+  `{env}`; o próximo disparo da `{default-branch}` volta o ambiente.
+
+## 3. O que não está na lista
+
+Estranhe qualquer coisa que funcione diferente do `next dev` local sem motivo: uma
+rota que dá 500 só no Worker (API do Node que o runtime não tem), uma variável
+que chega vazia, uma página em cache que não atualiza.
+
+## 4. O que este checkpoint já pegou
+
+(nada ainda)

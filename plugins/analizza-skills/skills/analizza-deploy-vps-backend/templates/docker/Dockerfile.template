@@ -1,0 +1,6 @@
+FROM eclipse-temurin:{java-version}-jre
+WORKDIR /app
+# Nome fixo: o bootJar grava {app-module}.jar (ver build.gradle); a versao vai no manifesto.
+COPY build/libs/{app-module}.jar app.jar
+EXPOSE {app-port}
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

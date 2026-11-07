@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Guardas do deploy {env} (VPS compartilhada; nenhum valor versionado): o compose
+# tem nome proprio, todo servico tem limite de memoria e nenhum publica porta no
+# host, a tag das imagens nao chega ao ambiente de nenhum container, e nenhum
+# .env com valor esta versionado.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+compose=deploy/docker-compose.{env}.yml
+[ -f "$compose" ] || { echo "falta $compose"; exit 1; }
+
+# O compose le env_file .env.{env}; sem ele (CI, maquina do dev) usa o exemplo vazio.
+if [ ! -f deploy/.env.{env} ]; then
+  cp deploy/.env.{env}.example deploy/.env.{env}
+  trap 'rm -f deploy/.env.{env}' EXIT
+fi
+cfg=$(docker compose -f "$compose" --env-file deploy/.env.{env}.example --env-file deploy/images.env.example config --format json)
+
+nome=$(jq -r '.name' <<<"$cfg")
+[ "$nome" = "{compose-name}" ] || { echo "compose sem name: {compose-name} (ficou: $nome)"; exit 1; }
+sem_limite=$(jq -r '.services | to_entries[] | select(.value.mem_limit == null) | .key' <<<"$cfg")
+com_porta=$(jq -r '.services | to_entries[] | select(.value.ports != null) | .key' <<<"$cfg")
+[ -z "$sem_limite" ] || { echo "servicos sem mem_limit: $sem_limite"; exit 1; }
+[ -z "$com_porta" ] || { echo "servicos publicando porta: $com_porta"; exit 1; }
+
+# A tag que muda a cada deploy nao pode chegar ao ambiente de nenhum container
+# (ver o cabecalho do compose).
+grep -q 'IMAGE_TAG' deploy/.env.{env}.example && { echo "deploy/.env.{env}.example com IMAGE_TAG: a tag mora no images.env"; exit 1; }
+com_tag=$(jq -r '.services | to_entries[] | select((.value.environment // {}) | keys | any(test("IMAGE_TAG"))) | .key' <<<"$cfg")
+[ -z "$com_tag" ] || { echo "tag de imagem no ambiente de: $com_tag"; exit 1; }
+# se postgres
+pg_env=$(jq -r '.services.postgres.environment | keys | map(select(startswith("POSTGRES_") | not)) | join(",")' <<<"$cfg")
+[ -z "$pg_env" ] || { echo "postgres recebe variaveis que nao sao dele: $pg_env"; exit 1; }
+# fim se postgres
+
+envs=$(git ls-files | grep -E '(^|/)\.env(\.|$)' | grep -v '\.example$' || true)
+[ -z "$envs" ] || { echo ".env versionado: $envs"; exit 1; }
+
+echo "deploy-check ok"
