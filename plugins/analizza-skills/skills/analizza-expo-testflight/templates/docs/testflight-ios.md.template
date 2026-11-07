@@ -8,14 +8,22 @@ type: screen-mobile
 Um botão no GitHub Actions (**Mobile iOS TestFlight Dev**) builda o app Expo como
 **{app-name}**, apontando para o ambiente de desenvolvimento, e manda para o
 TestFlight. Dali qualquer tester interno instala pelo app TestFlight, sem cabo e
-sem o vencimento de 7 dias do build local. Dispara de qualquer branch, menos
-`{default-branch}` e tags, que ficam para produção.
+sem o vencimento de 7 dias do build local. Dispara de qualquer branch, a
+`{default-branch}` inclusive; tag nunca (as tags ficam para produção). Na
+`{default-branch}` dá para marcar **gerar_tag**: depois do upload, o job **Tag
+v<versão>** cria `v<version do app.json>` no commit. A tag só marca o commit:
+criada pelo workflow, ela não dispara o prod, que é disparado à mão nela
+(Run workflow → aba Tags).
 <!-- fim se dev -->
 <!-- se prod -->
 Uma tag `v<versão>` (igual ao `version` do `app.json`) num commit da
 `{default-branch}` dispara o **Mobile iOS TestFlight Prod**, que builda o app
 Expo como **{app-name}**, apontando para produção, e manda para o TestFlight.
 Do TestFlight, a promoção para a App Store é feita à mão no App Store Connect.
+
+A tag também pode vir do dev na `{default-branch}` (**gerar_tag**). Essa não
+dispara o prod sozinha (o GitHub não encadeia workflows pelo token do próprio
+run): dispare à mão, Run workflow → aba Tags → `v<versão>`.
 <!-- fim se prod -->
 
 | | valor |
@@ -144,8 +152,12 @@ Iniciar Sessão e Segurança → Obter Código de Verificação).
 
 <!-- se dev -->
 - **Disparo.** GitHub → Actions → **Mobile iOS TestFlight Dev** → Run workflow →
-  uma branch de trabalho (não a `{default-branch}`) → Run. O run aparece como
+  uma branch de trabalho ou a `{default-branch}`, `gerar_tag` desmarcado → Run. O run aparece como
   `iOS dev — <branch>`.
+- **Da `{default-branch}` com `gerar_tag`.** Depois do upload, o job **Tag
+  v<versão>** roda e o resumo mostra `Tag: v<versão>`; a tag aparece em Code →
+  Tags, no commit do run. Na outra plataforma, o mesmo commit com `gerar_tag`
+  termina verde dizendo que a tag "já existe neste commit".
 <!-- fim se dev -->
 <!-- se prod -->
 - **Disparo.** Com o `version` do `app.json` em `X.Y.Z` e o commit na
@@ -167,8 +179,12 @@ Iniciar Sessão e Segurança → Obter Código de Verificação).
 ## 2. O que tentar para ver se quebra
 
 <!-- se dev -->
-- **Disparar da `{default-branch}`.** Deve falhar no passo **Guarda de
-  branch**, antes de qualquer credencial.
+- **`gerar_tag` fora da `{default-branch}`.** De uma branch de trabalho, com
+  `gerar_tag`: falha em **Guarda de branch** ("Só a branch ... gera tag"), antes
+  de qualquer credencial.
+- **Tag repetida em outro commit.** Com `v<versão>` já criada, um commit novo na
+  `{default-branch}` sem subir o `version` e `gerar_tag`: o upload acontece, o
+  job **Tag** falha pedindo para subir o `version`, e a tag antiga não se move.
 - **Disparar de uma tag.** Run workflow → aba Tags: falha na mesma guarda.
 <!-- fim se dev -->
 <!-- se prod -->
