@@ -1,0 +1,6 @@
+
+##@ Versao
+
+.PHONY: version
+version: ## Mostra a versao do produto; com V=X.Y.Z grava a mesma em todas as fontes
+	@if [ -n "$(V)" ]; then .github/scripts/version.sh set "$(V)"; else .github/scripts/version.sh check; fi

@@ -1,0 +1,27 @@
+// Worker do web no ambiente {env}. O deploy vem do .github/workflows/web-deploy-{env}.yml
+// (so manual); localmente, `{preview-command}` usa o .dev.vars no lugar de `vars`.
+// se dominio
+// O dominio proprio cria o registro DNS sozinho: nao crie `{web-host}` a mao.
+// fim se dominio
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{worker-name}",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "{compatibility-date}",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "workers_dev": true,
+// se dominio
+  "routes": [
+    { "pattern": "{web-host}", "custom_domain": true }
+  ],
+// fim se dominio
+  "vars": {
+// por variavel
+    "{var}": "{value}",
+// fim por variavel
+  }
+}

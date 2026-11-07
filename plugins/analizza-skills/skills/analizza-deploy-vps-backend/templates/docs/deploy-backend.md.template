@@ -1,0 +1,106 @@
+---
+type: api
+---
+
+# Checkpoint: deploy do backend em {env} (VPS)
+
+O **Backend Deploy {Env}** (`.github/workflows/backend-deploy-{env}.yml`) builda
+as aplicações Spring Boot, publica as imagens no Docker Hub e sobe o ambiente
+`{env}` na VPS com docker compose (`deploy/docker-compose.{env}.yml`). Só roda à
+mão (Run workflow), de qualquer branch: push nenhum publica. Da
+`{default-branch}`, **gerar_tag** cria `v<versão>` depois do deploy (a mesma tag
+dos outros deploys do produto; `.github/scripts/release-tag.sh`).
+
+| O quê | Onde |
+|---|---|
+| API | `{public-url}` |
+| Health | `{health-url}` |
+| Pasta na VPS | `{remote-dir}` |
+| Imagens | Docker Hub: <!-- por app -->`{app-module}` <!-- fim por app --> |
+| Environment do GitHub | `{github-environment}` em `{github-repo}` |
+
+## Preparação, uma vez
+
+**VPS e proxy reverso**
+
+1. Docker com o plugin compose na VPS, e a rede externa do proxy:
+   `ssh <vps> 'docker network inspect {proxy-network} >/dev/null && echo ok'`.
+2. DNS: registro A de `{public-host}` → IP da VPS. Se a zona estiver no
+   Cloudflare, em modo **DNS only** (nuvem cinza): o certificado é emitido na
+   VPS. Confira: `dig +short {public-host}` = IP da VPS.
+3. No proxy reverso da VPS, um site para `{public-host}` com TLS, repassando a
+   `{proxy-upstream}` na rede `{proxy-network}`.
+4. Memória: `ssh <vps> free -m`. A soma dos `mem_limit` do compose
+   ({mem-total}) precisa caber no que está livre, com folga.
+
+**Docker Hub**
+
+5. Repositórios <!-- por app -->`{app-module}` <!-- fim por app -->com a
+   visibilidade combinada. Se privados, a VPS precisa estar logada no Docker
+   Hub (`docker login` feito uma vez lá).
+
+**GitHub (environment `{github-environment}`)**
+
+6. No seu shell, cada valor digitado no prompt (nunca na linha de comando):
+
+   ```bash
+   for s in {secrets-list}; do gh secret set "$s" --env {github-environment} -R {github-repo}; done
+   ```
+
+<!-- se postgres -->
+   `POSTGRES_PASSWORD` nova: `openssl rand -hex 32`.
+<!-- fim se postgres -->
+7. Variáveis (não secretas), se houver:
+   {vars-commands}
+
+**Primeiro deploy**
+
+8. `gh workflow run backend-deploy-{env}.yml -R {github-repo} --ref {default-branch}`
+   e `gh run watch`. Esperado: verde, terminando em "Backend is healthy".
+
+## 1. O que precisa bater
+
+1. **Health:** `curl -s {health-url}`. Esperado: `"status":"UP"`.
+2. **Versão:** o passo **Guarda de tag e versao** do run imprime
+   `Versao X.Y.Z (todas as fontes iguais)`, a mesma de `make version`.
+3. **Imagens na VPS:**
+   `ssh <vps> 'docker ps --format "{{.Names}} {{.Image}} {{.Status}}" | grep {compose-name}'`.
+   Esperado: cada aplicação com a imagem `:<sha do commit disparado>`, `Up`.
+4. **Nenhuma porta publicada:** a mesma saída de `docker ps` sem `0.0.0.0:`.
+5. **Guardas locais:** `make deploy-check`. Esperado: `deploy-check ok`.
+6. **gerar_tag na `{default-branch}`:** dispare com a caixa marcada. Esperado: o
+   job **Tag v<versao>** verde e `git ls-remote --tags origin v<versão>`
+   apontando para o commit do run.
+
+## 2. O que tentar para ver se quebra
+
+- **Push na `{default-branch}` que muda o backend.** Esperado: nenhum
+  `Backend Deploy {Env}` aparece em Actions.
+- **`gerar_tag` fora da `{default-branch}`.** Esperado: falha em **Guarda de tag
+  e versao** com "So a {default-branch} gera tag", antes de qualquer secret.
+- **Versão divergente.** Numa branch, mude só uma das fontes de
+  `.github/versao.fontes` e dispare. Esperado: falha em **Guarda de tag e
+  versao** com "Versao divergente".
+- **Tag repetida em outro commit.** Com `v<versão>` já criada, dispare com
+  `gerar_tag` de um commit novo sem `make version V=…`. Esperado: o deploy
+  acontece, o job **Tag** falha pedindo para subir a versão, e a tag não se
+  move.
+- **Secret faltando.** Apague um secret obrigatório (ou dispare num environment
+  sem ele). Esperado: falha em **Escreve o .env.{env}** citando o nome.
+<!-- se postgres -->
+- **Redeploy sem mudança de configuração.** Dispare duas vezes seguidas.
+  Esperado: o Postgres segue `Up` desde antes (`docker ps`); só as aplicações
+  são recriadas.
+<!-- fim se postgres -->
+- **Disparo de outra branch.** Esperado: publica o código daquela branch em
+  `{env}`; o próximo disparo da `{default-branch}` volta o ambiente.
+
+## 3. O que não está na lista
+
+Estranhe qualquer coisa que pareça diferente do local sem motivo: um container
+reiniciando em loop, memória da VPS encostando no limite, um vizinho da VPS que
+caiu junto, uma versão no health ou no manifesto que não é a de `make version`.
+
+## 4. O que este checkpoint já pegou
+
+(nada ainda)

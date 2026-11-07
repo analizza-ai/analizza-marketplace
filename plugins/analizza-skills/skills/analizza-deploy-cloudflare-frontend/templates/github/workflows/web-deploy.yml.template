@@ -1,0 +1,116 @@
+name: Web Deploy {Env}
+
+# Publica o web (Next.js) como Cloudflare Worker, via OpenNext. Deploy so manual
+# (Run workflow), de qualquer branch: push nenhum publica. Na {default-branch} da
+# para marcar "gerar_tag": depois do deploy, o job "tag" cria v<versao>
+# (.github/scripts/release-tag.sh), a mesma tag dos outros deploys do produto.
+#
+# Configuracao do Worker (nome, dominio, vars): {web-dir}/wrangler.jsonc.
+# Credenciais: environment {github-environment} do GitHub.
+# se r2-cors
+# O CORS do bucket {r2-bucket} sai do deploy/r2-cors.json da branch disparada:
+# nunca aplicado a mao.
+# fim se r2-cors
+#
+# As actions ficam fixadas por commit (SHA), nao por tag: o token do Cloudflare
+# passa por elas. Para atualizar, troque o SHA de proposito.
+#
+# Runbook: docs/checkpoints/deploy-web-{env}.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      gerar_tag:
+        description: "Gerar a tag v<versao> depois do deploy (so na {default-branch})"
+        type: boolean
+        default: false
+
+run-name: "Web {env} — ${{ github.ref_name }}"
+
+concurrency:
+  group: web-deploy-{env}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy web ({env})
+    runs-on: ubuntu-latest
+    environment: {github-environment}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: {web-dir}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Antes de qualquer secret: gerar_tag so na {default-branch}, e versao unica
+      # do produto (todas as fontes de .github/versao.fontes iguais).
+      - name: Guarda de tag e versao
+        working-directory: .
+        env:
+          REF: ${{ github.ref }}
+          GERAR_TAG: ${{ inputs.gerar_tag }}
+        run: |
+          bash .github/scripts/release-tag.sh check "$REF" "$GERAR_TAG" {default-branch}
+          bash .github/scripts/version.sh check
+# se pnpm
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+# fim se pnpm
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "{node-version}"
+          cache: {node-cache}
+          cache-dependency-path: {lockfile}
+
+      - name: Instala
+        working-directory: {install-dir}
+        run: {install-command}
+# por verificacao
+
+      - run: {check-command}
+# fim por verificacao
+
+      # Mostra as contas que o token alcanca: o valor igual ao
+      # CLOUDFLARE_ACCOUNT_ID aparece mascarado (***) se for a mesma conta.
+      - name: Confere o token do Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler whoami
+
+      - name: Deploy no Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: {deploy-command}
+# se r2-cors
+
+      - name: Aplica o CORS do R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler r2 bucket cors set {r2-bucket} --file {r2-cors-path} --force
+# fim se r2-cors
+
+  # Job separado para que so ele tenha permissao de escrita: cria a tag
+  # v<versao> depois do deploy dar certo, se pedida (so a {default-branch} chega
+  # aqui: a guarda recusa gerar_tag em outra branch).
+  tag:
+    name: Tag v<versao>
+    needs: deploy
+    if: ${{ inputs.gerar_tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cria a tag
+        run: |
+          versao=$(bash .github/scripts/version.sh get)
+          bash .github/scripts/release-tag.sh create "$versao"
+          echo "- Tag: \`v$versao\` (web)" >> "$GITHUB_STEP_SUMMARY"

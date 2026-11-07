@@ -1,11 +1,11 @@
 {
   "name": "analizza-skills",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Skills da Analizza para scaffolding e qualidade de projetos",
   "author": {"name": "Diego Lirio", "email": "diegolirio.dl@gmail.com"},
   "homepage": "https://github.com/analizza-ai/analizza-marketplace",
   "repository": "https://github.com/analizza-ai/analizza-marketplace",
-  "keywords": ["kotlin", "java", "spring-boot", "scaffolding", "testes de integração", "agente de IA", "mcp", "expo", "ios", "testflight", "android", "google-play"],
+  "keywords": ["kotlin", "java", "spring-boot", "scaffolding", "testes de integração", "agente de IA", "mcp", "expo", "ios", "testflight", "android", "google-play", "deploy", "vps", "docker", "cloudflare", "opennext"],
   "skills": "./skills/",
   "hooks": {},
   "interface": {
