@@ -8,8 +8,12 @@ type: screen-mobile
 Um botão no GitHub Actions (**Mobile Android Play Dev**) builda o app Expo como
 **{app-name}**, apontando para o ambiente de desenvolvimento, e manda o `.aab`
 para o **teste interno** do Google Play. Dali quem está na lista de testers
-instala pela Play Store, sem cabo. Dispara de qualquer branch, menos
-`{default-branch}` e tags, que ficam para produção.
+instala pela Play Store, sem cabo. Dispara de qualquer branch, a
+`{default-branch}` inclusive; tag nunca (as tags ficam para produção). Na
+`{default-branch}` dá para marcar **gerar_tag**: depois do upload, o job **Tag
+v<versão>** cria `v<version do app.json>` no commit. A tag só marca o commit:
+criada pelo workflow, ela não dispara o prod, que é disparado à mão nela
+(Run workflow → aba Tags).
 <!-- fim se dev -->
 <!-- se prod -->
 Uma tag `v<versão>` (igual ao `version` do `app.json`) num commit da
@@ -17,6 +21,10 @@ Uma tag `v<versão>` (igual ao `version` do `app.json`) num commit da
 como **{app-name}**, apontando para produção, e manda o `.aab` para o teste
 interno. Do teste interno, a promoção para fechado, aberto ou produção é feita à
 mão no Play Console.
+
+A tag também pode vir do dev na `{default-branch}` (**gerar_tag**). Essa não
+dispara o prod sozinha (o GitHub não encadeia workflows pelo token do próprio
+run): dispare à mão, Run workflow → aba Tags → `v<versão>`.
 <!-- fim se prod -->
 
 | | valor |
@@ -147,8 +155,12 @@ JSON da service account nunca passam por chat nem por repositório: ficam em
 
 <!-- se dev -->
 - **Disparo.** Actions → **Mobile Android Play Dev** → Run workflow → uma branch
-  de trabalho (não a `{default-branch}`) → status `completed` → Run. O run
+  de trabalho ou a `{default-branch}`, `gerar_tag` desmarcado → status `completed` → Run. O run
   aparece como `Android dev — <branch>` e espera a aprovação do revisor.
+- **Da `{default-branch}` com `gerar_tag`.** Depois do upload, o job **Tag
+  v<versão>** roda e o resumo mostra `Tag: v<versão>`; a tag aparece em Code →
+  Tags, no commit do run. Na outra plataforma, o mesmo commit com `gerar_tag`
+  termina verde dizendo que a tag "já existe neste commit".
 <!-- fim se dev -->
 <!-- se prod -->
 - **Disparo.** `git tag v<version do app.json> && git push origin v<versão>` num
@@ -170,8 +182,12 @@ JSON da service account nunca passam por chat nem por repositório: ficam em
 ## 2. O que tentar para ver se quebra
 
 <!-- se dev -->
-- **Disparar da `{default-branch}`.** Falha em **Guarda de branch**, antes de
-  qualquer credencial.
+- **`gerar_tag` fora da `{default-branch}`.** De uma branch de trabalho, com
+  `gerar_tag`: falha em **Guarda de branch** ("Só a branch ... gera tag"), antes
+  de qualquer credencial.
+- **Tag repetida em outro commit.** Com `v<versão>` já criada, um commit novo na
+  `{default-branch}` sem subir o `version` e `gerar_tag`: o upload acontece, o
+  job **Tag** falha pedindo para subir o `version`, e a tag antiga não se move.
 - **Disparar de uma tag.** Falha na mesma guarda.
 <!-- fim se dev -->
 <!-- se prod -->

@@ -2,8 +2,11 @@
 name: Mobile Android Play Dev
 
 # Builda o app Expo como o app de desenvolvimento e envia o .aab ao teste
-# interno do Google Play. Disparo manual, de qualquer branch menos a
-# {default-branch}; tag nunca. A {default-branch} e as tags ficam para produção.
+# interno do Google Play. Disparo manual, de qualquer branch, a
+# {default-branch} inclusive; tag nunca (as tags ficam para produção). Na
+# {default-branch} dá para marcar "gerar_tag": depois do upload, o job "tag" cria
+# v<versão> do app.json no commit. A tag só marca o commit: criada com o
+# GITHUB_TOKEN, ela não dispara o workflow de produção, que é disparado à mão nela.
 # fim se dev
 # se prod
 name: Mobile Android Play Prod
@@ -12,6 +15,8 @@ name: Mobile Android Play Prod
 # Google Play. Disparo por tag v<versão>, igual ao "version" do app.json, num
 # commit que já está na {default-branch}. Do teste interno, a promoção para
 # fechado, aberto ou produção é manual no Play Console.
+# Também dispara à mão (Run workflow → aba Tags → v<versão>): é o caminho da
+# tag criada pelo workflow de dev, que não aciona o push de tag.
 # fim se prod
 #
 # As guardas rodam antes de qualquer passo que leia credencial.
@@ -46,8 +51,13 @@ on:
           - completed
           - draft
         default: completed
+      gerar_tag:
+        description: "Gerar a tag v<versão> do app.json depois do upload (só na {default-branch})"
+        type: boolean
+        default: false
 # fim se dev
 # se prod
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -79,7 +89,8 @@ jobs:
       - name: Guarda de branch
         env:
           REF: ${{ github.ref }}
-        run: bash .github/scripts/android-identity.sh guard-branch "$REF" "{default-branch}"
+          GERAR_TAG: ${{ inputs.gerar_tag }}
+        run: bash .github/scripts/android-identity.sh guard-branch "$REF" "{default-branch}" "$GERAR_TAG"
 # fim se dev
 # se prod
       - name: Guarda de tag
@@ -239,3 +250,24 @@ jobs:
       - name: Remove material de credencial
         if: always()
         run: rm -f "${RUNNER_TEMP}/upload.jks" "${RUNNER_TEMP}/play-service-account.json"
+# se dev
+
+  # Job separado para que só ele tenha permissão de escrita: cria a tag
+  # v<versão> do app.json depois do upload dar certo, se pedida (só a
+  # {default-branch} chega aqui: a guarda recusa gerar_tag em outra branch).
+  tag:
+    name: Tag v<versão>
+    needs: build-and-upload
+    if: ${{ inputs.gerar_tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cria a tag
+        run: |
+          versao=$(node -p "require('./{app-dir}/app.json').expo.version")
+          bash .github/scripts/android-identity.sh create-tag "$versao"
+          echo "- Tag: \`v${versao}\` (Android)" >> "$GITHUB_STEP_SUMMARY"
+# fim se dev

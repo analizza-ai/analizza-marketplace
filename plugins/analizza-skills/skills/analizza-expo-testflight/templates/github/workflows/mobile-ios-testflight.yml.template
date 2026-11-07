@@ -2,8 +2,11 @@
 name: Mobile iOS TestFlight Dev
 
 # Builda o app Expo como o app de desenvolvimento e envia ao TestFlight
-# (testers internos). Disparo manual, de qualquer branch menos a
-# {default-branch}; tag nunca. A {default-branch} e as tags ficam para produção.
+# (testers internos). Disparo manual, de qualquer branch, a
+# {default-branch} inclusive; tag nunca (as tags ficam para produção). Na
+# {default-branch} dá para marcar "gerar_tag": depois do upload, o job "tag" cria
+# v<versão> do app.json no commit. A tag só marca o commit: criada com o
+# GITHUB_TOKEN, ela não dispara o workflow de produção, que é disparado à mão nela.
 # fim se dev
 # se prod
 name: Mobile iOS TestFlight Prod
@@ -11,6 +14,8 @@ name: Mobile iOS TestFlight Prod
 # Builda o app Expo como o app de produção e envia ao TestFlight. Disparo por
 # tag v<versão>, igual ao "version" do app.json, num commit que já está na
 # {default-branch}. Do TestFlight, a promoção para a App Store é manual.
+# Também dispara à mão (Run workflow → aba Tags → v<versão>): é o caminho da
+# tag criada pelo workflow de dev, que não aciona o push de tag.
 # fim se prod
 #
 # As guardas rodam antes de qualquer passo que leia credencial.
@@ -31,8 +36,14 @@ name: Mobile iOS TestFlight Prod
 on:
 # se dev
   workflow_dispatch:
+    inputs:
+      gerar_tag:
+        description: "Gerar a tag v<versão> do app.json depois do upload (só na {default-branch})"
+        type: boolean
+        default: false
 # fim se dev
 # se prod
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -67,7 +78,8 @@ jobs:
       - name: Guarda de branch
         env:
           REF: ${{ github.ref }}
-        run: bash .github/scripts/ios-identity.sh guard-branch "$REF" "{default-branch}"
+          GERAR_TAG: ${{ inputs.gerar_tag }}
+        run: bash .github/scripts/ios-identity.sh guard-branch "$REF" "{default-branch}" "$GERAR_TAG"
 # fim se dev
 # se prod
       - name: Guarda de tag
@@ -277,3 +289,24 @@ jobs:
           if [[ -n "${KEYCHAIN_PATH:-}" && -f "${KEYCHAIN_PATH}" ]]; then
             security delete-keychain "${KEYCHAIN_PATH}"
           fi
+# se dev
+
+  # Job separado para que só ele tenha permissão de escrita: cria a tag
+  # v<versão> do app.json depois do upload dar certo, se pedida (só a
+  # {default-branch} chega aqui: a guarda recusa gerar_tag em outra branch).
+  tag:
+    name: Tag v<versão>
+    needs: build-and-upload
+    if: ${{ inputs.gerar_tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cria a tag
+        run: |
+          versao=$(node -p "require('./{app-dir}/app.json').expo.version")
+          bash .github/scripts/ios-identity.sh create-tag "$versao"
+          echo "- Tag: \`v${versao}\` (iOS)" >> "$GITHUB_STEP_SUMMARY"
+# fim se dev

@@ -8,10 +8,13 @@ description: Leva um app Expo ao TestFlight por ambiente. Implementa no reposit�
 Monta, num projeto **Expo**, o caminho até o TestFlight de um ambiente por vez:
 
 - **Dev:** um app próprio na Apple (ex.: "Meu App Dev"), apontando para o
-  backend de desenvolvimento, disparado à mão de qualquer branch menos a padrão.
+  backend de desenvolvimento, disparado à mão de qualquer branch, a padrão
+  inclusive. Só na branch padrão dá para marcar **gerar_tag**, que cria
+  `v<versão>` no commit depois do upload (a tag só marca o commit).
 - **Prod:** outro app (ex.: "Meu App"), apontando para produção, disparado por
-  tag `v<versão>` num commit da branch padrão. Do TestFlight, a promoção para a
-  App Store é manual.
+  push da tag `v<versão>` num commit da branch padrão, ou à mão nessa tag (a
+  criada pelo **gerar_tag** do Dev não dispara sozinha). Do TestFlight, a
+  promoção para a App Store é manual.
 
 Cada ambiente é uma **fatia completa**: código no repositório, Apple
 configurada, credenciais no GitHub, primeiro build no TestFlight e conferência
@@ -203,7 +206,8 @@ ou convite, mostre o que vai ser enviado e espere a resposta.
 ## Fase 4 — primeiro build e conferência
 
 1. Dev: peça o disparo em Actions → Mobile iOS TestFlight Dev. Prod: peça a tag
-   `v<version do app.json>` num commit da branch padrão.
+   `v<version do app.json>` num commit da branch padrão (push da tag), ou o
+   Dev na branch padrão com **gerar_tag** e depois Run workflow do Prod na tag.
 2. Acompanhe com `gh run watch` (o run espera a aprovação do environment).
 3. Proponha a conferência do runbook `docs/checkpoints/testflight-ios-{env}.md`
    (pela `test-runbook`, se o projeto tiver).

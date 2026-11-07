@@ -26,9 +26,13 @@ nao_cita() { ! grep -qF -- "$2" "$TMP/$1" || falha "$3: $1 nao deveria citar '$2
 # --- guardas de ref ---------------------------------------------------------
 
 espera branch_feature_aceita 0 bash "$SCRIPT" guard-branch refs/heads/feat/x main
-espera branch_padrao_recusada 1 bash "$SCRIPT" guard-branch refs/heads/main main
-cita err "::error::" branch_padrao_recusada
-cita err "main" branch_padrao_recusada
+espera branch_padrao_aceita 0 bash "$SCRIPT" guard-branch refs/heads/main main
+espera branch_padrao_sem_tag 0 bash "$SCRIPT" guard-branch refs/heads/main main false
+espera branch_padrao_gera_tag 0 bash "$SCRIPT" guard-branch refs/heads/main main true
+espera tag_so_na_padrao 1 bash "$SCRIPT" guard-branch refs/heads/feat/x main true
+cita err "::error::" tag_so_na_padrao
+cita err "main" tag_so_na_padrao
+espera gerar_tag_invalido 1 bash "$SCRIPT" guard-branch refs/heads/main main sim
 espera branch_recusa_tag 1 bash "$SCRIPT" guard-branch refs/tags/v1.0.0 main
 espera branch_recusa_ref_de_pr 1 bash "$SCRIPT" guard-branch refs/pull/3/merge main
 
@@ -49,6 +53,29 @@ git -C "$REPO" switch -q -c feat
 git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fora
 espera commit_fora_da_padrao 1 bash -c "cd '$REPO' && bash '$SCRIPT' on-default main"
 cita err "::error::" commit_fora_da_padrao
+
+# --- criação da tag v<versão> (dev na branch padrão, com gerar_tag) ----------
+
+ORIGEM="$TMP/origem.git"
+CLONE="$TMP/clone"
+git init -q --bare "$ORIGEM"
+git clone -q "$ORIGEM" "$CLONE" 2>/dev/null
+git -C "$CLONE" -c user.name=t -c user.email=t@t commit -q --allow-empty -m um
+git -C "$CLONE" push -q origin HEAD:main
+PRIMEIRO="$(git -C "$CLONE" rev-parse HEAD)"
+tag_remota() { git -C "$CLONE" ls-remote --tags origin "refs/tags/$1" | cut -f1; }
+
+espera tag_versao_invalida 1 bash -c "cd '$CLONE' && bash '$SCRIPT' create-tag 1.0"
+espera tag_criada 0 bash -c "cd '$CLONE' && bash '$SCRIPT' create-tag 1.0.0"
+[[ "$(tag_remota v1.0.0)" == "$PRIMEIRO" ]] || falha "tag_criada: v1.0.0 não chegou ao origin no commit certo"
+espera tag_no_mesmo_commit 0 bash -c "cd '$CLONE' && bash '$SCRIPT' create-tag 1.0.0"
+cita out "já existe" tag_no_mesmo_commit
+git -C "$CLONE" -c user.name=t -c user.email=t@t commit -q --allow-empty -m dois
+git -C "$CLONE" push -q origin HEAD:main
+espera tag_em_outro_commit 1 bash -c "cd '$CLONE' && bash '$SCRIPT' create-tag 1.0.0"
+cita err "::error::" tag_em_outro_commit
+cita err "version" tag_em_outro_commit
+[[ "$(tag_remota v1.0.0)" == "$PRIMEIRO" ]] || falha "tag_em_outro_commit: a tag v1.0.0 foi movida"
 
 # --- identidade -------------------------------------------------------------
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Guardas de ref e identidade do app iOS para os workflows do TestFlight.
 #
-#   ios-identity.sh guard-branch <ref> <branch-padrao>  Dev: qualquer branch, menos a padrão
+#   ios-identity.sh guard-branch <ref> <branch-padrao> [gerar-tag]
+#                                                       Dev: qualquer branch, a padrão inclusive; gerar-tag=true só na padrão
 #   ios-identity.sh guard-tag <ref> <versao-do-app>     Prod: só a tag v<versao-do-app>
+#   ios-identity.sh create-tag <versao>                 Dev: cria e envia v<versao> no commit atual
 #   ios-identity.sh on-default <branch-padrao>          o HEAD está contido em origin/<branch-padrao>
 #   ios-identity.sh load <arquivo.properties>           app_name=, ios_bundle_id=, apple_team_id= (para $GITHUB_OUTPUT)
 #   ios-identity.sh public-env <arquivo.properties>     EXPO_PUBLIC_*=valor (para $GITHUB_ENV)
@@ -15,9 +17,38 @@ set -euo pipefail
 erro() { echo "::error::$*" >&2; exit 1; }
 
 guard_branch() {
-  local ref="$1" padrao="$2"
+  local ref="$1" padrao="$2" gerar="${3:-false}"
   [[ "$ref" == refs/heads/* ]] || erro "Este workflow dispara de uma branch, não de '$ref'."
-  [[ "$ref" != "refs/heads/$padrao" ]] || erro "A branch '$padrao' fica para produção; dispare de uma branch de trabalho."
+  case "$gerar" in
+    true) [[ "$ref" == "refs/heads/$padrao" ]] || erro "Só a branch '$padrao' gera tag; dispare da '$padrao' ou desmarque 'gerar_tag'." ;;
+    false) ;;
+    *) erro "gerar_tag precisa ser true ou false, não '$gerar'." ;;
+  esac
+}
+
+# A tag v<versao> marca o commit que foi para o dev; criada com o GITHUB_TOKEN,
+# ela não dispara o workflow de produção (o GitHub não encadeia workflows por
+# esse token): a produção é disparada à mão nela. iOS e Android dividem a tag;
+# no mesmo commit não é erro, em outro commit a versão precisa subir.
+tag_remota() { git ls-remote --tags origin "refs/tags/$1" | cut -f1; }
+
+create_tag() {
+  local versao="$1" tag atual existente
+  [[ "$versao" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || erro "Versão inválida no app.json: '$versao' (esperado X.Y.Z)."
+  tag="v$versao"
+  atual="$(git rev-parse HEAD)"
+  existente="$(tag_remota "$tag")"
+  if [[ -z "$existente" ]]; then
+    git tag "$tag" "$atual"
+    # Se a outra plataforma enviou a mesma tag nesse meio-tempo, o push falha: confere de novo.
+    if git push -q origin "refs/tags/$tag"; then
+      echo "Tag $tag criada em $atual."
+      return 0
+    fi
+    existente="$(tag_remota "$tag")"
+  fi
+  [[ "$existente" == "$atual" ]] || erro "A tag $tag já existe em outro commit ($existente). Suba a \"version\" do app.json antes de gerar outra tag."
+  echo "Tag $tag já existe neste commit ($atual); nada a fazer."
 }
 
 guard_tag() {
@@ -96,12 +127,13 @@ public_env() {
   return 0
 }
 
-uso() { erro "uso: $0 guard-branch <ref> <branch-padrao> | guard-tag <ref> <versao> | on-default <branch-padrao> | load <arquivo> | public-env <arquivo>"; }
+uso() { erro "uso: $0 guard-branch <ref> <branch-padrao> [gerar-tag] | create-tag <versao> | guard-tag <ref> <versao> | on-default <branch-padrao> | load <arquivo> | public-env <arquivo>"; }
 
 [[ $# -ge 1 ]] || uso
 comando="$1"; shift
 case "$comando" in
-  guard-branch) [[ $# -eq 2 ]] || uso; guard_branch "$1" "$2" ;;
+  guard-branch) [[ $# -eq 2 || $# -eq 3 ]] || uso; guard_branch "$@" ;;
+  create-tag) [[ $# -eq 1 ]] || uso; create_tag "$1" ;;
   guard-tag) [[ $# -eq 2 ]] || uso; guard_tag "$1" "$2" ;;
   on-default) [[ $# -eq 1 ]] || uso; on_default "$1" ;;
   load) [[ $# -eq 1 ]] || uso; load "$1" ;;

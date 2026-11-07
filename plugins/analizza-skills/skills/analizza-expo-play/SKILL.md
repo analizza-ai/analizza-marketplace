@@ -8,11 +8,14 @@ description: Leva um app Expo ao teste interno do Google Play por ambiente. Impl
 Monta, num projeto **Expo**, o caminho até o **teste interno** do Google Play, um
 ambiente por vez, nos mesmos conceitos da `analizza-expo-testflight`:
 
-- **Dev:** um app próprio no Play (ex.: "Meu App Dev"), apontando para o backend
-  de desenvolvimento, disparado à mão de qualquer branch menos a padrão.
+- **Dev:** um app próprio no Play (ex.: "Meu App Dev"), apontando para o
+  backend de desenvolvimento, disparado à mão de qualquer branch, a padrão
+  inclusive. Só na branch padrão dá para marcar **gerar_tag**, que cria
+  `v<versão>` no commit depois do upload (a tag só marca o commit).
 - **Prod:** outro app (ex.: "Meu App"), apontando para produção, disparado por
-  tag `v<versão>` num commit da branch padrão. Do teste interno, a promoção para
-  fechado, aberto ou produção é manual no Play Console.
+  push da tag `v<versão>` num commit da branch padrão, ou à mão nessa tag (a
+  criada pelo **gerar_tag** do Dev não dispara sozinha). Do teste interno, a
+  promoção para fechado, aberto ou produção é manual no Play Console.
 
 Cada ambiente é uma **fatia completa**: código no repositório, Play Console e
 Google Cloud configurados, credenciais no GitHub, primeiro build no teste
